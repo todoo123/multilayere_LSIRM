@@ -1,0 +1,13 @@
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+.DS_Store
+Thumbs.db
+*_cache/
+_cache/
+*_files/
+renv/library/
+renv/staging/
+plot/
+data/
