@@ -8,13 +8,13 @@ library(vegan)
 # =========================================================
 # If compilation fails, you may need to re-upload the .cpp file
 # setwd("/Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSM")
-setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSM")
-source("my_LSIRM_4layered_nonhierarchical.R")
+setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM")
+source("my_LSIRM_4layered_nonhierarchical_cpp.R")
 # =========================================================
 # 1) Simulation settings (as requested)
 # =========================================================
 n  <- 150
-P2 <- 10  # continue
+P2 <- 30  # continue
 P1 <- 10  # binary
 P3 <- 10  # count
 P4 <- 10  # likert
@@ -36,29 +36,17 @@ centers_resp <- rbind(
   c(-0, 0)
 )
 
-centers_bin <- rbind(
-  c(-0,  -0),
-  c(-0,  -0),
-  c(-0,  -0)
-)
-
-centers_con <- rbind(
-  c(-2,  -2),
-  c(-2,  -2),
-  c(-2,  -2)
-)
-
-centers_cnt <- rbind(
+# ── Mixed-cluster setting: 모든 item type이 동일한 3개 cluster center 공유 ──
+centers_item <- rbind(
+  c(-2, -2),
   c( 2,  2),
-  c( 2,  2),
-  c( 2,  2)
+  c( 0,  0)
 )
 
-centers_likert <- rbind(
-  c(-1, -1),
-  c(-1, -1),
-  c(-1, -1)
-)
+centers_bin    <- centers_item
+centers_con    <- centers_item
+centers_cnt    <- centers_item
+centers_likert <- centers_item
 
 
 
@@ -364,7 +352,6 @@ plot_positions(A_true, B1_true, B2_true, B3_true, B4_true,
 
 # 2. Rcpp code
 source("my_LSIRM_4layered_nonhierarchical_cpp.R")
-
 result <- lsirm_sharedpos_layer4_lsgrm_cpp(
   Y_bin, Y_con, Y_cnt, Y_ord,
   d = 2,
@@ -390,6 +377,37 @@ result <- lsirm_sharedpos_layer4_lsgrm_cpp(
   verbose = TRUE,
   fix_gamma = TRUE
 )
+
+# gamma layer 별로 다르게 준 version
+source("my_LSIRM_4layered_nonhierarchical_cpp_v4.R")
+result <- lsirm_sharedpos_layer4_lsgrm_cpp(
+  Y_bin, Y_con, Y_cnt, Y_ord,
+  d = 2,
+  n_iter = 100000,
+  burnin = 10000,
+  thin = 10,
+  hyper = list(
+    a_sigma=1, b_sigma=0.1,
+    a_tau1=1, b_tau1=0.1, a_tau2=1, b_tau2=0.1, a_tau3=1, b_tau3=0.1,
+    a_sigma0=1, b_sigma0=1,
+    mu_log_gamma1=0, sd_log_gamma1=1,
+    mu_log_gamma2=0, sd_log_gamma2=1,
+    mu_log_gamma3=0, sd_log_gamma3=1,
+    mu_log_gamma4=0, sd_log_gamma4=1,
+    mu_log_kappa=0, sd_log_kappa=1,
+    mu_u=0, sd_u=1, mu_delta=0, sd_delta=1
+  ),
+  prop_sd = list(
+    alpha=0.1, log_gamma1=0.05, log_gamma2=0.05, log_gamma3=0.05, log_gamma4=0.05, a=0.1,
+    beta1=0.1, beta2=0.1, beta3=0.1,
+    b1=0.1, b2=0.1, b3=0.1, b4=0.1,
+    log_kappa=0.05, u=0.1, delta=0.1
+  ),
+  init = NULL,
+  verbose = TRUE,
+  fix_gamma = TRUE
+)
+
 # =========================================================
 # 0) Acceptance rates
 # =========================================================
