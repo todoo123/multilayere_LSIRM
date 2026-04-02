@@ -89,3 +89,31 @@
 3. **`data/MIDUS_5layered_result.R`**
    - `common_prop_sd`: `alpha=0.5` → `alpha1=0.5, ..., alpha5=0.5`
    - Alpha traceplot: `res$samples$alpha` 단일 → `res$samples$alpha1`~`alpha5` 루프로 각각 PDF 생성
+
+
+## Task 6: sigma_alpha_sq를 layer별로 분리 (독립 Gibbs sampling)
+
+기존: pooled `sigma_alpha_sq` 하나로 5개 alpha의 prior variance를 공유
+문제: alpha를 layer별로 독립 추정하면서 prior variance는 pooling하면 각 layer의 scale 차이를 반영하지 못함
+변경: `sigma_alpha1_sq`~`sigma_alpha5_sq` 각각 독립 inverse-gamma Gibbs sampling
+
+### 구조
+
+- Prior: `alpha_l_i ~ N(0, sigma_alpha_l_sq)`
+- Hyperprior: `sigma_alpha_l_sq ~ InvGamma(a_sigma, b_sigma)` (l = 1,...,5)
+- Gibbs update: `sigma_alpha_l_sq | alpha_l ~ InvGamma(a_sigma + n/2, b_sigma + 0.5 * sum(alpha_l^2))`
+
+### 수정 파일
+
+1. **`data/my_LSIRM_5layered_nonhierarchical_v3.cpp`**
+   - Init: `sigma_alpha_sq` → `sigma_alpha1_sq`~`sigma_alpha5_sq`
+   - Storage: `store_sigma_alpha_sq` → `store_sigma_alpha1_sq`~`store_sigma_alpha5_sq`
+   - Alpha prior: 각 MH block에서 해당 layer의 `sigma_alphaL_sq` 사용
+   - Gibbs update: pooled 단일 draw → 5개 독립 inverse-gamma draw
+   - Return: 5개 개별 반환
+
+2. **`data/my_LSIRM_5layered_nonhierarchical_cpp.R`**
+   - Init: `sigma_alpha_sq = 1` → `sigma_alpha1_sq = 1, ..., sigma_alpha5_sq = 1`
+
+3. **`data/MIDUS_5layered_result.R`**
+   - Traceplot: `sigma_alpha_sq` 단일 → 5개 루프로 개별 traceplot 생성

@@ -181,7 +181,11 @@ List run_lsirm_cpp(
   double log_kappa = init["log_kappa"];
   double kappa = exp(log_kappa);
 
-  double sigma_alpha_sq = init["sigma_alpha_sq"];
+  double sigma_alpha1_sq = init["sigma_alpha1_sq"];
+  double sigma_alpha2_sq = init["sigma_alpha2_sq"];
+  double sigma_alpha3_sq = init["sigma_alpha3_sq"];
+  double sigma_alpha4_sq = init["sigma_alpha4_sq"];
+  double sigma_alpha5_sq = init["sigma_alpha5_sq"];
   double tau_beta1_sq = init["tau_beta1_sq"];
   double tau_beta2_sq = init["tau_beta2_sq"];
   double tau_beta3_sq = init["tau_beta3_sq"];
@@ -215,7 +219,11 @@ List run_lsirm_cpp(
   vec store_log_gamma5(n_save);
   vec store_log_kappa(n_save);
 
-  vec store_sigma_alpha_sq(n_save);
+  vec store_sigma_alpha1_sq(n_save);
+  vec store_sigma_alpha2_sq(n_save);
+  vec store_sigma_alpha3_sq(n_save);
+  vec store_sigma_alpha4_sq(n_save);
+  vec store_sigma_alpha5_sq(n_save);
   vec store_tau_beta1_sq(n_save);
   vec store_tau_beta2_sq(n_save);
   vec store_tau_beta3_sq(n_save);
@@ -287,8 +295,8 @@ List run_lsirm_cpp(
         }
         return ll;
       };
-      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
-      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha1_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha1_sq;
       if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
         alpha1(i) = a_prop; acc_alpha1(i)++;
       }
@@ -307,8 +315,8 @@ List run_lsirm_cpp(
         }
         return ll;
       };
-      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
-      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha2_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha2_sq;
       if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
         alpha2(i) = a_prop; acc_alpha2(i)++;
       }
@@ -328,8 +336,8 @@ List run_lsirm_cpp(
         }
         return ll;
       };
-      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
-      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha3_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha3_sq;
       if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
         alpha3(i) = a_prop; acc_alpha3(i)++;
       }
@@ -348,8 +356,8 @@ List run_lsirm_cpp(
         }
         return ll;
       };
-      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
-      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha4_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha4_sq;
       if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
         alpha4(i) = a_prop; acc_alpha4(i)++;
       }
@@ -368,8 +376,8 @@ List run_lsirm_cpp(
         }
         return ll;
       };
-      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
-      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha5_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha5_sq;
       if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
         alpha5(i) = a_prop; acc_alpha5(i)++;
       }
@@ -866,10 +874,11 @@ List run_lsirm_cpp(
       double rate = b_sigma0 + 0.5 * SSE;
       sigma0_sq = 1.0 / R::rgamma(shape, 1.0/rate);
     }
-    {
-      double ss_alpha = dot(alpha1,alpha1) + dot(alpha2,alpha2) + dot(alpha3,alpha3) + dot(alpha4,alpha4) + dot(alpha5,alpha5);
-      sigma_alpha_sq = 1.0 / R::rgamma(a_sigma + 5.0*n/2.0, 1.0 / (b_sigma + 0.5*ss_alpha));
-    }
+    sigma_alpha1_sq = 1.0 / R::rgamma(a_sigma + n/2.0, 1.0 / (b_sigma + 0.5*dot(alpha1, alpha1)));
+    sigma_alpha2_sq = 1.0 / R::rgamma(a_sigma + n/2.0, 1.0 / (b_sigma + 0.5*dot(alpha2, alpha2)));
+    sigma_alpha3_sq = 1.0 / R::rgamma(a_sigma + n/2.0, 1.0 / (b_sigma + 0.5*dot(alpha3, alpha3)));
+    sigma_alpha4_sq = 1.0 / R::rgamma(a_sigma + n/2.0, 1.0 / (b_sigma + 0.5*dot(alpha4, alpha4)));
+    sigma_alpha5_sq = 1.0 / R::rgamma(a_sigma + n/2.0, 1.0 / (b_sigma + 0.5*dot(alpha5, alpha5)));
     tau_beta1_sq = 1.0;
     tau_beta2_sq = 1.0;
     tau_beta3_sq = 1.0;
@@ -891,7 +900,11 @@ List run_lsirm_cpp(
       store_log_gamma5(save_idx) = log_gamma5;
       store_log_kappa(save_idx) = log_kappa;
 
-      store_sigma_alpha_sq(save_idx) = sigma_alpha_sq;
+      store_sigma_alpha1_sq(save_idx) = sigma_alpha1_sq;
+      store_sigma_alpha2_sq(save_idx) = sigma_alpha2_sq;
+      store_sigma_alpha3_sq(save_idx) = sigma_alpha3_sq;
+      store_sigma_alpha4_sq(save_idx) = sigma_alpha4_sq;
+      store_sigma_alpha5_sq(save_idx) = sigma_alpha5_sq;
       store_tau_beta1_sq(save_idx) = tau_beta1_sq;
       store_tau_beta2_sq(save_idx) = tau_beta2_sq;
       store_tau_beta3_sq(save_idx) = tau_beta3_sq;
@@ -942,7 +955,11 @@ List run_lsirm_cpp(
     Named("log_gamma5") = store_log_gamma5,
     Named("log_kappa") = store_log_kappa,
     Named("sigma0_sq")      = store_sigma0_sq,
-    Named("sigma_alpha_sq") = store_sigma_alpha_sq,
+    Named("sigma_alpha1_sq") = store_sigma_alpha1_sq,
+    Named("sigma_alpha2_sq") = store_sigma_alpha2_sq,
+    Named("sigma_alpha3_sq") = store_sigma_alpha3_sq,
+    Named("sigma_alpha4_sq") = store_sigma_alpha4_sq,
+    Named("sigma_alpha5_sq") = store_sigma_alpha5_sq,
     Named("tau_beta1_sq")   = store_tau_beta1_sq,
     Named("tau_beta2_sq")   = store_tau_beta2_sq,
     Named("tau_beta3_sq")   = store_tau_beta3_sq,

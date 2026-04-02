@@ -42,79 +42,7 @@ plot_dir <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/plo
 if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
 
 ################################################################################
-# 2. Analysis Case 1: P1–P4 (MASQ + PSQI + bio continuous)
-################################################################################
-cat("\n\n========== Case 1: P1-P4 ==========\n")
-
-# continuous 표준화
-Y_con_p4  <- scale(lsirm_p4$Y_con)
-Y_bin_p4  <- lsirm_p4$Y_bin
-Y_cnt_p4  <- lsirm_p4$Y_cnt
-Y_ord1_p4 <- lsirm_p4$Y_ord1                  # MASQ 5-point
-Y_ord2_p4 <- lsirm_p4$Y_ord2                  # PSQI 4-point
-
-cat(sprintf("  Y_bin: %d×%d | Y_con: %d×%d | Y_cnt: %d×%d | Y_ord1: %d×%d | Y_ord2: %d×%d\n",
-            nrow(Y_bin_p4), ncol(Y_bin_p4),
-            nrow(Y_con_p4), ncol(Y_con_p4),
-            nrow(Y_cnt_p4), ncol(Y_cnt_p4),
-            nrow(Y_ord1_p4), ncol(Y_ord1_p4),
-            nrow(Y_ord2_p4), ncol(Y_ord2_p4)))
-
-result_p4 <- lsirm_sharedpos_layer5_lsgrm_cpp(
-  Y_bin_p4, Y_con_p4, Y_cnt_p4, Y_ord1_p4, Y_ord2_p4,
-  d = common_mcmc$d,
-  n_iter = common_mcmc$n_iter,
-  burnin = common_mcmc$burnin,
-  thin   = common_mcmc$thin,
-  hyper  = common_hyper,
-  prop_sd = common_prop_sd,
-  init = NULL,
-  verbose = TRUE
-)
-
-cat("\n── P1-P4 Acceptance Rates ──\n")
-print(result_p4$accept)
-
-
-################################################################################
-# 3. Analysis Case 2: P1–P3 (cognitive only)
-################################################################################
-cat("\n\n========== Case 2: P1-P3 ==========\n")
-
-Y_con_p3  <- scale(lsirm_p3$Y_con)
-Y_bin_p3  <- lsirm_p3$Y_bin
-Y_cnt_p3  <- lsirm_p3$Y_cnt
-Y_ord1_p3 <- lsirm_p3$Y_ord1
-Y_ord2_p3 <- lsirm_p3$Y_ord2
-
-cat(sprintf("  Y_bin: %d×%d | Y_con: %d×%d | Y_cnt: %d×%d | Y_ord1: %d×%d | Y_ord2: %d×%d\n",
-            nrow(Y_bin_p3), ncol(Y_bin_p3),
-            nrow(Y_con_p3), ncol(Y_con_p3),
-            nrow(Y_cnt_p3), ncol(Y_cnt_p3),
-            nrow(Y_ord1_p3), ncol(Y_ord1_p3),
-            nrow(Y_ord2_p3), ncol(Y_ord2_p3)))
-
-result_p3 <- lsirm_sharedpos_layer5_lsgrm_cpp(
-  Y_bin_p3, Y_con_p3, Y_cnt_p3, Y_ord1_p3, Y_ord2_p3,
-  d = common_mcmc$d,
-  n_iter = common_mcmc$n_iter,
-  burnin = common_mcmc$burnin,
-  thin   = common_mcmc$thin,
-  hyper  = common_hyper,
-  prop_sd = common_prop_sd,
-  init = NULL,
-  verbose = TRUE
-)
-
-cat("\n── P1-P3 Acceptance Rates ──\n")
-print(result_p3$accept)
-
-for(i in 1:dim(Y_con_all)[2]){
-  hist(Y_con_all[,i], main = i)
-}
-lsirm_all$col_con[2]
-################################################################################
-# 4. Analysis Case 3: P1–P3–P4 (통합)
+# 2. Analysis Case 3: P1–P3–P4 (통합)
 ################################################################################
 cat("\n\n========== Case 3: P1-P3-P4 ==========\n")
 
@@ -154,7 +82,7 @@ print(result_all$accept)
 
 
 ################################################################################
-# 5. 진단: Traceplots
+# 3. 진단: Traceplots
 ################################################################################
 # ── helper ──
 make_traceplots <- function(result, prefix, lsirm_data) {
@@ -305,8 +233,8 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   }
 
   # Extra scalar parameters
-  pdf(file.path(plot_dir, paste0(prefix, "_trace_extra.pdf")), width = 8, height = 14)
-  par(mfrow = c(5,2), mar = c(3,3,2,1))
+  pdf(file.path(plot_dir, paste0(prefix, "_trace_extra.pdf")), width = 8, height = 18)
+  par(mfrow = c(6,2), mar = c(3,3,2,1))
   if (!is.null(res$samples$sigma0_sq))  plot_trace_scalar(res$samples$sigma0_sq,  true = NA, main = "sigma0_sq")
   if (!is.null(res$samples$log_gamma1)) plot_trace_scalar(res$samples$log_gamma1, true = NA, main = "gamma1 (Bin)", transform = exp)
   if (!is.null(res$samples$log_gamma2)) plot_trace_scalar(res$samples$log_gamma2, true = NA, main = "gamma2 (Con)", transform = exp)
@@ -314,7 +242,10 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   if (!is.null(res$samples$log_gamma4)) plot_trace_scalar(res$samples$log_gamma4, true = NA, main = "gamma4 (Ord1)", transform = exp)
   if (!is.null(res$samples$log_gamma5)) plot_trace_scalar(res$samples$log_gamma5, true = NA, main = "gamma5 (Ord2)", transform = exp)
   if (!is.null(res$samples$log_kappa))  plot_trace_scalar(res$samples$log_kappa,  true = NA, main = "kappa", transform = exp)
-  if (!is.null(res$samples$sigma_alpha_sq)) plot_trace_scalar(res$samples$sigma_alpha_sq, true = NA, main = "sigma_alpha_sq")
+  for (al in 1:5) {
+    sname <- paste0("sigma_alpha", al, "_sq")
+    if (!is.null(res$samples[[sname]])) plot_trace_scalar(res$samples[[sname]], true = NA, main = sname)
+  }
   dev.off()
 
   # Gamma comparison: independent per layer
@@ -375,7 +306,7 @@ make_traceplots(result_all, prefix = "M2_ALL", lsirm_data = lsirm_all)
 
 
 ################################################################################
-# 6. Biplot: 잠재 공간 시각화
+# 4. Biplot: 잠재 공간 시각화
 ################################################################################
 
 make_biplot <- function(result, lsirm_data, title, filename) {

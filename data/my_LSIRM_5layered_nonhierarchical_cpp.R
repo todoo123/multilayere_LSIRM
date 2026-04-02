@@ -72,7 +72,8 @@ lsirm_sharedpos_layer5_lsgrm_cpp <- function(
       b5 = matrix(rnorm(P5*d, 0, 0.5), P5, d),
       log_gamma1 = 0, log_gamma2 = 0, log_gamma3 = 0, log_gamma4 = 0, log_gamma5 = 0,
       log_kappa = 0,
-      sigma_alpha_sq = 1, tau_beta1_sq = 1, tau_beta2_sq = 1, tau_beta3_sq = 1, sigma0_sq = 1,
+      sigma_alpha1_sq = 1, sigma_alpha2_sq = 1, sigma_alpha3_sq = 1, sigma_alpha4_sq = 1, sigma_alpha5_sq = 1,
+      tau_beta1_sq = 1, tau_beta2_sq = 1, tau_beta3_sq = 1, sigma0_sq = 1,
       u = rnorm(P4, 0, 1),
       delta  = if(K1>2) matrix(rnorm(P4*(K1-2), 0, 1), P4, K1-2) else matrix(0, P4, 0),
       delta2 = if(K2>2) matrix(rnorm(P5*(K2-2), 0, 1), P5, K2-2) else matrix(0, P5, 0)
