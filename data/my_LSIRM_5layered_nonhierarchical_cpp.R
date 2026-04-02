@@ -24,7 +24,8 @@ lsirm_sharedpos_layer5_lsgrm_cpp <- function(
       mu_u=0, sd_u=1, mu_delta=0, sd_delta=1
     ),
     prop_sd = list(
-      alpha=0.1, log_gamma1=0.05, log_gamma2=0.05, log_gamma3=0.05, log_gamma4=0.05, log_gamma5=0.05, a=0.1,
+      alpha1=0.1, alpha2=0.1, alpha3=0.1, alpha4=0.1, alpha5=0.1,
+      log_gamma1=0.05, log_gamma2=0.05, log_gamma3=0.05, log_gamma4=0.05, log_gamma5=0.05, a=0.1,
       beta1=0.1, beta2=0.1, beta3=0.1,
       b1=0.1, b2=0.1, b3=0.1, b4=0.1, b5=0.1,
       log_kappa=0.05, u=0.1, delta=0.1, delta2=0.1
@@ -55,7 +56,11 @@ lsirm_sharedpos_layer5_lsgrm_cpp <- function(
   # --- Initialization if NULL ---
   if (is.null(init)) {
     init <- list(
-      alpha = rnorm(n, 0, 0.1),
+      alpha1 = rnorm(n, 0, 0.1),
+      alpha2 = rnorm(n, 0, 0.1),
+      alpha3 = rnorm(n, 0, 0.1),
+      alpha4 = rnorm(n, 0, 0.1),
+      alpha5 = rnorm(n, 0, 0.1),
       beta1 = rnorm(P1, 0, 0.1),
       beta2 = rnorm(P2, 0, 0.1),
       beta3 = rnorm(P3, 0, 0.1),

@@ -4,7 +4,7 @@ rm(list = ls())
 # 0. 데이터 준비 (EDA 스크립트 실행)
 ################################################################################
 setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data")
-source("MIDUS_EDA_2_v3.R")
+source("MIDUS_preprocess_2_v3.R")
 
 # 5-layered LSIRM 모델 로드
 setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM")
@@ -28,7 +28,8 @@ common_hyper <- list(
 )
 
 common_prop_sd <- list(
-  alpha=0.5, log_gamma1=0.1, log_gamma2=0.05, log_gamma3=0.10, log_gamma4=0.2, log_gamma5=0.2, a=0.3,
+  alpha1=0.5, alpha2=0.5, alpha3=0.5, alpha4=0.5, alpha5=0.5,
+  log_gamma1=0.1, log_gamma2=0.05, log_gamma3=0.10, log_gamma4=0.2, log_gamma5=0.2, a=0.3,
   beta1=0.6, beta2=0.25, beta3=0.2,
   b1=0.35, b2=0.2, b3=0.2, b4=0.5, b5=0.5,
   log_kappa=0.4, u=0.3, delta=0.3, delta2=0.3
@@ -252,11 +253,14 @@ make_traceplots <- function(result, prefix, lsirm_data) {
     dev.off()
   }
 
-  # alpha
-  if (!is.null(res$samples$alpha) && ncol(res$samples$alpha) > 0) {
-    pdf(file.path(plot_dir, paste0(prefix, "_trace_alpha.pdf")), width = 8, height = 12)
-    plot_trace_vec(res$samples$alpha[, 1:ncol(res$samples$alpha)], name = "alpha", mfrow = c(3,2))
-    dev.off()
+  # alpha (layer-specific)
+  for (al in 1:5) {
+    aname <- paste0("alpha", al)
+    if (!is.null(res$samples[[aname]]) && ncol(res$samples[[aname]]) > 0) {
+      pdf(file.path(plot_dir, paste0(prefix, "_trace_", aname, ".pdf")), width = 8, height = 12)
+      plot_trace_vec(res$samples[[aname]][, 1:ncol(res$samples[[aname]])], name = aname, mfrow = c(3,2))
+      dev.off()
+    }
   }
 
   # beta1
@@ -486,109 +490,4 @@ make_biplot <- function(result, lsirm_data, title, filename) {
 # make_biplot(result_p4,  lsirm_p4,  "MIDUS_2: P1-P4 (Bio+Sleep)",  "M2_P4_biplot.pdf")
 # make_biplot(result_p3,  lsirm_p3,  "MIDUS_2: P1-P3 (Cognitive)",  "M2_P3_biplot.pdf")
 make_biplot(result_all, lsirm_all, "MIDUS_2: P1-P3-P4 (All)",     "M2_ALL_biplot.pdf")
-
-################################################################################
-# 7. Response pattern by branch (Sadness vs Anhedonia)
-################################################################################
-cat("\n\n========== Response Patterns by Branch ==========\n")
-
-br <- lsirm_all$branch
-idx_sad  <- which(br == "Sadness")
-idx_anh  <- which(br == "Anhedonia")
-
-Y_bin_all_raw <- lsirm_all$Y_bin
-Y_cnt_all_raw <- lsirm_all$Y_cnt
-
-# ── Binary items (proportion barplot) ──
-if (length(lsirm_all$col_bin) > 0) {
-  n_bin <- ncol(Y_bin_all_raw)
-  par(mfrow = c(ceiling(n_bin / 3), 3), mar = c(4, 4, 3, 1))
-  for (j in seq_len(n_bin)) {
-    prop_sad <- mean(Y_bin_all_raw[idx_sad, j], na.rm = TRUE)
-    prop_anh <- mean(Y_bin_all_raw[idx_anh, j], na.rm = TRUE)
-    mat <- rbind(Sadness = c(1 - prop_sad, prop_sad),
-                 Anhedonia = c(1 - prop_anh, prop_anh))
-    colnames(mat) <- c("No", "Yes")
-    barplot(mat, beside = TRUE, col = c("#E41A1C", "#377EB8"),
-            main = lsirm_all$col_bin[j], xlab = "Response", ylab = "Proportion",
-            ylim = c(0, 1))
-    if (j == 1) legend("topright", legend = c("Sadness", "Anhedonia"),
-                        fill = c("#E41A1C", "#377EB8"), bty = "n", cex = 0.9)
-  }
-}
-
-# ── Count items (barplot of frequencies) ──
-if (length(lsirm_all$col_cnt) > 0) {
-  n_cnt <- ncol(Y_cnt_all_raw)
-  par(mfrow = c(ceiling(n_cnt / 2), 2), mar = c(4, 4, 3, 1))
-  for (j in seq_len(n_cnt)) {
-    lvls <- sort(unique(c(Y_cnt_all_raw[idx_sad, j], Y_cnt_all_raw[idx_anh, j])))
-    prop_sad <- table(factor(Y_cnt_all_raw[idx_sad, j], levels = lvls)) / length(idx_sad)
-    prop_anh <- table(factor(Y_cnt_all_raw[idx_anh, j], levels = lvls)) / length(idx_anh)
-    mat <- rbind(Sadness = as.numeric(prop_sad), Anhedonia = as.numeric(prop_anh))
-    colnames(mat) <- lvls
-    barplot(mat, beside = TRUE, col = c("#E41A1C", "#377EB8"),
-            main = lsirm_all$col_cnt[j], xlab = "Count", ylab = "Proportion",
-            ylim = c(0, max(mat) * 1.2))
-    if (j == 1) legend("topright", legend = c("Sadness", "Anhedonia"),
-                        fill = c("#E41A1C", "#377EB8"), bty = "n", cex = 0.9)
-  }
-}
-
-# ── Ordinal-5 (MASQ) items ──
-if (length(lsirm_all$col_ord1) > 0) {
-  n_ord1 <- ncol(Y_ord1_all)
-  par(mfrow = c(ceiling(n_ord1 / 3), 3), mar = c(4, 4, 3, 1))
-  for (j in seq_len(n_ord1)) {
-    lvls <- sort(unique(c(Y_ord1_all[idx_sad, j], Y_ord1_all[idx_anh, j])))
-    prop_sad <- table(factor(Y_ord1_all[idx_sad, j], levels = lvls)) / length(idx_sad)
-    prop_anh <- table(factor(Y_ord1_all[idx_anh, j], levels = lvls)) / length(idx_anh)
-    mat <- rbind(Sadness = as.numeric(prop_sad), Anhedonia = as.numeric(prop_anh))
-    colnames(mat) <- lvls
-    barplot(mat, beside = TRUE, col = c("#E41A1C", "#377EB8"),
-            main = lsirm_all$col_ord1[j], xlab = "Response", ylab = "Proportion",
-            ylim = c(0, max(mat) * 1.2))
-    if (j == 1) legend("topright", legend = c("Sadness", "Anhedonia"),
-                        fill = c("#E41A1C", "#377EB8"), bty = "n", cex = 0.9)
-  }
-}
-
-# ── Ordinal-4 (PSQI) items ──
-if (length(lsirm_all$col_ord2) > 0) {
-  n_ord2 <- ncol(Y_ord2_all)
-  par(mfrow = c(ceiling(n_ord2 / 3), 3), mar = c(4, 4, 3, 1))
-  for (j in seq_len(n_ord2)) {
-    lvls <- sort(unique(c(Y_ord2_all[idx_sad, j], Y_ord2_all[idx_anh, j])))
-    prop_sad <- table(factor(Y_ord2_all[idx_sad, j], levels = lvls)) / length(idx_sad)
-    prop_anh <- table(factor(Y_ord2_all[idx_anh, j], levels = lvls)) / length(idx_anh)
-    mat <- rbind(Sadness = as.numeric(prop_sad), Anhedonia = as.numeric(prop_anh))
-    colnames(mat) <- lvls
-    barplot(mat, beside = TRUE, col = c("#E41A1C", "#377EB8"),
-            main = lsirm_all$col_ord2[j], xlab = "Response", ylab = "Proportion",
-            ylim = c(0, max(mat) * 1.2))
-    if (j == 1) legend("topright", legend = c("Sadness", "Anhedonia"),
-                        fill = c("#E41A1C", "#377EB8"), bty = "n", cex = 0.9)
-  }
-}
-
-# ── Continuous items (density plots) ──
-if (length(lsirm_all$col_con) > 0) {
-  n_con <- ncol(Y_con_all)
-  par(mfrow = c(ceiling(n_con / 3), 3), mar = c(4, 4, 3, 1))
-  for (j in seq_len(n_con)) {
-    d_sad <- density(Y_con_all[idx_sad, j], na.rm = TRUE)
-    d_anh <- density(Y_con_all[idx_anh, j], na.rm = TRUE)
-    xr <- range(c(d_sad$x, d_anh$x))
-    yr <- range(c(d_sad$y, d_anh$y))
-    plot(d_sad, col = "#E41A1C", lwd = 2, xlim = xr, ylim = yr,
-         main = lsirm_all$col_con[j], xlab = "Value (standardized)", ylab = "Density")
-    lines(d_anh, col = "#377EB8", lwd = 2)
-    if (j == 1) legend("topright", legend = c("Sadness", "Anhedonia"),
-                        col = c("#E41A1C", "#377EB8"), lwd = 2, bty = "n", cex = 0.9)
-  }
-}
-
-cat("\n=== 모든 분석 완료 ===\n")
-cat("Plot 저장 위치:", plot_dir, "\n")
-
 

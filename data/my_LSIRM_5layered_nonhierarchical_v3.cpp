@@ -132,7 +132,11 @@ List run_lsirm_cpp(
   double mu_delta = hyper["mu_delta"]; double sd_delta = hyper["sd_delta"];
 
   // Unpack Proposal SDs
-  double sd_alpha = prop_sd["alpha"];
+  double sd_alpha1 = prop_sd["alpha1"];
+  double sd_alpha2 = prop_sd["alpha2"];
+  double sd_alpha3 = prop_sd["alpha3"];
+  double sd_alpha4 = prop_sd["alpha4"];
+  double sd_alpha5 = prop_sd["alpha5"];
   double sd_beta1 = prop_sd["beta1"];
   double sd_beta2 = prop_sd["beta2"];
   double sd_beta3 = prop_sd["beta3"];
@@ -153,7 +157,11 @@ List run_lsirm_cpp(
   double sd_delta2_prop = prop_sd["delta2"];
 
   // Initialize Parameters
-  vec alpha = as<vec>(init["alpha"]);
+  vec alpha1 = as<vec>(init["alpha1"]);
+  vec alpha2 = as<vec>(init["alpha2"]);
+  vec alpha3 = as<vec>(init["alpha3"]);
+  vec alpha4 = as<vec>(init["alpha4"]);
+  vec alpha5 = as<vec>(init["alpha5"]);
   vec beta1 = as<vec>(init["beta1"]);
   vec beta2 = as<vec>(init["beta2"]);
   vec beta3 = as<vec>(init["beta3"]);
@@ -191,7 +199,11 @@ List run_lsirm_cpp(
   // Storage setup
   int n_save = (n_iter - burnin) / thin;
 
-  mat store_alpha(n_save, n);
+  mat store_alpha1(n_save, n);
+  mat store_alpha2(n_save, n);
+  mat store_alpha3(n_save, n);
+  mat store_alpha4(n_save, n);
+  mat store_alpha5(n_save, n);
   mat store_beta1(n_save, P1);
   mat store_beta2(n_save, P2);
   mat store_beta3(n_save, P3);
@@ -231,7 +243,11 @@ List run_lsirm_cpp(
   if (K2 > 2) store_thr2.set_size(P5, K2-1, n_save);
 
   // Acceptance counters
-  vec acc_alpha = zeros<vec>(n);
+  vec acc_alpha1 = zeros<vec>(n);
+  vec acc_alpha2 = zeros<vec>(n);
+  vec acc_alpha3 = zeros<vec>(n);
+  vec acc_alpha4 = zeros<vec>(n);
+  vec acc_alpha5 = zeros<vec>(n);
   vec acc_beta1 = zeros<vec>(P1);
   vec acc_beta2 = zeros<vec>(P2);
   vec acc_beta3 = zeros<vec>(P3);
@@ -257,60 +273,105 @@ List run_lsirm_cpp(
 
     if (verbose && (iter + 1) % 500 == 0) Rcout << "Iter: " << iter + 1 << " / " << n_iter << "\n";
 
-    // --- 1. Update alpha_i (Shared) ---
+    // --- 1. Update alpha_l_i (Layer-specific) ---
+    // Alpha 1 (Bin)
     for(int i=0; i<n; ++i) {
-      double alpha_old = alpha(i);
-      double alpha_prop = R::rnorm(alpha_old, sd_alpha);
-
-      auto loglik_i = [&](double val_alpha) {
+      double a_old = alpha1(i);
+      double a_prop = R::rnorm(a_old, sd_alpha1);
+      auto ll_f = [&](double val) {
         double ll = 0.0;
-
-        // Layer 1 (Bin)
         for(int j=0; j<P1; ++j) {
           double dist = calc_dist(a.row(i), b1.row(j));
-          double eta = val_alpha - beta1(j) - gamma_val1 * dist;
+          double eta = val - beta1(j) - gamma_val1 * dist;
           ll += Y_bin(i,j) * eta - log1pexp(eta);
         }
-        // Layer 2 (Con)
+        return ll;
+      };
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
+        alpha1(i) = a_prop; acc_alpha1(i)++;
+      }
+    }
+    // Alpha 2 (Con)
+    for(int i=0; i<n; ++i) {
+      double a_old = alpha2(i);
+      double a_prop = R::rnorm(a_old, sd_alpha2);
+      double sd0 = sqrt(sigma0_sq);
+      auto ll_f = [&](double val) {
+        double ll = 0.0;
         for(int j=0; j<P2; ++j) {
           double dist = calc_dist(a.row(i), b2.row(j));
-          double mu = val_alpha - beta2(j) - gamma_val2 * dist;
-          ll += R::dnorm(Y_con(i,j), mu, sqrt(sigma0_sq), 1);
+          double mu = val - beta2(j) - gamma_val2 * dist;
+          ll += R::dnorm(Y_con(i,j), mu, sd0, 1);
         }
-        // Layer 3 (Cnt)
+        return ll;
+      };
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
+        alpha2(i) = a_prop; acc_alpha2(i)++;
+      }
+    }
+    // Alpha 3 (Cnt)
+    for(int i=0; i<n; ++i) {
+      double a_old = alpha3(i);
+      double a_prop = R::rnorm(a_old, sd_alpha3);
+      double size = 1.0/kappa;
+      auto ll_f = [&](double val) {
+        double ll = 0.0;
         for(int j=0; j<P3; ++j) {
           double dist = calc_dist(a.row(i), b3.row(j));
-          double mu = exp(val_alpha - beta3(j) - gamma_val3 * dist);
-          double size = 1.0/kappa;
+          double mu = exp(val - beta3(j) - gamma_val3 * dist);
           double prob = size / (size + mu);
           ll += R::dnbinom(Y_cnt(i,j), size, prob, 1);
         }
-        // Layer 4 (Ord1)
+        return ll;
+      };
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
+        alpha3(i) = a_prop; acc_alpha3(i)++;
+      }
+    }
+    // Alpha 4 (Ord1)
+    for(int i=0; i<n; ++i) {
+      double a_old = alpha4(i);
+      double a_prop = R::rnorm(a_old, sd_alpha4);
+      auto ll_f = [&](double val) {
+        double ll = 0.0;
         for(int j=0; j<P4; ++j) {
           double dist = calc_dist(a.row(i), b4.row(j));
-          double eta = val_alpha - gamma_val4 * dist;
+          double eta = val - gamma_val4 * dist;
           vec b_thresh = build_thresholds_cpp(0.0, (K1>2) ? delta.row(j) : rowvec());
           ll += log_p_ordinal_single_cpp(Y_ord1(i,j), eta, b_thresh);
         }
-        // Layer 5 (Ord2)
+        return ll;
+      };
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
+        alpha4(i) = a_prop; acc_alpha4(i)++;
+      }
+    }
+    // Alpha 5 (Ord2)
+    for(int i=0; i<n; ++i) {
+      double a_old = alpha5(i);
+      double a_prop = R::rnorm(a_old, sd_alpha5);
+      auto ll_f = [&](double val) {
+        double ll = 0.0;
         for(int j=0; j<P5; ++j) {
           double dist = calc_dist(a.row(i), b5.row(j));
-          double eta = val_alpha - gamma_val5 * dist;
+          double eta = val - gamma_val5 * dist;
           vec b_thresh = build_thresholds_cpp(0.0, (K2>2) ? delta2.row(j) : rowvec());
           ll += log_p_ordinal_single_cpp(Y_ord2(i,j), eta, b_thresh);
         }
         return ll;
       };
-
-      double ll_old = loglik_i(alpha_old);
-      double ll_new = loglik_i(alpha_prop);
-
-      double lp_old = -0.5 * pow(alpha_old, 2) / sigma_alpha_sq;
-      double lp_new = -0.5 * pow(alpha_prop, 2) / sigma_alpha_sq;
-
-      if (log(R::runif(0,1)) < (ll_new + lp_new - ll_old - lp_old)) {
-        alpha(i) = alpha_prop;
-        acc_alpha(i)++;
+      double lp_old = -0.5 * pow(a_old, 2) / sigma_alpha_sq;
+      double lp_new = -0.5 * pow(a_prop, 2) / sigma_alpha_sq;
+      if (log(R::runif(0,1)) < (ll_f(a_prop) + lp_new - ll_f(a_old) - lp_old)) {
+        alpha5(i) = a_prop; acc_alpha5(i)++;
       }
     }
 
@@ -324,7 +385,7 @@ List run_lsirm_cpp(
         double ll = 0;
         for(int i=0; i<n; ++i) {
           double dist = calc_dist(a.row(i), b1.row(j));
-          double eta = alpha(i) - b_val - gamma_val1 * dist;
+          double eta = alpha1(i) - b_val - gamma_val1 * dist;
           ll += Y_bin(i,j) * eta - log1pexp(eta);
         }
         return ll;
@@ -351,7 +412,7 @@ List run_lsirm_cpp(
         double sd0 = sqrt(sigma0_sq);
         for(int i=0; i<n; ++i) {
           double dist = calc_dist(a.row(i), b2.row(j));
-          double mu = alpha(i) - b_val - gamma_val2 * dist;
+          double mu = alpha2(i) - b_val - gamma_val2 * dist;
           ll += R::dnorm(Y_con(i,j), mu, sd0, 1);
         }
         return ll;
@@ -372,7 +433,7 @@ List run_lsirm_cpp(
         double size = 1.0/kappa;
         for(int i=0; i<n; ++i) {
           double dist = calc_dist(a.row(i), b3.row(j));
-          double mu = exp(alpha(i) - b_val - gamma_val3 * dist);
+          double mu = exp(alpha3(i) - b_val - gamma_val3 * dist);
           double prob = size / (size + mu);
           ll += R::dnbinom(Y_cnt(i,j), size, prob, 1);
         }
@@ -399,7 +460,7 @@ List run_lsirm_cpp(
           for(int i=0; i<n; ++i)
             for(int j=0; j<P1; ++j) {
               double dist = calc_dist(a.row(i), b1.row(j));
-              double eta = alpha(i) - beta1(j) - g * dist;
+              double eta = alpha1(i) - beta1(j) - g * dist;
               ll += Y_bin(i,j)*eta - log1pexp(eta);
             }
           return ll;
@@ -424,7 +485,7 @@ List run_lsirm_cpp(
           for(int i=0; i<n; ++i)
             for(int j=0; j<P2; ++j) {
               double dist = calc_dist(a.row(i), b2.row(j));
-              double mu = alpha(i) - beta2(j) - g * dist;
+              double mu = alpha2(i) - beta2(j) - g * dist;
               ll += R::dnorm(Y_con(i,j), mu, sd0, 1);
             }
           return ll;
@@ -449,7 +510,7 @@ List run_lsirm_cpp(
           for(int i=0; i<n; ++i)
             for(int j=0; j<P3; ++j) {
               double dist = calc_dist(a.row(i), b3.row(j));
-              double mu = exp(alpha(i) - beta3(j) - g * dist);
+              double mu = exp(alpha3(i) - beta3(j) - g * dist);
               double prob = size/(size+mu);
               ll += R::dnbinom(Y_cnt(i,j), size, prob, 1);
             }
@@ -474,7 +535,7 @@ List run_lsirm_cpp(
           for(int i=0; i<n; ++i)
             for(int j=0; j<P4; ++j) {
               double dist = calc_dist(a.row(i), b4.row(j));
-              double eta = alpha(i) - g * dist;
+              double eta = alpha4(i) - g * dist;
               vec b_th = build_thresholds_cpp(0.0, (K1>2)? delta.row(j) : rowvec());
               ll += log_p_ordinal_single_cpp(Y_ord1(i,j), eta, b_th);
             }
@@ -499,7 +560,7 @@ List run_lsirm_cpp(
           for(int i=0; i<n; ++i)
             for(int j=0; j<P5; ++j) {
               double dist = calc_dist(a.row(i), b5.row(j));
-              double eta = alpha(i) - g * dist;
+              double eta = alpha5(i) - g * dist;
               vec b_th = build_thresholds_cpp(0.0, (K2>2)? delta2.row(j) : rowvec());
               ll += log_p_ordinal_single_cpp(Y_ord2(i,j), eta, b_th);
             }
@@ -529,33 +590,33 @@ List run_lsirm_cpp(
         // L1
         for(int j=0; j<P1; ++j) {
           double dist = calc_dist(pos, b1.row(j));
-          double eta = alpha(i) - beta1(j) - gamma_val1 * dist;
+          double eta = alpha1(i) - beta1(j) - gamma_val1 * dist;
           ll += Y_bin(i,j)*eta - log1pexp(eta);
         }
         // L2
         for(int j=0; j<P2; ++j) {
           double dist = calc_dist(pos, b2.row(j));
-          double mu = alpha(i) - beta2(j) - gamma_val2 * dist;
+          double mu = alpha2(i) - beta2(j) - gamma_val2 * dist;
           ll += R::dnorm(Y_con(i,j), mu, sd0, 1);
         }
         // L3
         for(int j=0; j<P3; ++j) {
           double dist = calc_dist(pos, b3.row(j));
-          double mu = exp(alpha(i) - beta3(j) - gamma_val3 * dist);
+          double mu = exp(alpha3(i) - beta3(j) - gamma_val3 * dist);
           double prob = size/(size+mu);
           ll += R::dnbinom(Y_cnt(i,j), size, prob, 1);
         }
         // L4
         for(int j=0; j<P4; ++j) {
           double dist = calc_dist(pos, b4.row(j));
-          double eta = alpha(i) - gamma_val4 * dist;
+          double eta = alpha4(i) - gamma_val4 * dist;
           vec b_th = build_thresholds_cpp(0.0, (K1>2)? delta.row(j) : rowvec());
           ll += log_p_ordinal_single_cpp(Y_ord1(i,j), eta, b_th);
         }
         // L5
         for(int j=0; j<P5; ++j) {
           double dist = calc_dist(pos, b5.row(j));
-          double eta = alpha(i) - gamma_val5 * dist;
+          double eta = alpha5(i) - gamma_val5 * dist;
           vec b_th = build_thresholds_cpp(0.0, (K2>2)? delta2.row(j) : rowvec());
           ll += log_p_ordinal_single_cpp(Y_ord2(i,j), eta, b_th);
         }
@@ -583,7 +644,7 @@ List run_lsirm_cpp(
         double ll=0;
         for(int i=0; i<n; ++i){
           double dist = calc_dist(a.row(i), b_val);
-          double eta = alpha(i) - beta1(j) - gamma_val1 * dist;
+          double eta = alpha1(i) - beta1(j) - gamma_val1 * dist;
           ll += Y_bin(i,j)*eta - log1pexp(eta);
         }
         return ll;
@@ -601,7 +662,7 @@ List run_lsirm_cpp(
         double ll=0;
         for(int i=0; i<n; ++i){
           double dist = calc_dist(a.row(i), b_val);
-          double mu = alpha(i) - beta2(j) - gamma_val2 * dist;
+          double mu = alpha2(i) - beta2(j) - gamma_val2 * dist;
           ll += R::dnorm(Y_con(i,j), mu, sd0, 1);
         }
         return ll;
@@ -619,7 +680,7 @@ List run_lsirm_cpp(
         double ll=0;
         for(int i=0; i<n; ++i){
           double dist = calc_dist(a.row(i), b_val);
-          double mu = exp(alpha(i) - beta3(j) - gamma_val3 * dist);
+          double mu = exp(alpha3(i) - beta3(j) - gamma_val3 * dist);
           ll += R::dnbinom(Y_cnt(i,j), size, size/(size+mu), 1);
         }
         return ll;
@@ -637,7 +698,7 @@ List run_lsirm_cpp(
         double ll=0;
         for(int i=0; i<n; ++i){
           double dist = calc_dist(a.row(i), b_val);
-          double eta = alpha(i) - gamma_val4 * dist;
+          double eta = alpha4(i) - gamma_val4 * dist;
           ll += log_p_ordinal_single_cpp(Y_ord1(i,j), eta, b_th);
         }
         return ll;
@@ -655,7 +716,7 @@ List run_lsirm_cpp(
         double ll=0;
         for(int i=0; i<n; ++i){
           double dist = calc_dist(a.row(i), b_val);
-          double eta = alpha(i) - gamma_val5 * dist;
+          double eta = alpha5(i) - gamma_val5 * dist;
           ll += log_p_ordinal_single_cpp(Y_ord2(i,j), eta, b_th);
         }
         return ll;
@@ -680,7 +741,7 @@ List run_lsirm_cpp(
         double ll = 0;
         for(int i=0; i<n; ++i) {
           double dist = calc_dist(a.row(i), b4.row(j));
-          double eta = alpha(i) - gamma_val4 * dist;
+          double eta = alpha4(i) - gamma_val4 * dist;
           ll += log_p_ordinal_single_cpp(Y_ord1(i,j), eta, th);
         }
         return ll;
@@ -726,7 +787,7 @@ List run_lsirm_cpp(
         double ll = 0;
         for(int i=0; i<n; ++i) {
           double dist = calc_dist(a.row(i), b5.row(j));
-          double eta = alpha(i) - gamma_val5 * dist;
+          double eta = alpha5(i) - gamma_val5 * dist;
           ll += log_p_ordinal_single_cpp(Y_ord2(i,j), eta, th);
         }
         return ll;
@@ -771,7 +832,7 @@ List run_lsirm_cpp(
         for(int i=0; i<n; ++i) {
           for(int j=0; j<P3; ++j) {
             double dist = calc_dist(a.row(i), b3.row(j));
-            double mu = exp(alpha(i) - beta3(j) - gamma_val3 * dist);
+            double mu = exp(alpha3(i) - beta3(j) - gamma_val3 * dist);
             ll += R::dnbinom(Y_cnt(i,j), size, size/(size+mu), 1);
           }
         }
@@ -797,7 +858,7 @@ List run_lsirm_cpp(
       for(int i=0; i<n; ++i) {
         for(int j=0; j<P2; ++j) {
           double dist = calc_dist(a.row(i), b2.row(j));
-          double mu = alpha(i) - beta2(j) - gamma_val2 * dist;
+          double mu = alpha2(i) - beta2(j) - gamma_val2 * dist;
           SSE += pow(Y_con(i,j) - mu, 2);
         }
       }
@@ -805,14 +866,21 @@ List run_lsirm_cpp(
       double rate = b_sigma0 + 0.5 * SSE;
       sigma0_sq = 1.0 / R::rgamma(shape, 1.0/rate);
     }
-    sigma_alpha_sq = 1.0 / R::rgamma(a_sigma + n/2.0, 1.0 / (b_sigma + 0.5*dot(alpha, alpha)));
+    {
+      double ss_alpha = dot(alpha1,alpha1) + dot(alpha2,alpha2) + dot(alpha3,alpha3) + dot(alpha4,alpha4) + dot(alpha5,alpha5);
+      sigma_alpha_sq = 1.0 / R::rgamma(a_sigma + 5.0*n/2.0, 1.0 / (b_sigma + 0.5*ss_alpha));
+    }
     tau_beta1_sq = 1.0;
     tau_beta2_sq = 1.0;
     tau_beta3_sq = 1.0;
 
     // --- 9. Save Samples ---
     if (iter >= burnin && (iter - burnin) % thin == 0) {
-      store_alpha.row(save_idx) = alpha.t();
+      store_alpha1.row(save_idx) = alpha1.t();
+      store_alpha2.row(save_idx) = alpha2.t();
+      store_alpha3.row(save_idx) = alpha3.t();
+      store_alpha4.row(save_idx) = alpha4.t();
+      store_alpha5.row(save_idx) = alpha5.t();
       store_beta1.row(save_idx) = beta1.t();
       store_beta2.row(save_idx) = beta2.t();
       store_beta3.row(save_idx) = beta3.t();
@@ -859,7 +927,11 @@ List run_lsirm_cpp(
   }
 
   return List::create(
-    Named("alpha") = store_alpha,
+    Named("alpha1") = store_alpha1,
+    Named("alpha2") = store_alpha2,
+    Named("alpha3") = store_alpha3,
+    Named("alpha4") = store_alpha4,
+    Named("alpha5") = store_alpha5,
     Named("beta1") = store_beta1,
     Named("beta2") = store_beta2,
     Named("beta3") = store_beta3,
@@ -887,7 +959,11 @@ List run_lsirm_cpp(
     Named("thr")  = store_thr,
     Named("thr2") = store_thr2,
     Named("accept") = List::create(
-      Named("alpha")     = acc_alpha / n_iter,
+      Named("alpha1")    = acc_alpha1 / n_iter,
+      Named("alpha2")    = acc_alpha2 / n_iter,
+      Named("alpha3")    = acc_alpha3 / n_iter,
+      Named("alpha4")    = acc_alpha4 / n_iter,
+      Named("alpha5")    = acc_alpha5 / n_iter,
       Named("beta1")     = acc_beta1 / n_iter,
       Named("beta2")     = acc_beta2 / n_iter,
       Named("beta3")     = acc_beta3 / n_iter,
