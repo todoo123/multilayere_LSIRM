@@ -10,4 +10,6 @@ _cache/
 renv/library/
 renv/staging/
 plot/
-data/
+data/MIDUS_2/
+data/MIDUS_3/
+data/EFA_data_Inhan/
