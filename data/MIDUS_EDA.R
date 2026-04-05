@@ -83,7 +83,6 @@ for (L in layers) {
               min(L$beta), max(L$beta)))
 }
 
-
 ################################################################################
 # 3. 시각화 1: 개별 응답자의 alpha_i 값 (data type 별 bar plot)
 ################################################################################
@@ -135,6 +134,10 @@ resid_df <- do.call(rbind, lapply(layers, function(L) {
     stringsAsFactors = FALSE
   )
 }))
+
+
+unique(resid_df$layer)
+resid_df$residual[resid_df$layer == 'Ordinal-4 (PSQI)']
 
 p2 <- ggplot(resid_df, aes(x = residual)) +
   geom_histogram(aes(y = after_stat(density)), bins = 50,
@@ -189,3 +192,25 @@ for (L in layers) {
 }
 
 cat("\n완료!\n")
+
+
+
+# ordinal - 5 애들 중에 외곽인 애들이랑 내부에 있는 애들 응답 분포 차이 어떻게?
+
+hist(Y_ord1[,'B4Q1TT'])
+hist(Y_ord1[,'B4Q1CCC'])
+hist(Y_ord1[,'B4Q1JJJ'])
+hist(Y_ord1[,'B4Q1TT'])
+hist(Y_ord1[,'B4Q1GGG'])
+hist(Y_ord1[,'B4Q1D'])
+hist(Y_ord1[,'B4Q1Z'])
+hist(Y_ord1[,'B4Q1K'])
+
+hist(Y_ord1[,'B4Q1PP'])
+hist(Y_ord1[,'B4Q1BB'])
+hist(Y_ord1[,'B4Q1BBB'])
+hist(Y_ord1[,'B4Q1VV'])
+hist(Y_ord1[,'B4Q1P'])
+hist(Y_ord1[,'B4Q1Q'])
+hist(Y_ord1[,'B4Q1NN'])
+hist(Y_ord1[,'B4Q1II'])
