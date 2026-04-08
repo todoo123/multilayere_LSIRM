@@ -1,0 +1,367 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{titlesec}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=none,
+  columns=fullflexible
+}
+
+\titleformat{\paragraph}[runin]{\bfseries}{}{0em}{}[.]
+
+\title{Progress Report:\\5-Layered LSIRM for Mixed-Type MIDUS Data}
+\author{Hyunseok Yoon}
+\date{April 2--6, 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%======================================================================
+\section{Overview}
+%======================================================================
+
+This report summarizes the development work carried out from April 2 to April 6, 2026, on the \textbf{5-layered nonhierarchical Latent Space Item Response Model (LSIRM)} for mixed-type data, applied to the MIDUS (Midlife in the United States) study.
+The work encompasses four areas:
+\begin{enumerate}[label=(\roman*)]
+  \item Model specification refinements (layer-specific parameters, robust continuous layer),
+  \item Ordinal layer reparameterization from cumulative link to Graded Response Model (GRM),
+  \item Data pipeline expansion to include the MIDUS Refresher~1 cohort,
+  \item Simulation studies comparing standard and robust formulations.
+\end{enumerate}
+
+%======================================================================
+\section{Model Architecture}
+%======================================================================
+
+The model handles five data types simultaneously through a shared latent space.
+All respondents share a single latent position $a_i \in \mathbb{R}^d$ across layers, while items have layer-specific positions $b_j^{(l)} \in \mathbb{R}^d$.
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+Layer & Data type & Link & Parameters \\
+\midrule
+1 & Binary & Bernoulli--Logit & $\alpha_i^{(1)},\;\beta_j^{(1)},\;\gamma_1$ \\
+2 & Continuous & Normal (robust: Student-$t$) & $\alpha_i^{(2)},\;\beta_j^{(2)},\;\gamma_2,\;\sigma_0^2,\;\lambda_{ij}^{(2)}$ \\
+3 & Count & Negative Binomial & $\alpha_i^{(3)},\;\beta_j^{(3)},\;\gamma_3,\;\kappa$ \\
+4 & Ordinal (5-pt) & GRM (v5) / Cumulative Link (v4) & $\alpha_i^{(4)},\;\gamma_4,\;\text{thresholds}$ \\
+5 & Ordinal (4-pt) & GRM (v5) / Cumulative Link (v4) & $\alpha_i^{(5)},\;\gamma_5,\;\text{thresholds}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The linear predictor for layers 1--3 follows:
+\[
+  \eta_{ij}^{(l)} = \alpha_i^{(l)} - \beta_j^{(l)} - \gamma_l \| a_i - b_j^{(l)} \|.
+\]
+For ordinal layers, there is no item difficulty $\beta_j$; the role of category-level difficulty is absorbed by the threshold parameters.
+
+
+%======================================================================
+\section{April 2: Layer-Specific Parameter Separation}
+%======================================================================
+
+\subsection{Layer-Specific Respondent Effects ($\alpha_i^{(l)}$)}
+
+Previously, a single shared $\alpha_i$ was used across all five layers.
+This was replaced by five independent respondent effects $\alpha_i^{(1)}, \dots, \alpha_i^{(5)}$, each updated via a separate Metropolis--Hastings block using only the corresponding layer's likelihood.
+
+\paragraph{Rationale}
+Different data types (binary symptoms, continuous biomarkers, Likert scales) have fundamentally different scales and respondent-level variation patterns.
+A shared $\alpha_i$ forces all layers to compromise on a single respondent-level effect.
+
+\paragraph{Implementation details}
+\begin{itemize}[leftmargin=1.5em]
+  \item Each $\alpha_i^{(l)}$ has its own proposal standard deviation: \lstinline{prop_sd$alpha1}, \dots, \lstinline{prop_sd$alpha5}.
+  \item Each $\alpha_i^{(l)}$ has an independent prior variance $\sigma_{\alpha l}^2$.
+\end{itemize}
+
+\subsection{Layer-Specific Prior Variances ($\sigma_{\alpha l}^2$)}
+
+The prior variance was similarly separated:
+\[
+  \alpha_i^{(l)} \sim N(0,\;\sigma_{\alpha l}^2), \quad
+  \sigma_{\alpha l}^2 \sim \text{Inv-Gamma}(a_\sigma, b_\sigma), \quad l=1,\dots,5.
+\]
+Each $\sigma_{\alpha l}^2$ is updated via a conjugate Gibbs step:
+\[
+  \sigma_{\alpha l}^2 \mid \alpha^{(l)} \sim \text{Inv-Gamma}\!\left(a_\sigma + \frac{n}{2},\; b_\sigma + \frac{1}{2}\sum_{i=1}^n (\alpha_i^{(l)})^2\right).
+\]
+
+\paragraph{Files modified}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{my\_LSIRM\_5layered\_nonhierarchical\_v3.cpp}
+  \item \texttt{my\_LSIRM\_5layered\_nonhierarchical\_cpp.R}
+  \item \texttt{MIDUS\_5layered\_result.R}
+\end{itemize}
+
+
+%======================================================================
+\section{April 5: Robust Continuous Layer (v4)}
+%======================================================================
+
+\subsection{Motivation}
+
+Continuous biomarker variables (e.g., IL-6, CRP, cortisol) frequently exhibit heavy tails and outliers.
+A Gaussian likelihood can be unduly influenced by extreme observations, biasing latent position estimates.
+
+\subsection{Formulation}
+
+We replace the Gaussian likelihood with a Student-$t$ distribution via a normal--gamma scale mixture:
+\begin{align}
+  \lambda_{ij}^{(2)} &\sim \text{Gamma}\!\left(\frac{\nu_2}{2},\;\frac{\nu_2}{2}\right), \\[4pt]
+  Y_{ij}^{(2)} \mid \lambda_{ij}^{(2)} &\sim N\!\left(\mu_{ij}^{(2)},\;\frac{\sigma_0^2}{\lambda_{ij}^{(2)}}\right),
+\end{align}
+where $\mu_{ij}^{(2)} = \alpha_i^{(2)} - \beta_j^{(2)} - \gamma_2\|a_i - b_j^{(2)}\|$.
+
+Marginalizing over $\lambda_{ij}^{(2)}$ yields $Y_{ij}^{(2)} \sim t_{\nu_2}(\mu_{ij}^{(2)}, \sigma_0^2)$.
+The degrees of freedom $\nu_2$ is treated as fixed (default: $\nu_2=5$).
+
+\subsection{MCMC Changes}
+
+\begin{enumerate}[label=\textbf{Step \arabic*.}, leftmargin=3em]
+  \setcounter{enumi}{-1}
+  \item \textbf{(New)} Gibbs update for $\lambda_{ij}^{(2)}$:
+  \[
+    \lambda_{ij}^{(2)} \mid \cdots \sim \text{Gamma}\!\left(\frac{\nu_2+1}{2},\;\frac{\nu_2 + e_{ij}^2/\sigma_0^2}{2}\right),
+    \quad e_{ij} = Y_{ij}^{(2)} - \mu_{ij}^{(2)}.
+  \]
+  \item All Layer-2 MH steps (for $\alpha_i^{(2)}, \beta_j^{(2)}, \gamma_2, a_i, b_j^{(2)}$) use the effective standard deviation $\sqrt{\sigma_0^2/\lambda_{ij}^{(2)}}$.
+  \item The $\sigma_0^2$ Gibbs update uses weighted sum of squares: $\text{wSSE} = \sum_{i,j} \lambda_{ij}^{(2)} e_{ij}^2$.
+\end{enumerate}
+
+\subsection{Diagnostics}
+
+Three diagnostic plots were added for the latent scale parameters:
+\begin{itemize}[leftmargin=1.5em]
+  \item Per-edge traceplot: 12 randomly selected $(i,j)$ pairs.
+  \item Posterior mean heatmap: full $n \times P_2$ matrix; low $\lambda$ (red) indicates potential outliers.
+  \item Per-item boxplot: distribution of $\lambda_{ij}^{(2)}$ by item, with $\lambda=1$ reference line.
+\end{itemize}
+
+\paragraph{Files created}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{my\_LSIRM\_5layered\_nonhierarchical\_v4.cpp}
+  \item \texttt{my\_LSIRM\_5layered\_nonhierarchical\_cpp\_v4.R}
+  \item \texttt{MIDUS\_5layered\_result\_v4.R}
+\end{itemize}
+
+
+%======================================================================
+\section{April 5: Model Specification Document}
+%======================================================================
+
+A standalone LaTeX document (\texttt{model\_v2.tex}) was prepared, containing:
+\begin{itemize}[leftmargin=1.5em]
+  \item Full notation table.
+  \item Likelihood specification for all five layers.
+  \item Complete prior hierarchy.
+  \item 9-step MCMC algorithm using \texttt{algorithm2e} environment, with MH vs.\ Gibbs steps clearly distinguished.
+\end{itemize}
+
+
+%======================================================================
+\section{April 5: 4-Layered Robust Model \& Simulation}
+%======================================================================
+
+\subsection{4-Layered Robust Model (v5)}
+
+The robust continuous layer was back-ported to the 4-layered model variant (which uses a single shared $\alpha_i$ and one ordinal layer) for simulation studies.
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Feature & 4-layered (v5) & 5-layered (v4) \\
+\midrule
+Alpha & Shared $\alpha_i$ & Independent $\alpha_i^{(1)},\dots,\alpha_i^{(5)}$ \\
+$\sigma_\alpha^2$ & Single & 5 independent \\
+Ordinal layers & 1 & 2 (5-pt, 4-pt) \\
+Robust L2 & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Simulation Study: Standard vs.\ Robust}
+
+A simulation study compares the standard (Gaussian L2) and robust (Student-$t$ L2) models.
+
+\paragraph{Design}
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Scenario 1} (Standard): Data generated with Student-$t$ errors ($\nu=5$).
+  \item \textbf{Scenario 2} (Outlier): Additionally, 10\% of respondents have latent positions drawn from $N(0,8)$ (extreme outliers).
+  \item 100 replications, parallel execution via \texttt{mclapply}.
+  \item MCMC: 50{,}000 iterations, 10{,}000 burn-in, thin by 10.
+\end{itemize}
+
+\paragraph{Evaluation}
+95\% credible interval coverage for: $\alpha$, $\beta_1$--$\beta_3$, $u$, $\delta$, and layer-specific distances $d_{ij}^{(l)} = \gamma_l \|a_i - b_j^{(l)}\|$.
+
+
+%======================================================================
+\section{April 6: MIDUS Refresher~1 Data Integration}
+%======================================================================
+
+\subsection{Background}
+
+The MIDUS 2 (2004--2006) sample provides limited sample sizes after screening for depression criteria ($\text{screen\_case}=1$) and requiring complete cases across biomarker and cognitive sub-projects (e.g., 148 for the full P1--P3--P4 analysis).
+To increase statistical power, we incorporated the MIDUS Refresher~1 cohort (2011--2014), which independently recruited 3{,}577 new participants.
+
+\paragraph{Why Refresher, not Wave~3?}
+MIDUS~3 (2013--2014) is a pure longitudinal follow-up of MIDUS~2 participants.
+Adding Wave~3 data for individuals already in Wave~2 would introduce within-subject dependence.
+Since MIDUS~3 contains no new recruits, the only non-overlapping individuals would come from sub-project participation differences---introducing selection bias.
+The Refresher cohort, being independently recruited, avoids both issues.
+
+\subsection{Variable Mapping}
+
+The Refresher uses different variable prefixes but measures the same constructs:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Category & Wave~2 prefix & Refresher~1 prefix \\
+\midrule
+Survey & \texttt{B1PA*}, \texttt{B1SA*} & \texttt{RA1PA*}, \texttt{RA1SA*} \\
+Biomarker & \texttt{B4*} & \texttt{RA4*} \\
+Cognitive & \texttt{B3*} & \texttt{RA3*} \\
+ID variable & \texttt{M2ID} & \texttt{MRID} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+One variable (\texttt{B4BSCL4A}, cortisol final average) was absent in the Refresher data.
+It was removed from the Wave~2 pipeline as well to ensure structural alignment (7 continuous variables retained).
+
+\subsection{Data Combination}
+
+Wave~2 and Refresher~1 are combined by row-binding the response matrices ($Y_\text{bin}$, $Y_\text{con}$, $Y_\text{cnt}$, $Y_\text{ord1}$, $Y_\text{ord2}$), with column names standardized to Wave~2 conventions.
+A \texttt{source} indicator (\texttt{"wave2"} / \texttt{"refresher1"}) is maintained for potential use as a covariate.
+
+\paragraph{Files created/modified}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{MIDUS\_preprocess\_refresher\_v3.R} (new)
+  \item \texttt{MIDUS\_preprocess\_2\_v3.R} (modified: \texttt{B4BSCL4A} removed)
+  \item \texttt{MIDUS\_5layered\_result\_v4.R} (modified: combined data pipeline)
+\end{itemize}
+
+
+%======================================================================
+\section{April 6: GRM Ordinal Layer (v5)}
+%======================================================================
+
+\subsection{Motivation}
+
+The original ordinal layers (L4, L5) used a cumulative link model with a softplus reparameterization to enforce threshold ordering:
+\[
+  c_{j,1} = 0, \quad c_{j,k+1} = c_{j,k} + \text{softplus}(\delta_{j,k}), \quad k=1,\dots,K-2.
+\]
+Thresholds were updated jointly (all $\delta_{j,\cdot}$ simultaneously) via MH with a Jacobian correction.
+
+This was replaced by the \textbf{Graded Response Model (GRM)} parameterization, following the implementation in the \texttt{lsirm12pl} R~package.
+
+\subsection{GRM Formulation}
+
+The GRM defines cumulative probabilities in the \emph{exceedance} direction:
+\[
+  P(Y_{ij} \ge k \mid \eta_{ij}) = \text{logistic}(\eta_{ij} + \beta_{j,k}), \quad k=1,\dots,K-1,
+\]
+where $\eta_{ij} = \alpha_i^{(l)} - \gamma_l \|a_i - b_j^{(l)}\|$ and the thresholds satisfy $\beta_{j,1} > \beta_{j,2} > \cdots > \beta_{j,K-1}$ (descending order).
+
+The category probabilities are:
+\[
+  P(Y_{ij}=k) = \begin{cases}
+    1 - P(Y \ge 1) & k=0, \\
+    P(Y \ge k) - P(Y \ge k+1) & 1 \le k \le K-2, \\
+    P(Y \ge K-1) & k=K-1.
+  \end{cases}
+\]
+
+\subsection{Key Differences from v4}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Aspect & v4 (Cumulative Link) & v5 (GRM) \\
+\midrule
+Threshold structure & Ascending, softplus-linked & Descending, direct \\
+Parameters & $\delta_{j,k}$ (unconstrained) & $\beta_{j,k}$ (order-constrained) \\
+Number of params & $P \times (K-2)$ & $P \times (K-1)$ \\
+Update strategy & Joint MH + Jacobian & Individual MH + constraint check \\
+Data encoding & 1-based internally & 0-based internally \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Threshold Update Algorithm}
+
+For each item $j$ and each threshold index $c = 1,\dots,K-1$:
+\begin{enumerate}[leftmargin=2em]
+  \item Propose $\beta_{j,c}^* \sim N(\beta_{j,c}, \sigma_\text{prop}^2)$.
+  \item \textbf{Check ordering constraint}: reject immediately if $\beta_{j,c-1} \le \beta_{j,c}^*$ (when $c>1$) or $\beta_{j,c}^* \le \beta_{j,c+1}$ (when $c<K-2$).
+  \item Compute the MH ratio using the GRM log-likelihood summed over all respondents and a $N(\mu_\beta, \sigma_\beta^2)$ prior.
+  \item Accept or reject.
+\end{enumerate}
+
+This mirrors the approach in \texttt{lsirm12pl::lsirm\_grm.cpp}, adapted to our multi-layer shared latent space framework.
+
+\paragraph{Files created}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{my\_LSIRM\_5layered\_nonhierarchical\_v5.cpp}
+  \item \texttt{my\_LSIRM\_5layered\_nonhierarchical\_cpp\_v5.R}
+  \item \texttt{MIDUS\_5layered\_result\_v5.R}
+\end{itemize}
+
+
+%======================================================================
+\section{Summary of Code Versions}
+%======================================================================
+
+\begin{center}
+\begin{tabular}{clp{8cm}}
+\toprule
+Version & Date & Description \\
+\midrule
+v3 & Apr 2 & Layer-specific $\alpha_i^{(l)}$, $\sigma_{\alpha l}^2$; cumulative link ordinal \\
+v4 & Apr 5 & + Robust continuous layer (Student-$t$ via Normal--Gamma mixture) \\
+v5 & Apr 6 & + GRM ordinal parameterization (replacing cumulative link) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each version consists of three files:
+\begin{enumerate}[leftmargin=1.5em]
+  \item C++ MCMC engine: \texttt{my\_LSIRM\_5layered\_nonhierarchical\_v\{N\}.cpp}
+  \item R wrapper (initialization + Procrustes): \texttt{my\_LSIRM\_5layered\_nonhierarchical\_cpp\_v\{N\}.R}
+  \item Analysis runner (data loading + MCMC + diagnostics): \texttt{MIDUS\_5layered\_result\_v\{N\}.R}
+\end{enumerate}
+
+
+%======================================================================
+\section{Current Model Summary (v5)}
+%======================================================================
+
+The current model (v5) combines all developments:
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{5 layers}: binary (L1), continuous--robust (L2), count (L3), ordinal-5pt (L4), ordinal-4pt (L5).
+  \item \textbf{Shared latent positions} $a_i$ across all layers; layer-specific item positions $b_j^{(l)}$.
+  \item \textbf{Layer-specific respondent effects} $\alpha_i^{(l)}$ with independent prior variances $\sigma_{\alpha l}^2$.
+  \item \textbf{Layer-specific distance weights} $\gamma_l$.
+  \item \textbf{Robust continuous layer}: Student-$t$ errors via Normal--Gamma mixture with $\lambda_{ij}^{(2)}$ latent scales.
+  \item \textbf{GRM ordinal layers}: direct descending thresholds with individual constrained MH updates.
+  \item \textbf{Data}: MIDUS Wave~2 + Refresher~1 combined (independent cohorts, no ID overlap).
+\end{itemize}
+
+\end{document}

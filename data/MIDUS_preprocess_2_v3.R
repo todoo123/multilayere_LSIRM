@@ -188,8 +188,8 @@ bio_ordinal_vars <- c(bio_ord5_vars, bio_ord4_vars, bio_cesd_vars)
 
 # v3 추가: binary 변수
 bio_binary_vars <- c(
-  "B4H26",    # tobacco exposure: Have you ever smoked cigarettes regularly?
-  "B4H33"     # alcohol use: Past month, had at least one drink?
+  # "B4H26",    # tobacco exposure: Have you ever smoked cigarettes regularly?
+  # "B4H33"     # alcohol use: Past month, had at least one drink?
 )
 
 # v3 추가: count 변수 (0.5 단위 절사)
@@ -200,11 +200,11 @@ bio_count_vars <- c(
 )
 
 bio_continuous_vars <- c(
-  "B4BSCL4A", # HPA axis: Saliva cortisol final average
+  # "B4BSCL4A", # HPA axis: Saliva cortisol final average — refresher_1에 없으므로 제거
   "B4BSCL14", # HPA axis: Saliva cortisol all sample average
   "B4BNE12",  # autonomic arousal: Urine Norepinephrine 12 hour
-  "B4P2A",    # obesity: Waist in centimeters
-  "B4PWHR",   # central adiposity: Waist-Hip Ratio
+  # "B4P2A",    # obesity: Waist in centimeters
+  # "B4PWHR",   # central adiposity: Waist-Hip Ratio
   "B4BIL6",   # inflammation: Blood Serum IL6 (pg/mL)
   "B4BFGN",   # inflammation: Blood Fibrinogen (mg/dL)
   "B4BCRP"    # inflammation: Blood C-Reactive Protein (ug/mL)
@@ -232,14 +232,30 @@ for (v in biomarker_vars) {
 
 # ─── 25281 (M2P3): Cognitive — phenotype 변수 ────────────────────────────────
 
-cognitive_vars <- c(
-  "B3TCOMPZ3", # global cognition: Zscore BTACT Composite Score
+# continuous 변수 (높을수록 인지↓)
+cog_con_vars <- c(
+  # "B3TCOMPZ3", # global cognition: Zscore BTACT Composite — 하위지표와 중복하므로 제외
   "B3TEMZ3",   # episodic memory: Zscore Episodic Memory
   "B3TEFZ3",   # executive function: Zscore Executive Functioning
-  "B3TWLF",    # memory retention: Word List Proportion forgot
-  "B3TSMXNS",  # switching burden: SGST normal switch median RT
-  "B3TSMXRS"   # switching burden: SGST reverse switch median RT
+  "B3TWLF",    # memory retention: Word List Proportion forgot (높=많이 잊음)
+  "B3TSMN",    # processing speed: SGST Normal single-task median RT (초)
+  "B3TSMR",    # processing speed: SGST Reverse single-task median RT (초)
+  "B3TSMXBS",  # task switching: SGST Mixed block all switch median RT (초)
+  "B3TSMXNO",  # task switching: SGST Mixed block normal non-switch median RT (초)
+  "B3TSMXRO"   # task switching: SGST Mixed block reverse non-switch median RT (초)
+  # "B3TSMXNS",  # B3TSMXBS로 대체
+  # "B3TSMXRS"   # B3TSMXBS로 대체
 )
+
+# count 변수 (높을수록 인지↓)
+cog_cnt_vars <- c(
+  "B3TSPN",    # EF/speed: SGST Normal single-task 정확도 → 오답 수로 변환 (0~20)
+  "B3TSPR",    # EF/speed: SGST Reverse single-task 정확도 → 오답 수로 변환 (0~20)
+  "B3TCTFLR",  # verbal fluency: Category fluency 반복 수 (zero-inflated)
+  "B3TCTFLI"   # verbal fluency: Category fluency 침입 오류 수 (zero-inflated)
+)
+
+cognitive_vars <- c(cog_con_vars, cog_cnt_vars)
 
 cognitive_selected <- cognitive_0001 %>%
   dplyr::select(M2ID, all_of(cognitive_vars))
@@ -287,14 +303,14 @@ biomarker_selected <- biomarker_selected %>%
     across(all_of(bio_count_vars), to_numeric),
     # skip pattern 처리: 비흡연자 → 흡연량 0
     # B4O9 = ifelse(B4H26 == 0 & is.na(B4O9), 0, B4O9),
-    # skip pattern 처리: 비음주자 → 음주량/기간 0
-    B4H40 = ifelse(B4H33 == 0 & is.na(B4H40), 0, B4H40),
+    # skip pattern 처리: 비음주자 → 음주량/기간 0 (B4H33 주석처리로 비활성)
+    # B4H40 = ifelse(B4H33 == 0 & is.na(B4H40), 0, B4H40),
     # count 절사 (floor)
     across(all_of(bio_count_vars), ~ as.integer(floor(.x))),
-    # v6: CESD 이진화 (원래 0→0, 1/2/3→1; icpsr 코딩 1→0, 2/3/4→1)
+    # CESD reverse items: 먼저 역코딩 (1↔4, 2↔3) 후 이진화
+    across(all_of(bio_cesd_reverse), ~ 5L - .x),
+    # CESD 전체 이진화 (icpsr 코딩 1→0, 2/3/4→1)
     across(all_of(bio_cesd_vars), ~ ifelse(.x == 1, 0L, 1L)),
-    # v6: CESD reverse items 이진화 후 역코딩 (0↔1)
-    across(all_of(bio_cesd_reverse), ~ 1L - .x),
     # v4: B4S11A~J 이진화(≥2 → 1, 1 → 0) 후 합산 → sleep_trouble_count
     across(all_of(bio_sleep_src), icpsr_to_int),
     across(all_of(bio_sleep_src), ~ ifelse(.x >= 2, 1L, 0L)),
@@ -311,14 +327,19 @@ for (v in biomarker_vars) {
 }
 
 # ─── P3: Cognitive 변환 ─────────────────────────────────────────────────────
-cog_reverse_vars <- c("B3TCOMPZ3", "B3TEMZ3", "B3TEFZ3")
+# Z-score 변수 중 높을수록 좋은 방향 → 부호 반전 (높=인지↓)
+cog_reverse_vars <- c("B3TEMZ3", "B3TEFZ3")
 
 cognitive_selected <- cognitive_selected %>%
   mutate(
     M2ID = as.numeric(M2ID),
     across(all_of(cognitive_vars), to_numeric),
+    # Z-score: 부호 반전 (높=좋음 → 높=나쁨)
     across(all_of(cog_reverse_vars), ~ -.x),
-    # across(all_of(cog_log_vars), ~ log(.x))
+    # 정확도 → 오답 수 변환: round(x/0.05) gives 0~20, then 20 - that = errors
+    across(all_of(c("B3TSPN", "B3TSPR")), ~ as.integer(abs(round(.x / 0.05) - 20L))),
+    # count 변수: integer 변환
+    across(all_of(c("B3TCTFLR", "B3TCTFLI")), ~ as.integer(floor(.x)))
   )
 
 cat("\n=== P3 변환 후 class 확인 ===\n")
@@ -536,11 +557,11 @@ lsirm_p4 <- split_for_lsirm(
 lsirm_p3 <- split_for_lsirm(
   df        = df_analysis_p3,
   bin_vars  = survey_bin_vars,
-  cnt_vars  = survey_cnt_vars,
+  cnt_vars  = c(survey_cnt_vars, cog_cnt_vars),
   # ord1_vars = c("painmed_total"),
   ord1_vars = character(0),
   ord2_vars = character(0),
-  con_vars  = cognitive_vars,
+  con_vars  = cog_con_vars,
   label     = "P1-P3"
 )
 
@@ -548,10 +569,10 @@ lsirm_p3 <- split_for_lsirm(
 lsirm_all <- split_for_lsirm(
   df        = df_analysis_all,
   bin_vars  = c(survey_bin_vars, bio_binary_vars, bio_cesd_vars),
-  cnt_vars  = c(survey_cnt_vars, bio_count_vars, "sleep_trouble_count"),
+  cnt_vars  = c(survey_cnt_vars, bio_count_vars, "sleep_trouble_count", cog_cnt_vars),
   ord1_vars = c(bio_ord5_vars),
   ord2_vars = c(bio_ord4_vars),
-  con_vars  = c(bio_continuous_vars, cognitive_vars),
+  con_vars  = c(bio_continuous_vars, cog_con_vars),
   label     = "P1-P3-P4"
 )
 

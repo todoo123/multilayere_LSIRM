@@ -4,14 +4,19 @@ library(dplyr)
 library(purrr)
 
 ################################################################################
-# 0. 데이터 준비: Wave 2 + Refresher 1 합치기
+# 0. 경로 설정
 ################################################################################
-proj_root <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM"
+data_dir <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data"
+setwd(data_dir)
+
+################################################################################
+# 0-1. 데이터 준비: Wave 2 + Refresher 1 합치기
+################################################################################
 
 # ── Wave 2 전처리 (격리 환경) ──
 cat("\n====== Wave 2 전처리 ======\n")
 env_w2 <- new.env(parent = globalenv())
-source(file.path(proj_root, "data/MIDUS_preprocess_2_v3.R"), local = env_w2)
+source(file.path(data_dir, "MIDUS_preprocess_2_v3.R"), local = env_w2)
 lsirm_all_w2 <- env_w2$lsirm_all
 lsirm_p4_w2  <- env_w2$lsirm_p4
 lsirm_p3_w2  <- env_w2$lsirm_p3
@@ -19,14 +24,13 @@ lsirm_p3_w2  <- env_w2$lsirm_p3
 # ── Refresher 1 전처리 (격리 환경) ──
 cat("\n====== Refresher 1 전처리 ======\n")
 env_r1 <- new.env(parent = globalenv())
-source(file.path(proj_root, "data/MIDUS_preprocess_refresher_v3.R"), local = env_r1)
+source(file.path(data_dir, "MIDUS_preprocess_refresher_v3.R"), local = env_r1)
 lsirm_all_r1 <- env_r1$lsirm_all
 lsirm_p4_r1  <- env_r1$lsirm_p4
 lsirm_p3_r1  <- env_r1$lsirm_p3
 
 # ── 합치기 함수 ──
 combine_lsirm <- function(l_w2, l_r1, label = "") {
-  # 변수명은 다르지만 (B4* vs RA4*) 순서와 의미가 동일 → wave_2 이름 기준 통일
   rbind_mat <- function(m1, m2) {
     if (ncol(m1) == 0 && ncol(m2) == 0) return(m1)
     colnames(m2) <- colnames(m1)
@@ -64,13 +68,26 @@ combine_lsirm <- function(l_w2, l_r1, label = "") {
 }
 
 lsirm_all <- combine_lsirm(lsirm_all_w2, lsirm_all_r1, label = "P1-P3-P4")
-lsirm_p4  <- combine_lsirm(lsirm_p4_w2,  lsirm_p4_r1,  label = "P1-P4")
-lsirm_p3  <- combine_lsirm(lsirm_p3_w2,  lsirm_p3_r1,  label = "P1-P3")
 
 # 5-layered LSIRM (v5: GRM ordinal + robust continuous) 모델 로드
-setwd(proj_root)
-source("data/my_LSIRM_5layered_nonhierarchical_cpp_v5.R")
-source("utils.R")
+# sourceCpp는 fork 전에 한 번만 실행해야 함
+setwd(data_dir)
+source(file.path(data_dir, "my_LSIRM_5layered_nonhierarchical_cpp_v5.R"))
+source(file.path(data_dir, "utils.R"))
+
+hist(lsirm_all$Y_cnt[,'B3TCTFLR'])
+hist(lsirm_all$Y_cnt[,'B3TCTFLI'])
+
+################################################################################
+# Helper: array/matrix 가 유효한 데이터를 가지고 있는지 확인
+################################################################################
+has_valid <- function(x) {
+  if (is.null(x)) return(FALSE)
+  if (is.matrix(x) && ncol(x) == 0) return(FALSE)
+  if (is.array(x) && length(dim(x)) == 3 && dim(x)[2] == 0) return(FALSE)
+  if (all(is.na(x))) return(FALSE)
+  TRUE
+}
 
 ################################################################################
 # 1. 공통 hyperparameter / MCMC 설정
@@ -97,55 +114,149 @@ common_prop_sd <- list(
   log_kappa=0.4
 )
 
-common_mcmc <- list(d = 2, n_iter = 100000, burnin = 20000, thin = 10)
+common_mcmc <- list(d = 3, n_iter = 100000, burnin = 20000, thin = 10)
 
 # Robust continuous layer: degrees of freedom
-nu2 <- 5
+nu2 <- 4
 
-# plot 디렉토리 생성
-plot_dir <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/plot"
-if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
+# plot 루트 디렉토리
+plot_root <- file.path(data_dir, "plot")
+if (!dir.exists(plot_root)) dir.create(plot_root, recursive = TRUE)
 
 ################################################################################
-# 2. Analysis Case 3: P1–P3–P4 (통합)
+# 2. Empty matrix helper
 ################################################################################
-cat("\n\n========== Case 3: P1-P3-P4 Combined W2+R1 (GRM v5) ==========\n")
+make_empty <- function(n) matrix(0L, nrow = n, ncol = 0)
 
-Y_con_all  <- scale(lsirm_all$Y_con)
-Y_bin_all  <- lsirm_all$Y_bin
-Y_cnt_all  <- lsirm_all$Y_cnt
-Y_ord1_all <- lsirm_all$Y_ord1
-Y_ord2_all <- lsirm_all$Y_ord2
+################################################################################
+# 3. Case 정의 (lsirm_all 기준, Y_ord2 항상 제외)
+################################################################################
+n_all <- nrow(lsirm_all$Y_con)
 
-cat(sprintf("  Y_bin: %d×%d | Y_con: %d×%d | Y_cnt: %d×%d | Y_ord1: %d×%d | Y_ord2: %d×%d\n",
-            nrow(Y_bin_all), ncol(Y_bin_all),
-            nrow(Y_con_all), ncol(Y_con_all),
-            nrow(Y_cnt_all), ncol(Y_cnt_all),
-            nrow(Y_ord1_all), ncol(Y_ord1_all),
-            nrow(Y_ord2_all), ncol(Y_ord2_all)))
+Y_con_full  <- scale(lsirm_all$Y_con)
+Y_bin_full  <- lsirm_all$Y_bin
+Y_cnt_full  <- lsirm_all$Y_cnt
+Y_ord1_full <- lsirm_all$Y_ord1
 
-result_all <- lsirm_sharedpos_layer5_grm_cpp(
-  Y_bin_all, Y_con_all, Y_cnt_all, Y_ord1_all, Y_ord2_all,
-  d = common_mcmc$d,
-  n_iter = common_mcmc$n_iter,
-  burnin = common_mcmc$burnin,
-  thin   = common_mcmc$thin,
-  nu2    = nu2,
-  hyper  = common_hyper,
-  prop_sd = common_prop_sd,
-  init = NULL,
-  verbose = TRUE
+E  <- make_empty(n_all)           # reusable empty matrix
+Eo <- matrix(0L, nrow=n_all, ncol=0)  # empty integer matrix for ord
+
+cases <- list(
+  list(
+    name = "case1_all",
+    label = "Case 1: All (bin+con+cnt+ord)",
+    Y_bin = Y_bin_full, Y_con = Y_con_full, Y_cnt = Y_cnt_full, Y_ord1 = Y_ord1_full, Y_ord2 = E,
+    col_bin = lsirm_all$col_bin, col_con = lsirm_all$col_con,
+    col_cnt = lsirm_all$col_cnt, col_ord1 = lsirm_all$col_ord1, col_ord2 = character(0)
+  ),
+  # --- 2-type combinations ---
+  list(
+    name = "case2_con_bin",
+    label = "Case 2: Continuous + Binary",
+    Y_bin = Y_bin_full, Y_con = Y_con_full, Y_cnt = E, Y_ord1 = Eo, Y_ord2 = E,
+    col_bin = lsirm_all$col_bin, col_con = lsirm_all$col_con,
+    col_cnt = character(0), col_ord1 = character(0), col_ord2 = character(0)
+  ),
+  list(
+    name = "case3_con_ord",
+    label = "Case 3: Continuous + Ordinal",
+    Y_bin = E, Y_con = Y_con_full, Y_cnt = E, Y_ord1 = Y_ord1_full, Y_ord2 = E,
+    col_bin = character(0), col_con = lsirm_all$col_con,
+    col_cnt = character(0), col_ord1 = lsirm_all$col_ord1, col_ord2 = character(0)
+  ),
+  list(
+    name = "case4_bin_ord",
+    label = "Case 4: Binary + Ordinal",
+    Y_bin = Y_bin_full, Y_con = E, Y_cnt = E, Y_ord1 = Y_ord1_full, Y_ord2 = E,
+    col_bin = lsirm_all$col_bin, col_con = character(0),
+    col_cnt = character(0), col_ord1 = lsirm_all$col_ord1, col_ord2 = character(0)
+  ),
+  list(
+    name = "case5_cnt_con",
+    label = "Case 5: Count + Continuous",
+    Y_bin = E, Y_con = Y_con_full, Y_cnt = Y_cnt_full, Y_ord1 = Eo, Y_ord2 = E,
+    col_bin = character(0), col_con = lsirm_all$col_con,
+    col_cnt = lsirm_all$col_cnt, col_ord1 = character(0), col_ord2 = character(0)
+  ),
+  list(
+    name = "case6_cnt_bin",
+    label = "Case 6: Count + Binary",
+    Y_bin = Y_bin_full, Y_con = E, Y_cnt = Y_cnt_full, Y_ord1 = Eo, Y_ord2 = E,
+    col_bin = lsirm_all$col_bin, col_con = character(0),
+    col_cnt = lsirm_all$col_cnt, col_ord1 = character(0), col_ord2 = character(0)
+  ),
+  list(
+    name = "case7_cnt_ord",
+    label = "Case 7: Count + Ordinal",
+    Y_bin = E, Y_con = E, Y_cnt = Y_cnt_full, Y_ord1 = Y_ord1_full, Y_ord2 = E,
+    col_bin = character(0), col_con = character(0),
+    col_cnt = lsirm_all$col_cnt, col_ord1 = lsirm_all$col_ord1, col_ord2 = character(0)
+  ),
+  # --- 3-type combinations ---
+  list(
+    name = "case8_cnt_con_bin",
+    label = "Case 8: Count + Continuous + Binary",
+    Y_bin = Y_bin_full, Y_con = Y_con_full, Y_cnt = Y_cnt_full, Y_ord1 = Eo, Y_ord2 = E,
+    col_bin = lsirm_all$col_bin, col_con = lsirm_all$col_con,
+    col_cnt = lsirm_all$col_cnt, col_ord1 = character(0), col_ord2 = character(0)
+  ),
+  list(
+    name = "case9_cnt_con_ord",
+    label = "Case 9: Count + Continuous + Ordinal",
+    Y_bin = E, Y_con = Y_con_full, Y_cnt = Y_cnt_full, Y_ord1 = Y_ord1_full, Y_ord2 = E,
+    col_bin = character(0), col_con = lsirm_all$col_con,
+    col_cnt = lsirm_all$col_cnt, col_ord1 = lsirm_all$col_ord1, col_ord2 = character(0)
+  ),
+  list(
+    name = "case10_con_bin_ord",
+    label = "Case 10: Continuous + Binary + Ordinal",
+    Y_bin = Y_bin_full, Y_con = Y_con_full, Y_cnt = E, Y_ord1 = Y_ord1_full, Y_ord2 = E,
+    col_bin = lsirm_all$col_bin, col_con = lsirm_all$col_con,
+    col_cnt = character(0), col_ord1 = lsirm_all$col_ord1, col_ord2 = character(0)
+  ),
+  list(
+    name = "case11_cnt_bin_ord",
+    label = "Case 11: Count + Binary + Ordinal",
+    Y_bin = Y_bin_full, Y_con = E, Y_cnt = Y_cnt_full, Y_ord1 = Y_ord1_full, Y_ord2 = E,
+    col_bin = lsirm_all$col_bin, col_con = character(0),
+    col_cnt = lsirm_all$col_cnt, col_ord1 = lsirm_all$col_ord1, col_ord2 = character(0)
+  ),
+  # --- 1-type (single layer) ---
+  list(
+    name = "case12_bin_only",
+    label = "Case 12: Binary only",
+    Y_bin = Y_bin_full, Y_con = E, Y_cnt = E, Y_ord1 = Eo, Y_ord2 = E,
+    col_bin = lsirm_all$col_bin, col_con = character(0),
+    col_cnt = character(0), col_ord1 = character(0), col_ord2 = character(0)
+  ),
+  list(
+    name = "case13_con_only",
+    label = "Case 13: Continuous only",
+    Y_bin = E, Y_con = Y_con_full, Y_cnt = E, Y_ord1 = Eo, Y_ord2 = E,
+    col_bin = character(0), col_con = lsirm_all$col_con,
+    col_cnt = character(0), col_ord1 = character(0), col_ord2 = character(0)
+  ),
+  list(
+    name = "case14_cnt_only",
+    label = "Case 14: Count only",
+    Y_bin = E, Y_con = E, Y_cnt = Y_cnt_full, Y_ord1 = Eo, Y_ord2 = E,
+    col_bin = character(0), col_con = character(0),
+    col_cnt = lsirm_all$col_cnt, col_ord1 = character(0), col_ord2 = character(0)
+  ),
+  list(
+    name = "case15_ord_only",
+    label = "Case 15: Ordinal only",
+    Y_bin = E, Y_con = E, Y_cnt = E, Y_ord1 = Y_ord1_full, Y_ord2 = E,
+    col_bin = character(0), col_con = character(0),
+    col_cnt = character(0), col_ord1 = lsirm_all$col_ord1, col_ord2 = character(0)
+  )
 )
 
-cat("\n── P1-P3-P4 Combined W2+R1 Acceptance Rates (GRM v5) ──\n")
-print(result_all$accept)
-
 
 ################################################################################
-# 3. 진단: Traceplots
+# 4. Traceplot helper
 ################################################################################
-# ── helper ──
-make_traceplots <- function(result, prefix, lsirm_data) {
+make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
 
   res <- list()
   if (is.null(result$samples)) res$samples <- result else res$samples <- result$samples
@@ -169,7 +280,7 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   }
 
   # a (latent positions)
-  if (!is.null(res$samples$a) && dim(res$samples$a)[2] > 0) {
+  if (has_valid(res$samples$a) && dim(res$samples$a)[2] > 0) {
     n_show <- dim(res$samples$a)[2]
     pdf(file.path(plot_dir, paste0(prefix, "_trace_a.pdf")), width = 8, height = 12)
     par(mfrow = c(4,2), mar = c(3,3,2,1))
@@ -182,7 +293,7 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   }
 
   # b1 (binary item positions)
-  if (!is.null(res$samples$b1) && dim(res$samples$b1)[2] > 0) {
+  if (has_valid(res$samples$b1) && dim(res$samples$b1)[2] > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_b1.pdf")), width = 8, height = 12)
     par(mfrow = c(2,2), mar = c(3,3,2,1))
     for (i in 1:dim(res$samples$b1)[2]) {
@@ -194,7 +305,7 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   }
 
   # b2 (continuous item positions)
-  if (!is.null(res$samples$b2) && dim(res$samples$b2)[2] > 0) {
+  if (has_valid(res$samples$b2) && dim(res$samples$b2)[2] > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_b2.pdf")), width = 8, height = 12)
     par(mfrow = c(2,2), mar = c(3,3,2,1))
     for (i in 1:dim(res$samples$b2)[2]) {
@@ -206,7 +317,7 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   }
 
   # b3 (count item positions)
-  if (!is.null(res$samples$b3) && dim(res$samples$b3)[2] > 0) {
+  if (has_valid(res$samples$b3) && dim(res$samples$b3)[2] > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_b3.pdf")), width = 8, height = 12)
     par(mfrow = c(2,2), mar = c(3,3,2,1))
     for (i in 1:dim(res$samples$b3)[2]) {
@@ -218,7 +329,7 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   }
 
   # b4 (ordinal-1 item positions)
-  if (!is.null(res$samples$b4) && dim(res$samples$b4)[2] > 0) {
+  if (has_valid(res$samples$b4) && dim(res$samples$b4)[2] > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_b4.pdf")), width = 8, height = 12)
     par(mfrow = c(2,2), mar = c(3,3,2,1))
     for (i in 1:dim(res$samples$b4)[2]) {
@@ -230,7 +341,7 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   }
 
   # b5 (ordinal-2 item positions)
-  if (!is.null(res$samples$b5) && dim(res$samples$b5)[2] > 0) {
+  if (has_valid(res$samples$b5) && dim(res$samples$b5)[2] > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_b5.pdf")), width = 8, height = 12)
     par(mfrow = c(2,2), mar = c(3,3,2,1))
     for (i in 1:dim(res$samples$b5)[2]) {
@@ -244,7 +355,7 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   # alpha (layer-specific)
   for (al in 1:5) {
     aname <- paste0("alpha", al)
-    if (!is.null(res$samples[[aname]]) && ncol(res$samples[[aname]]) > 0) {
+    if (has_valid(res$samples[[aname]]) && ncol(res$samples[[aname]]) > 0) {
       pdf(file.path(plot_dir, paste0(prefix, "_trace_", aname, ".pdf")), width = 8, height = 12)
       plot_trace_vec(res$samples[[aname]][, 1:ncol(res$samples[[aname]])], name = aname, mfrow = c(3,2))
       dev.off()
@@ -252,32 +363,32 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   }
 
   # beta1
-  if (!is.null(res$samples$beta1) && ncol(res$samples$beta1) > 0) {
+  if (has_valid(res$samples$beta1) && ncol(res$samples$beta1) > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_beta1.pdf")), width = 8, height = 12)
     plot_trace_vec(res$samples$beta1, name = "beta1", mfrow = c(3,2))
     dev.off()
   }
 
   # beta2
-  if (!is.null(res$samples$beta2) && ncol(res$samples$beta2) > 0) {
+  if (has_valid(res$samples$beta2) && ncol(res$samples$beta2) > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_beta2.pdf")), width = 8, height = 12)
     plot_trace_vec(res$samples$beta2, name = "beta2", mfrow = c(3,2))
     dev.off()
   }
 
   # beta3
-  if (!is.null(res$samples$beta3) && ncol(res$samples$beta3) > 0) {
+  if (has_valid(res$samples$beta3) && ncol(res$samples$beta3) > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_beta3.pdf")), width = 8, height = 12)
     plot_trace_vec(res$samples$beta3, name = "beta3", mfrow = c(3,2))
     dev.off()
   }
 
-  # beta4 (GRM thresholds L4) — item name + threshold index
-  if (!is.null(res$samples$beta4)) {
-    b4_s <- res$samples$beta4   # (n_save, P4, K1-1)
+  # beta4 (GRM thresholds L4)
+  if (has_valid(res$samples$beta4)) {
+    b4_s <- res$samples$beta4
     P4_d <- dim(b4_s)[2]
     Km1  <- dim(b4_s)[3]
-    col_ord1 <- if (!is.null(lsirm_data$col_ord1)) lsirm_data$col_ord1 else paste0("ord1_j", 1:P4_d)
+    col_ord1 <- if (length(lsirm_data$col_ord1) > 0) lsirm_data$col_ord1 else paste0("ord1_j", 1:P4_d)
 
     pdf(file.path(plot_dir, paste0(prefix, "_trace_beta4_thr.pdf")), width = 8, height = 12)
     par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
@@ -293,12 +404,12 @@ make_traceplots <- function(result, prefix, lsirm_data) {
     dev.off()
   }
 
-  # beta5 (GRM thresholds L5) — item name + threshold index
-  if (!is.null(res$samples$beta5)) {
-    b5_s <- res$samples$beta5   # (n_save, P5, K2-1)
+  # beta5 (GRM thresholds L5)
+  if (has_valid(res$samples$beta5)) {
+    b5_s <- res$samples$beta5
     P5_d <- dim(b5_s)[2]
     Km1  <- dim(b5_s)[3]
-    col_ord2 <- if (!is.null(lsirm_data$col_ord2)) lsirm_data$col_ord2 else paste0("ord2_j", 1:P5_d)
+    col_ord2 <- if (length(lsirm_data$col_ord2) > 0) lsirm_data$col_ord2 else paste0("ord2_j", 1:P5_d)
 
     pdf(file.path(plot_dir, paste0(prefix, "_trace_beta5_thr.pdf")), width = 8, height = 12)
     par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
@@ -317,30 +428,28 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   # Extra scalar parameters
   pdf(file.path(plot_dir, paste0(prefix, "_trace_extra.pdf")), width = 8, height = 18)
   par(mfrow = c(7,2), mar = c(3,3,2,1))
-  if (!is.null(res$samples$sigma0_sq))  plot_trace_scalar(res$samples$sigma0_sq,  true = NA, main = "sigma0_sq")
-  if (!is.null(res$samples$log_gamma1)) plot_trace_scalar(res$samples$log_gamma1, true = NA, main = "gamma1 (Bin)", transform = exp)
-  if (!is.null(res$samples$log_gamma2)) plot_trace_scalar(res$samples$log_gamma2, true = NA, main = "gamma2 (Con)", transform = exp)
-  if (!is.null(res$samples$log_gamma3)) plot_trace_scalar(res$samples$log_gamma3, true = NA, main = "gamma3 (Cnt)", transform = exp)
-  if (!is.null(res$samples$log_gamma4)) plot_trace_scalar(res$samples$log_gamma4, true = NA, main = "gamma4 (Ord1)", transform = exp)
-  if (!is.null(res$samples$log_gamma5)) plot_trace_scalar(res$samples$log_gamma5, true = NA, main = "gamma5 (Ord2)", transform = exp)
-  if (!is.null(res$samples$log_kappa))  plot_trace_scalar(res$samples$log_kappa,  true = NA, main = "kappa", transform = exp)
+  if (has_valid(res$samples$sigma0_sq))  plot_trace_scalar(res$samples$sigma0_sq,  true = NA, main = "sigma0_sq")
+  if (has_valid(res$samples$log_gamma1)) plot_trace_scalar(res$samples$log_gamma1, true = NA, main = "gamma1 (Bin)", transform = exp)
+  if (has_valid(res$samples$log_gamma2)) plot_trace_scalar(res$samples$log_gamma2, true = NA, main = "gamma2 (Con)", transform = exp)
+  if (has_valid(res$samples$log_gamma3)) plot_trace_scalar(res$samples$log_gamma3, true = NA, main = "gamma3 (Cnt)", transform = exp)
+  if (has_valid(res$samples$log_gamma4)) plot_trace_scalar(res$samples$log_gamma4, true = NA, main = "gamma4 (Ord1)", transform = exp)
+  if (has_valid(res$samples$log_gamma5)) plot_trace_scalar(res$samples$log_gamma5, true = NA, main = "gamma5 (Ord2)", transform = exp)
+  if (has_valid(res$samples$log_kappa))  plot_trace_scalar(res$samples$log_kappa,  true = NA, main = "kappa", transform = exp)
   for (al in 1:5) {
     sname <- paste0("sigma_alpha", al, "_sq")
-    if (!is.null(res$samples[[sname]])) plot_trace_scalar(res$samples[[sname]], true = NA, main = sname)
+    if (has_valid(res$samples[[sname]])) plot_trace_scalar(res$samples[[sname]], true = NA, main = sname)
   }
-  # lambda2_mean traceplot
-  if (!is.null(res$samples$lambda2_mean)) {
+  if (has_valid(res$samples$lambda2_mean)) {
     plot_trace_scalar(res$samples$lambda2_mean, true = NA, main = "lambda2_mean (robust weight)")
   }
   dev.off()
 
   # --- Lambda2 per-edge traceplots ---
-  if (!is.null(res$samples$lambda2) && length(dim(res$samples$lambda2)) == 3) {
-    lam <- res$samples$lambda2  # (n_save, n, P2) after aperm in wrapper
+  if (has_valid(res$samples$lambda2) && length(dim(res$samples$lambda2)) == 3 && dim(res$samples$lambda2)[3] > 0) {
+    lam <- res$samples$lambda2
     n_resp <- dim(lam)[2]
     n_item <- dim(lam)[3]
 
-    # Select edges to plot: up to 12 (i,j) pairs spread across the matrix
     n_edge_show <- min(12, n_resp * n_item)
     set.seed(42)
     all_edges <- expand.grid(i = 1:n_resp, j = 1:n_item)
@@ -351,21 +460,20 @@ make_traceplots <- function(result, prefix, lsirm_data) {
     for (r in seq_len(nrow(edge_idx))) {
       ii <- edge_idx$i[r]; jj <- edge_idx$j[r]
       x <- lam[, ii, jj]
-      jname <- if (!is.null(lsirm_data$col_con) && jj <= length(lsirm_data$col_con)) lsirm_data$col_con[jj] else jj
+      jname <- if (length(lsirm_data$col_con) >= jj) lsirm_data$col_con[jj] else jj
       ts.plot(x, main = bquote(lambda[2] ~ "(" * .(ii) * "," * .(jname) * ")"))
       abline(h = mean(x), col = "darkgreen", lwd = 2)
-      abline(h = 1, col = "red", lty = 2)  # reference: lambda=1 means no downweighting
+      abline(h = 1, col = "red", lty = 2)
     }
     dev.off()
   }
 
   # --- Lambda2 posterior mean heatmap ---
-  if (!is.null(res$samples$lambda2_postmean)) {
-    lam_pm <- res$samples$lambda2_postmean  # (n x P2)
-    col_names <- if (!is.null(lsirm_data$col_con)) lsirm_data$col_con else paste0("j", 1:ncol(lam_pm))
+  if (has_valid(res$samples$lambda2_postmean) && ncol(res$samples$lambda2_postmean) > 0) {
+    lam_pm <- res$samples$lambda2_postmean
+    col_names <- if (length(lsirm_data$col_con) > 0) lsirm_data$col_con else paste0("j", 1:ncol(lam_pm))
 
     pdf(file.path(plot_dir, paste0(prefix, "_lambda2_postmean_heatmap.pdf")), width = 10, height = 8)
-
     col_pal <- colorRampPalette(c("red", "white", "steelblue"))(100)
     lam_clipped <- pmin(lam_pm, quantile(lam_pm, 0.99))
     image(1:nrow(lam_pm), 1:ncol(lam_pm), lam_clipped,
@@ -376,10 +484,8 @@ make_traceplots <- function(result, prefix, lsirm_data) {
          labels = seq(1, nrow(lam_pm), length.out = min(10, nrow(lam_pm))))
     axis(2, at = 1:ncol(lam_pm), labels = col_names, las = 2, cex.axis = 0.7)
     box()
-
     dev.off()
 
-    # --- Lambda2 per-item boxplot ---
     pdf(file.path(plot_dir, paste0(prefix, "_lambda2_postmean_boxplot.pdf")), width = 10, height = 6)
     colnames(lam_pm) <- col_names
     boxplot(as.data.frame(lam_pm), las = 2, cex.axis = 0.7,
@@ -388,7 +494,6 @@ make_traceplots <- function(result, prefix, lsirm_data) {
     abline(h = 1, col = "red", lty = 2)
     dev.off()
 
-    # --- Print summary ---
     cat("\n── Lambda2 Posterior Mean Summary ──\n")
     cat(sprintf("  Overall mean: %.3f\n", mean(lam_pm)))
     cat(sprintf("  Min: %.3f | Q1: %.3f | Median: %.3f | Q3: %.3f | Max: %.3f\n",
@@ -405,34 +510,36 @@ make_traceplots <- function(result, prefix, lsirm_data) {
   gamma_list  <- list(res$samples$log_gamma1, res$samples$log_gamma2,
                       res$samples$log_gamma3, res$samples$log_gamma4,
                       res$samples$log_gamma5)
-  gamma_exist <- !sapply(gamma_list, is.null)
+  gamma_exist <- sapply(gamma_list, has_valid)
 
-  if (any(gamma_exist)) {
+  if (sum(gamma_exist) >= 1) {
     gamma_val_list <- lapply(gamma_list[gamma_exist], exp)
 
     pdf(file.path(plot_dir, paste0(prefix, "_trace_gamma_compare.pdf")), width = 10, height = 8)
     par(mfrow = c(2,1), mar = c(4,4,3,1))
 
-    # Panel 1: Gamma traceplots per layer
     yr <- range(unlist(gamma_val_list))
-    plot(gamma_val_list[[1]], type = "l", col = gamma_cols[gamma_exist][1],
+    base::plot(gamma_val_list[[1]], type = "l", col = gamma_cols[gamma_exist][1],
          ylim = yr, xlab = "Iteration", ylab = expression(gamma[l]),
          main = "Layer-Specific Gamma Traceplots")
-    for (k in seq_along(gamma_val_list)[-1]) {
-      lines(gamma_val_list[[k]], col = gamma_cols[gamma_exist][k])
+    if (length(gamma_val_list) > 1) {
+      for (k in seq_along(gamma_val_list)[-1]) {
+        lines(gamma_val_list[[k]], col = gamma_cols[gamma_exist][k])
+      }
     }
     legend("topright", legend = gamma_names[gamma_exist],
            col = gamma_cols[gamma_exist], lwd = 1, bty = "n", cex = 0.9)
 
-    # Panel 2: Posterior density per layer
     dens_list <- lapply(gamma_val_list, density)
     xr <- range(unlist(lapply(dens_list, function(d) d$x)))
     yr <- range(unlist(lapply(dens_list, function(d) d$y)))
-    plot(dens_list[[1]], col = gamma_cols[gamma_exist][1], lwd = 2,
+    base::plot(dens_list[[1]], col = gamma_cols[gamma_exist][1], lwd = 2,
          xlim = xr, ylim = yr, xlab = expression(gamma[l]), ylab = "Density",
          main = "Posterior Density: Layer-Specific Gamma")
-    for (k in seq_along(dens_list)[-1]) {
-      lines(dens_list[[k]], col = gamma_cols[gamma_exist][k], lwd = 2)
+    if (length(dens_list) > 1) {
+      for (k in seq_along(dens_list)[-1]) {
+        lines(dens_list[[k]], col = gamma_cols[gamma_exist][k], lwd = 2)
+      }
     }
     for (k in seq_along(gamma_val_list)) {
       abline(v = mean(gamma_val_list[[k]]), col = gamma_cols[gamma_exist][k], lty = 3)
@@ -446,25 +553,20 @@ make_traceplots <- function(result, prefix, lsirm_data) {
 }
 
 
-# ── Case 3: P1-P3-P4 ──
-make_traceplots(result_all, prefix = "M2R1_ALL_v5", lsirm_data = lsirm_all)
-
-
 ################################################################################
-# 4. Biplot: 잠재 공간 시각화
+# 5. Biplot helper
 ################################################################################
-
-make_biplot <- function(result, lsirm_data, title, filename) {
+make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
 
   res <- if (is.null(result$samples)) result else result$samples
 
   A_hat <- apply(res$a, c(2,3), mean)
 
-  has_bin  <- length(lsirm_data$col_bin)  > 0 && length(res$b1)>0
-  has_con  <- length(lsirm_data$col_con)  > 0 && length(res$b2)>0
-  has_cnt  <- length(lsirm_data$col_cnt)  > 0 && length(res$b3)>0
-  has_ord1 <- length(lsirm_data$col_ord1) > 0 && length(res$b4)>0
-  has_ord2 <- length(lsirm_data$col_ord2) > 0 && length(res$b5)>0
+  has_bin  <- length(lsirm_data$col_bin)  > 0 && has_valid(res$b1) && dim(res$b1)[2] > 0
+  has_con  <- length(lsirm_data$col_con)  > 0 && has_valid(res$b2) && dim(res$b2)[2] > 0
+  has_cnt  <- length(lsirm_data$col_cnt)  > 0 && has_valid(res$b3) && dim(res$b3)[2] > 0
+  has_ord1 <- length(lsirm_data$col_ord1) > 0 && has_valid(res$b4) && dim(res$b4)[2] > 0
+  has_ord2 <- length(lsirm_data$col_ord2) > 0 && has_valid(res$b5) && dim(res$b5)[2] > 0
 
   B1_hat <- if (has_bin)  apply(res$b1, c(2,3), mean) else NULL
   B2_hat <- if (has_con)  apply(res$b2, c(2,3), mean) else NULL
@@ -472,18 +574,8 @@ make_biplot <- function(result, lsirm_data, title, filename) {
   B4_hat <- if (has_ord1) apply(res$b4, c(2,3), mean) else NULL
   B5_hat <- if (has_ord2) apply(res$b5, c(2,3), mean) else NULL
 
-  # Branch coloring for respondents
-  has_branch <- !is.null(lsirm_data$branch)
-  if (has_branch) {
-    br <- lsirm_data$branch
-    branch_col <- ifelse(br == "Sadness", "#E41A1C",
-                  ifelse(br == "Anhedonia", "#377EB8",
-                  ifelse(br == "Both", "#984EA3", "gray80")))
-    branch_pch <- ifelse(br == "Both", 24, 21)
-  } else {
-    branch_col <- rep("gray80", nrow(A_hat))
-    branch_pch <- rep(21, nrow(A_hat))
-  }
+  branch_col <- rep("gray80", nrow(A_hat))
+  branch_pch <- rep(21, nrow(A_hat))
 
   all_pts <- rbind(A_hat, B1_hat, B2_hat, B3_hat, B4_hat, B5_hat)
   expand <- 0.08
@@ -496,7 +588,7 @@ make_biplot <- function(result, lsirm_data, title, filename) {
   if (dy == 0) ylim <- yr + c(-1,1)
 
   pdf(file.path(plot_dir, filename), width = 10, height = 8)
-  plot(A_hat, pch = branch_pch, col = "black", bg = branch_col, cex = 0.8,
+  base::plot(A_hat, pch = branch_pch, col = "black", bg = branch_col, cex = 0.8,
        xlab = "Dim1", ylab = "Dim2", main = title,
        xlim = xlim, ylim = ylim)
 
@@ -521,23 +613,14 @@ make_biplot <- function(result, lsirm_data, title, filename) {
     text(B5_hat, labels = lsirm_data$col_ord2, cex = 0.7, pos = 4, col = "deeppink4")
   }
 
-  # Build legend
-  resp_legend <- if (has_branch) {
-    c("Sadness only", "Anhedonia only", "Both")
-  } else {
-    "Respondent"
-  }
-  resp_bg <- if (has_branch) {
-    c("#E41A1C", "#377EB8", "#984EA3")
-  } else {
-    "gray80"
-  }
-  resp_pch <- if (has_branch) c(21, 21, 24) else 21
+  resp_legend <- "Respondent"
+  resp_bg  <- "gray80"
+  resp_pch <- 21
 
   item_legend <- c(
-    if(has_bin)  "Binary (med/supp/health)" else NULL,
+    if(has_bin)  "Binary (CESD)" else NULL,
     if(has_con)  "Continuous (bio/cog)" else NULL,
-    if(has_cnt)  "Count (sleep/smoke/drink)" else NULL,
+    if(has_cnt)  "Count (sleep/drink/cog)" else NULL,
     if(has_ord1) "Ordinal-5 (MASQ)" else NULL,
     if(has_ord2) "Ordinal-4 (PSQI)" else NULL
   )
@@ -555,12 +638,201 @@ make_biplot <- function(result, lsirm_data, title, filename) {
          pt.bg = c(resp_bg, item_bg),
          bty = "n", cex = 0.8)
 
-  if (has_branch) {
-    cat(sprintf("  [%s] Branch counts: %s\n", filename,
-        paste(names(table(br)), table(br), sep="=", collapse=", ")))
+  dev.off()
+}
+
+
+################################################################################
+# 5b. 3D Biplot helper (requires rgl)
+################################################################################
+make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
+
+  if (!requireNamespace("rgl", quietly = TRUE)) {
+    cat("  [SKIP] rgl package not installed — skipping 3D biplot\n")
+    return(invisible(NULL))
+  }
+  library(rgl)
+
+  res <- if (is.null(result$samples)) result else result$samples
+
+  A_hat <- apply(res$a, c(2,3), mean)
+  d <- ncol(A_hat)
+  if (d < 3) {
+    cat("  [SKIP] d < 3 — skipping 3D biplot\n")
+    return(invisible(NULL))
+  }
+
+  has_bin  <- length(lsirm_data$col_bin)  > 0 && has_valid(res$b1) && dim(res$b1)[2] > 0
+  has_con  <- length(lsirm_data$col_con)  > 0 && has_valid(res$b2) && dim(res$b2)[2] > 0
+  has_cnt  <- length(lsirm_data$col_cnt)  > 0 && has_valid(res$b3) && dim(res$b3)[2] > 0
+  has_ord1 <- length(lsirm_data$col_ord1) > 0 && has_valid(res$b4) && dim(res$b4)[2] > 0
+  has_ord2 <- length(lsirm_data$col_ord2) > 0 && has_valid(res$b5) && dim(res$b5)[2] > 0
+
+  B1_hat <- if (has_bin)  apply(res$b1, c(2,3), mean) else NULL
+  B2_hat <- if (has_con)  apply(res$b2, c(2,3), mean) else NULL
+  B3_hat <- if (has_cnt)  apply(res$b3, c(2,3), mean) else NULL
+  B4_hat <- if (has_ord1) apply(res$b4, c(2,3), mean) else NULL
+  B5_hat <- if (has_ord2) apply(res$b5, c(2,3), mean) else NULL
+
+  # --- Interactive 3D plot ---
+  open3d()
+  par3d(windowRect = c(50, 50, 850, 650))
+
+  # Respondents
+  plot3d(A_hat[,1], A_hat[,2], A_hat[,3],
+         xlab = "Dim1", ylab = "Dim2", zlab = "Dim3",
+         col = "gray70", size = 3, type = "s",
+         main = title)
+
+  if (has_bin) {
+    spheres3d(B1_hat[,1], B1_hat[,2], B1_hat[,3], radius = 0.08, col = "forestgreen")
+    text3d(B1_hat[,1], B1_hat[,2], B1_hat[,3], texts = lsirm_data$col_bin,
+           adj = c(-0.2, 0.5), cex = 0.7, col = "darkgreen")
+  }
+  if (has_con) {
+    spheres3d(B2_hat[,1], B2_hat[,2], B2_hat[,3], radius = 0.08, col = "orange")
+    text3d(B2_hat[,1], B2_hat[,2], B2_hat[,3], texts = lsirm_data$col_con,
+           adj = c(-0.2, 0.5), cex = 0.7, col = "orange4")
+  }
+  if (has_cnt) {
+    spheres3d(B3_hat[,1], B3_hat[,2], B3_hat[,3], radius = 0.08, col = "cyan3")
+    text3d(B3_hat[,1], B3_hat[,2], B3_hat[,3], texts = lsirm_data$col_cnt,
+           adj = c(-0.2, 0.5), cex = 0.7, col = "cyan4")
+  }
+  if (has_ord1) {
+    spheres3d(B4_hat[,1], B4_hat[,2], B4_hat[,3], radius = 0.08, col = "purple")
+    text3d(B4_hat[,1], B4_hat[,2], B4_hat[,3], texts = lsirm_data$col_ord1,
+           adj = c(-0.2, 0.5), cex = 0.7, col = "purple4")
+  }
+  if (has_ord2) {
+    spheres3d(B5_hat[,1], B5_hat[,2], B5_hat[,3], radius = 0.08, col = "deeppink")
+    text3d(B5_hat[,1], B5_hat[,2], B5_hat[,3], texts = lsirm_data$col_ord2,
+           adj = c(-0.2, 0.5), cex = 0.7, col = "deeppink4")
+  }
+
+  legend3d("topright",
+           legend = c("Respondent",
+                      if(has_bin)  "Binary (CESD)" else NULL,
+                      if(has_con)  "Continuous (bio/cog)" else NULL,
+                      if(has_cnt)  "Count (sleep/drink/cog)" else NULL,
+                      if(has_ord1) "Ordinal-5 (MASQ)" else NULL,
+                      if(has_ord2) "Ordinal-4 (PSQI)" else NULL),
+           pch = 16,
+           col = c("gray70",
+                   if(has_bin)  "forestgreen" else NULL,
+                   if(has_con)  "orange" else NULL,
+                   if(has_cnt)  "cyan3" else NULL,
+                   if(has_ord1) "purple" else NULL,
+                   if(has_ord2) "deeppink" else NULL),
+           bty = "n", cex = 0.9)
+
+  # Save as PNG snapshot
+  rgl.snapshot(file.path(plot_dir, filename), fmt = "png")
+  close3d()
+
+  # --- Also save 2D pairwise projections as PDF ---
+  pdf_file <- sub("\\.[^.]+$", "_pairs.pdf", file.path(plot_dir, filename))
+  pdf(pdf_file, width = 12, height = 4.5)
+  par(mfrow = c(1,3), mar = c(4,4,3,1))
+
+  dim_pairs <- list(c(1,2), c(1,3), c(2,3))
+  dim_labels <- c("Dim1", "Dim2", "Dim3")
+
+  for (dp in dim_pairs) {
+    d1 <- dp[1]; d2 <- dp[2]
+    all_pts <- rbind(A_hat[, c(d1,d2)], B1_hat[, c(d1,d2)], B2_hat[, c(d1,d2)],
+                     B3_hat[, c(d1,d2)], B4_hat[, c(d1,d2)], B5_hat[, c(d1,d2)])
+    xr <- range(all_pts[,1], na.rm = TRUE); yr <- range(all_pts[,2], na.rm = TRUE)
+    expand <- 0.08
+    xlim <- xr + c(-1,1) * expand * diff(xr)
+    ylim <- yr + c(-1,1) * expand * diff(yr)
+    if (diff(xr) == 0) xlim <- xr + c(-1,1)
+    if (diff(yr) == 0) ylim <- yr + c(-1,1)
+
+    base::plot(A_hat[,d1], A_hat[,d2], pch = 21, bg = "gray80", col = "black", cex = 0.8,
+         xlab = dim_labels[d1], ylab = dim_labels[d2],
+         main = paste0(dim_labels[d1], " vs ", dim_labels[d2]),
+         xlim = xlim, ylim = ylim)
+
+    if (has_bin) {
+      points(B1_hat[,d1], B1_hat[,d2], pch = 21, bg = "forestgreen", col = "forestgreen", cex = 1.2)
+      text(B1_hat[,d1], B1_hat[,d2], labels = lsirm_data$col_bin, cex = 0.6, pos = 4, col = "darkgreen")
+    }
+    if (has_con) {
+      points(B2_hat[,d1], B2_hat[,d2], pch = 21, bg = "orange", col = "orange", cex = 1.2)
+      text(B2_hat[,d1], B2_hat[,d2], labels = lsirm_data$col_con, cex = 0.6, pos = 4, col = "orange4")
+    }
+    if (has_cnt) {
+      points(B3_hat[,d1], B3_hat[,d2], pch = 21, bg = "cyan3", col = "cyan3", cex = 1.2)
+      text(B3_hat[,d1], B3_hat[,d2], labels = lsirm_data$col_cnt, cex = 0.6, pos = 4, col = "cyan4")
+    }
+    if (has_ord1) {
+      points(B4_hat[,d1], B4_hat[,d2], pch = 21, bg = "purple", col = "purple", cex = 1.2)
+      text(B4_hat[,d1], B4_hat[,d2], labels = lsirm_data$col_ord1, cex = 0.6, pos = 4, col = "purple4")
+    }
+    if (has_ord2) {
+      points(B5_hat[,d1], B5_hat[,d2], pch = 21, bg = "deeppink", col = "deeppink", cex = 1.2)
+      text(B5_hat[,d1], B5_hat[,d2], labels = lsirm_data$col_ord2, cex = 0.6, pos = 4, col = "deeppink4")
+    }
   }
   dev.off()
 }
 
-result_all
-make_biplot(result_all, lsirm_all, "MIDUS W2+R1: P1-P3-P4 (GRM v5)",  "M2R1_ALL_v5_biplot.pdf")
+################################################################################
+# 6. 순차 실행
+################################################################################
+
+for (cs in cases[1]) {
+  cat(sprintf("\n\n========== %s ==========\n", cs$label))
+
+  # Case-specific plot directory
+  case_plot_dir <- file.path(plot_root, cs$name)
+  if (!dir.exists(case_plot_dir)) dir.create(case_plot_dir, recursive = TRUE)
+
+  cat(sprintf("  Y_bin: %d×%d | Y_con: %d×%d | Y_cnt: %d×%d | Y_ord1: %d×%d | Y_ord2: %d×%d\n",
+              nrow(cs$Y_bin), ncol(cs$Y_bin),
+              nrow(cs$Y_con), ncol(cs$Y_con),
+              nrow(cs$Y_cnt), ncol(cs$Y_cnt),
+              nrow(cs$Y_ord1), ncol(cs$Y_ord1),
+              nrow(cs$Y_ord2), ncol(cs$Y_ord2)))
+
+  result <- lsirm_sharedpos_layer5_grm_cpp(
+    cs$Y_bin, round(cs$Y_con,1), cs$Y_cnt, cs$Y_ord1, cs$Y_ord2,
+    d = common_mcmc$d,
+    n_iter = common_mcmc$n_iter,
+    burnin = common_mcmc$burnin,
+    thin   = common_mcmc$thin,
+    nu2    = nu2,
+    hyper  = common_hyper,
+    prop_sd = common_prop_sd,
+    init = NULL,
+    verbose = TRUE
+  )
+
+  cat(sprintf("\n── %s: Acceptance Rates ──\n", cs$name))
+  print(result$accept)
+
+  # lsirm_data for plot labels
+  lsirm_data <- list(
+    col_bin  = cs$col_bin,  col_con  = cs$col_con,
+    col_cnt  = cs$col_cnt,  col_ord1 = cs$col_ord1, col_ord2 = cs$col_ord2,
+    branch   = lsirm_all$branch
+  )
+
+  prefix <- paste0("v5_", cs$name)
+
+  make_traceplots(result, prefix = prefix, lsirm_data = lsirm_data, plot_dir = case_plot_dir)
+  make_biplot(result, lsirm_data = lsirm_data,
+              title = paste0("MIDUS W2+R1: ", cs$label, " (GRM v5)"),
+              filename = paste0(prefix, "_biplot.pdf"),
+              plot_dir = case_plot_dir)
+  make_biplot_3d(result, lsirm_data = lsirm_data,
+                 title = paste0("MIDUS W2+R1: ", cs$label, " (GRM v5, 3D)"),
+                 filename = paste0(prefix, "_biplot_3d.png"),
+                 plot_dir = case_plot_dir)
+
+  # Save result object
+  result_file <- file.path(case_plot_dir, paste0(cs$name, "_result.rds"))
+  saveRDS(result, result_file)
+  cat(sprintf("  → Plots & result saved to: %s\n", case_plot_dir))
+}

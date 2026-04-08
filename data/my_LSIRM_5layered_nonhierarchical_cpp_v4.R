@@ -21,7 +21,7 @@ lsirm_sharedpos_layer5_robust_cpp <- function(
       mu_log_gamma3=0, sd_log_gamma3=1,
       mu_log_gamma4=0, sd_log_gamma4=1,
       mu_log_gamma5=0, sd_log_gamma5=1,
-      mu_log_kappa=0, sd_log_kappa=1,
+      mu_log_kappa=0, sd_log_kappa=0.1,
       mu_u=0, sd_u=1, mu_delta=0, sd_delta=1
     ),
     prop_sd = list(

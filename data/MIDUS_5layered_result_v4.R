@@ -1,13 +1,74 @@
 rm(list = ls())
 
+library(dplyr)
+library(purrr)
+
 ################################################################################
-# 0. 데이터 준비 (EDA 스크립트 실행)
+# 0. 데이터 준비: Wave 2 + Refresher 1 합치기
 ################################################################################
-setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data")
-source("MIDUS_preprocess_2_v3.R")
+proj_root <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM"
+
+# ── Wave 2 전처리 (격리 환경) ──
+cat("\n====== Wave 2 전처리 ======\n")
+env_w2 <- new.env(parent = globalenv())
+source(file.path(proj_root, "data/MIDUS_preprocess_2_v3.R"), local = env_w2)
+lsirm_all_w2 <- env_w2$lsirm_all
+lsirm_p4_w2  <- env_w2$lsirm_p4
+lsirm_p3_w2  <- env_w2$lsirm_p3
+
+# ── Refresher 1 전처리 (격리 환경) ──
+cat("\n====== Refresher 1 전처리 ======\n")
+env_r1 <- new.env(parent = globalenv())
+source(file.path(proj_root, "data/MIDUS_preprocess_refresher_v3.R"), local = env_r1)
+lsirm_all_r1 <- env_r1$lsirm_all
+lsirm_p4_r1  <- env_r1$lsirm_p4
+lsirm_p3_r1  <- env_r1$lsirm_p3
+
+# ── 합치기 함수 ──
+combine_lsirm <- function(l_w2, l_r1, label = "") {
+  # 변수명은 다르지만 (B4* vs RA4*) 순서와 의미가 동일 → wave_2 이름 기준 통일
+  rbind_mat <- function(m1, m2) {
+    if (ncol(m1) == 0 && ncol(m2) == 0) return(m1)
+    colnames(m2) <- colnames(m1)
+    rbind(m1, m2)
+  }
+
+  Y_bin  <- rbind_mat(l_w2$Y_bin,  l_r1$Y_bin)
+  Y_cnt  <- rbind_mat(l_w2$Y_cnt,  l_r1$Y_cnt)
+  Y_ord1 <- rbind_mat(l_w2$Y_ord1, l_r1$Y_ord1)
+  Y_ord2 <- rbind_mat(l_w2$Y_ord2, l_r1$Y_ord2)
+  Y_con  <- rbind_mat(l_w2$Y_con,  l_r1$Y_con)
+
+  combined <- list(
+    Y_bin  = Y_bin,  Y_cnt  = Y_cnt,
+    Y_ord1 = Y_ord1, Y_ord2 = Y_ord2,
+    Y_con  = Y_con,
+    row_ids  = c(l_w2$row_ids, l_r1$row_ids),
+    branch   = c(l_w2$branch,  l_r1$branch),
+    source   = c(rep("wave2", length(l_w2$row_ids)),
+                 rep("refresher1", length(l_r1$row_ids))),
+    col_bin  = l_w2$col_bin,  col_cnt  = l_w2$col_cnt,
+    col_ord1 = l_w2$col_ord1, col_ord2 = l_w2$col_ord2,
+    col_con  = l_w2$col_con
+  )
+
+  n_w2 <- length(l_w2$row_ids)
+  n_r1 <- length(l_r1$row_ids)
+  cat(sprintf("\n=== %s: Combined %d (W2) + %d (R1) = %d명 ===\n",
+              label, n_w2, n_r1, n_w2 + n_r1))
+  cat(sprintf("  Y_bin: %d×%d | Y_cnt: %d×%d | Y_ord1: %d×%d | Y_ord2: %d×%d | Y_con: %d×%d\n",
+              nrow(Y_bin), ncol(Y_bin), nrow(Y_cnt), ncol(Y_cnt),
+              nrow(Y_ord1), ncol(Y_ord1), nrow(Y_ord2), ncol(Y_ord2),
+              nrow(Y_con), ncol(Y_con)))
+  combined
+}
+
+lsirm_all <- combine_lsirm(lsirm_all_w2, lsirm_all_r1, label = "P1-P3-P4")
+lsirm_p4  <- combine_lsirm(lsirm_p4_w2,  lsirm_p4_r1,  label = "P1-P4")
+lsirm_p3  <- combine_lsirm(lsirm_p3_w2,  lsirm_p3_r1,  label = "P1-P3")
 
 # 5-layered LSIRM (v4: robust continuous) 모델 로드
-setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM")
+setwd(proj_root)
 source("data/my_LSIRM_5layered_nonhierarchical_cpp_v4.R")
 source("utils.R")
 
@@ -41,25 +102,25 @@ common_mcmc <- list(d = 2, n_iter = 100000, burnin = 20000, thin = 10)
 nu2 <- 5
 
 # plot 디렉토리 생성
-plot_dir <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/plot"
+plot_dir <- "/Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/data/plot"
 if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
 
 ################################################################################
 # 2. Analysis Case 3: P1–P3–P4 (통합)
 ################################################################################
-cat("\n\n========== Case 3: P1-P3-P4 (Robust v4) ==========\n")
+cat("\n\n========== Case 3: P1-P3-P4 Combined W2+R1 (Robust v4) ==========\n")
 
 Y_con_all  <- scale(lsirm_all$Y_con)
 Y_bin_all  <- lsirm_all$Y_bin
 Y_cnt_all  <- lsirm_all$Y_cnt
 Y_ord1_all <- lsirm_all$Y_ord1
 Y_ord2_all <- lsirm_all$Y_ord2
-
-Y_con_all  <- matrix(0L, nrow = nrow(Y_con_all), ncol = 0)
-Y_bin_all  <- matrix(0L, nrow = nrow(Y_bin_all), ncol = 0)
-Y_cnt_all  <- matrix(0L, nrow = nrow(Y_cnt_all), ncol = 0)
-Y_ord1_all  <- matrix(0L, nrow = nrow(Y_ord1_all), ncol = 0)
-Y_ord2_all  <- matrix(0L, nrow = nrow(Y_ord2_all), ncol = 0)
+# 
+# Y_con_all  <- matrix(0L, nrow = nrow(Y_con_all), ncol = 0)
+# Y_bin_all  <- matrix(0L, nrow = nrow(Y_bin_all), ncol = 0)
+# Y_cnt_all  <- matrix(0L, nrow = nrow(Y_cnt_all), ncol = 0)
+# Y_ord1_all  <- matrix(0L, nrow = nrow(Y_ord1_all), ncol = 0)
+# Y_ord2_all  <- matrix(0L, nrow = nrow(Y_ord2_all), ncol = 0)
 
 cat(sprintf("  Y_bin: %d×%d | Y_con: %d×%d | Y_cnt: %d×%d | Y_ord1: %d×%d | Y_ord2: %d×%d\n",
             nrow(Y_bin_all), ncol(Y_bin_all),
@@ -81,7 +142,7 @@ result_all <- lsirm_sharedpos_layer5_robust_cpp(
   verbose = TRUE
 )
 
-cat("\n── P1-P3-P4 Acceptance Rates (Robust v4) ──\n")
+cat("\n── P1-P3-P4 Combined W2+R1 Acceptance Rates (Robust v4) ──\n")
 print(result_all$accept)
 
 
@@ -216,23 +277,47 @@ make_traceplots <- function(result, prefix, lsirm_data) {
     dev.off()
   }
 
-  # delta (L4 ordinal thresholds)
+  # delta (L4 ordinal thresholds) — 문항명 + threshold index 표시
   if (!is.null(res$samples$delta)) {
-    d_s <- res$samples$delta
-    n_s <- dim(d_s)[1]
-    delta_mat <- matrix(d_s, nrow = n_s, ncol = dim(d_s)[2] * dim(d_s)[3])
+    d_s <- res$samples$delta   # (n_save, P4, K-2)
+    n_s  <- dim(d_s)[1]
+    P4_d <- dim(d_s)[2]
+    Km2  <- dim(d_s)[3]
+    col_ord1 <- if (!is.null(lsirm_data$col_ord1)) lsirm_data$col_ord1 else paste0("ord1_j", 1:P4_d)
+
     pdf(file.path(plot_dir, paste0(prefix, "_trace_delta.pdf")), width = 8, height = 12)
-    plot_trace_vec(delta_mat, name = "delta_ord1", mfrow = c(3,2))
+    par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
+    for (j in 1:P4_d) {
+      for (k in 1:Km2) {
+        x <- d_s[, j, k]
+        q <- quantile(x, c(.025, .975), na.rm = TRUE)
+        ts.plot(x, main = sprintf("delta[%s, k=%d]", col_ord1[j], k))
+        abline(h = c(mean(x, na.rm = TRUE), q),
+               col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
+      }
+    }
     dev.off()
   }
 
-  # delta2 (L5 ordinal thresholds)
+  # delta2 (L5 ordinal thresholds) — 문항명 + threshold index 표시
   if (!is.null(res$samples$delta2)) {
-    d_s <- res$samples$delta2
-    n_s <- dim(d_s)[1]
-    delta_mat <- matrix(d_s, nrow = n_s, ncol = dim(d_s)[2] * dim(d_s)[3])
+    d_s  <- res$samples$delta2  # (n_save, P5, K2-2)
+    n_s  <- dim(d_s)[1]
+    P5_d <- dim(d_s)[2]
+    Km2  <- dim(d_s)[3]
+    col_ord2 <- if (!is.null(lsirm_data$col_ord2)) lsirm_data$col_ord2 else paste0("ord2_j", 1:P5_d)
+
     pdf(file.path(plot_dir, paste0(prefix, "_trace_delta2.pdf")), width = 8, height = 12)
-    plot_trace_vec(delta_mat, name = "delta_ord2", mfrow = c(3,2))
+    par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
+    for (j in 1:P5_d) {
+      for (k in 1:Km2) {
+        x <- d_s[, j, k]
+        q <- quantile(x, c(.025, .975), na.rm = TRUE)
+        ts.plot(x, main = sprintf("delta2[%s, k=%d]", col_ord2[j], k))
+        abline(h = c(mean(x, na.rm = TRUE), q),
+               col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
+      }
+    }
     dev.off()
   }
 
@@ -370,7 +455,7 @@ make_traceplots <- function(result, prefix, lsirm_data) {
 
 
 # ── Case 3: P1-P3-P4 ──
-make_traceplots(result_all, prefix = "M2_ALL_v4", lsirm_data = lsirm_all)
+make_traceplots(result_all, prefix = "M2R1_ALL_v4", lsirm_data = lsirm_all)
 
 
 ################################################################################
@@ -486,4 +571,8 @@ make_biplot <- function(result, lsirm_data, title, filename) {
   dev.off()
 }
 
-make_biplot(result_all, lsirm_all, "MIDUS_2: P1-P3-P4 (Robust v4)",  "M2_ALL_v4_biplot.pdf")
+result_all
+make_biplot(result_all, lsirm_all, "MIDUS W2+R1: P1-P3-P4 (Robust v4)",  "M2R1_ALL_v4_biplot.pdf")
+
+
+lsi

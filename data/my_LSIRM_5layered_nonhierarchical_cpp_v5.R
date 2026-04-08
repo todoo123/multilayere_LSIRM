@@ -2,8 +2,8 @@ library(Rcpp)
 library(RcppArmadillo)
 library(vegan)
 
-# C++ 코드 컴파일
-sourceCpp("data/my_LSIRM_5layered_nonhierarchical_v5.cpp")
+# C++ 코드 컴파일 (data/ 폴더 내에서 실행 기준)
+sourceCpp(file.path(getwd(), "my_LSIRM_5layered_nonhierarchical_v5.cpp"))
 
 lsirm_sharedpos_layer5_grm_cpp <- function(
     Y_bin, Y_con, Y_cnt, Y_ord1, Y_ord2,

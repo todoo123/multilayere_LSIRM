@@ -13,7 +13,7 @@ source("my_LSIRM_4layered_nonhierarchical_cpp_v5.R")
 # 1) Simulation settings
 # =========================================================
 n  <- 150
-P2 <- 30  # continuous
+P2 <- 18  # continuous
 P1 <- 10  # binary
 P3 <- 10  # count
 P4 <- 10  # ordinal
@@ -27,23 +27,36 @@ n_stupid <- 45
 K <- 3
 
 centers_resp <- rbind(
-  c(-2, -2),
-  c(2, 2),
-  c(-0, 0)
+  c(1, 1),
+  c(1, 1),
+  c(1, 1)
 )
 
-centers_item <- rbind(
-  c(-2, -2),
+centers_bin <- rbind(
+  c(-1,  2),
   c( 2,  2),
   c( 0,  0)
 )
 
-centers_bin    <- centers_item
-centers_con    <- centers_item
-centers_cnt    <- centers_item
-centers_likert <- centers_item
+centers_con <- rbind(
+  c( 2, -1),
+  c( 3,  3),
+  c(-1, -1)
+)
 
-sd_cluster_resp <- 0.50
+centers_cnt <- rbind(
+  c(-1,  2),
+  c( 2,  2),
+  c( 0,  0)
+)
+
+centers_likert <- rbind(
+  c(-1,  2),
+  c( 2,  2),
+  c( 0,  0)
+)
+
+sd_cluster_resp <- 1.00
 sd_cluster_item <- 0.30
 
 sigma_likert_latent <- 1.0
@@ -51,7 +64,7 @@ kappa_true <- 1
 
 # Robust simulation: degrees of freedom for continuous layer errors
 nu2_true <- 5    # Student-t df for generating Y_con (heavy-tailed)
-nu2_fit  <- 5    # df used in fitting
+nu2_fit  <- 4    # df used in fitting
 
 # =========================================================
 # 2) Helper: sample latent positions with 3 clear clusters
@@ -227,7 +240,7 @@ plot_positions <- function(A, B1, B2, B3, B4,
     title <- "TRUE latent positions: Respondents(gray), bin(red), con(orange), cnt(brown), ord(purple)"
   }
 
-  plot(A, pch=21, bg="gray80", col="black",
+  base::plot(A, pch=21, bg="gray80", col="black",
        xlab="Dim1", ylab="Dim2", main=title,
        xlim=rng, ylim=rng)
   text(A, labels=A_cl, cex=0.6, pos=3, col="gray30")
@@ -253,6 +266,7 @@ plot_positions(A_true, B1_true, B2_true, B3_true, B4_true,
 # =========================================================
 # 8) Running Model (v5: robust)
 # =========================================================
+setwd('/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM')
 source("my_LSIRM_4layered_nonhierarchical_cpp_v5.R")
 result <- lsirm_sharedpos_layer4_robust_cpp(
   Y_bin, Y_con, Y_cnt, Y_ord,
