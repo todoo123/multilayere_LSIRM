@@ -6,7 +6,7 @@ library(purrr)
 ################################################################################
 # 0. load — MIDUS Refresher 1 데이터
 ################################################################################
-setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/MIDUS_refresher_1")
+setwd("/Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/data/MIDUS_refresher_1")
 
 # ─── ICPSR_36532: Survey (MIDUS Refresher 1) ────────────────────────────────
 load("ICPSR_36532/DS0001/36532-0001-Data.rda")

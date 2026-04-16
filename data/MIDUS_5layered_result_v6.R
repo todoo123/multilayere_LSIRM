@@ -69,10 +69,9 @@ combine_lsirm <- function(l_w2, l_r1, label = "") {
 
 lsirm_all <- combine_lsirm(lsirm_all_w2, lsirm_all_r1, label = "P1-P3-P4")
 
-# 5-layered LSIRM (v5: GRM ordinal + robust continuous) 모델 로드
-# sourceCpp는 fork 전에 한 번만 실행해야 함
+# 5-layered hierarchical LSIRM (v6: GRM ordinal + robust continuous + hierarchical positions) 모델 로드
 setwd(data_dir)
-source(file.path(data_dir, "my_LSIRM_5layered_nonhierarchical_cpp_v5.R"))
+source(file.path(data_dir, "my_LSIRM_5layered_hierarchical_cpp_v6.R"))
 source(file.path(data_dir, "utils.R"))
 
 ################################################################################
@@ -92,7 +91,7 @@ has_valid <- function(x) {
 common_hyper <- list(
   a_sigma=1, b_sigma=1,
   a_tau1=1, b_tau1=1, a_tau2=1, b_tau2=1, a_tau3=1, b_tau3=1,
-  a_sigma0=1, b_sigma0=1,
+  a_sigma0=3, b_sigma0=2,
   mu_log_gamma1=0, sd_log_gamma1=0.5,
   mu_log_gamma2=0, sd_log_gamma2=0.5,
   mu_log_gamma3=0, sd_log_gamma3=0.5,
@@ -100,18 +99,20 @@ common_hyper <- list(
   mu_log_gamma5=0, sd_log_gamma5=0.5,
   mu_log_kappa=0, sd_log_kappa=0.5,
   mu_beta4=0, sd_beta4=2,
-  mu_beta5=0, sd_beta5=2
+  mu_beta5=0, sd_beta5=2,
+  a_sigma_global=3, b_sigma_global=1
 )
 
 common_prop_sd <- list(
   alpha1=0.5, alpha2=0.5, alpha3=0.5, alpha4=0.5, alpha5=0.5,
-  log_gamma1=0.1, log_gamma2=0.05, log_gamma3=0.10, log_gamma4=0.2, log_gamma5=0.2, a=0.3,
+  log_gamma1=0.1, log_gamma2=0.05, log_gamma3=0.10, log_gamma4=0.2, log_gamma5=0.2,
+  a1=0.3, a2=0.3, a3=0.3, a4=0.3, a5=0.3,
   beta1=0.6, beta2=0.25, beta3=0.2, beta4=0.3, beta5=0.3,
   b1=0.35, b2=0.2, b3=0.2, b4=0.5, b5=0.5,
   log_kappa=0.4
 )
 
-common_mcmc <- list(d = 2, n_iter = 100000, burnin = 20000, thin = 10)
+common_mcmc <- list(d = 3, n_iter = 50000, burnin = 10000, thin = 10)
 
 # Robust continuous layer: degrees of freedom
 nu2 <- 4
@@ -185,6 +186,7 @@ Y_con_full  <- scale(lsirm_all$Y_con)
 #        main = sprintf("%s (λ=%.2f)", colnames(Y_con_full)[j], yj_lambdas[j]),
 #        xlab = "", col = "steelblue", border = "white")
 # }
+
 Y_bin_full  <- lsirm_all$Y_bin
 Y_cnt_full  <- lsirm_all$Y_cnt
 Y_ord1_full <- lsirm_all$Y_ord1
@@ -305,7 +307,7 @@ cases <- list(
 
 
 ################################################################################
-# 4. Traceplot helper
+# 4. Traceplot helper (V6: z, a1-a5 hierarchical)
 ################################################################################
 make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
 
@@ -330,17 +332,34 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
     }
   }
 
-  # a (latent positions)
-  if (has_valid(res$samples$a) && dim(res$samples$a)[2] > 0) {
-    n_show <- dim(res$samples$a)[2]
-    pdf(file.path(plot_dir, paste0(prefix, "_trace_a.pdf")), width = 8, height = 12)
+  # z (global latent positions)
+  if (has_valid(res$samples$z) && dim(res$samples$z)[2] > 0) {
+    n_show <- dim(res$samples$z)[2]
+    pdf(file.path(plot_dir, paste0(prefix, "_trace_z.pdf")), width = 8, height = 12)
     par(mfrow = c(4,2), mar = c(3,3,2,1))
     for (i in 1:n_show) {
-      for (j in 1:dim(res$samples$a)[3]) {
-        ts.plot(res$samples$a[, i, j], main = paste0("a: ", i, "_", j))
+      for (j in 1:dim(res$samples$z)[3]) {
+        ts.plot(res$samples$z[, i, j], main = paste0("z_global: ", i, "_", j))
       }
     }
     dev.off()
+  }
+
+  # a1-a5 (layer-specific local positions)
+  layer_names <- c("a1_bin", "a2_con", "a3_cnt", "a4_ord1", "a5_ord2")
+  for (al in 1:5) {
+    aname <- paste0("a", al)
+    if (has_valid(res$samples[[aname]]) && dim(res$samples[[aname]])[2] > 0) {
+      n_show <- dim(res$samples[[aname]])[2]
+      pdf(file.path(plot_dir, paste0(prefix, "_trace_", aname, "_pos.pdf")), width = 8, height = 12)
+      par(mfrow = c(4,2), mar = c(3,3,2,1))
+      for (i in 1:n_show) {
+        for (j in 1:dim(res$samples[[aname]])[3]) {
+          ts.plot(res$samples[[aname]][, i, j], main = paste0(layer_names[al], ": ", i, "_", j))
+        }
+      }
+      dev.off()
+    }
   }
 
   # b1 (binary item positions)
@@ -476,10 +495,11 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
     dev.off()
   }
 
-  # Extra scalar parameters
-  pdf(file.path(plot_dir, paste0(prefix, "_trace_extra.pdf")), width = 8, height = 18)
-  par(mfrow = c(7,2), mar = c(3,3,2,1))
+  # Extra scalar parameters (including sigma1_sq)
+  pdf(file.path(plot_dir, paste0(prefix, "_trace_extra.pdf")), width = 8, height = 20)
+  par(mfrow = c(8,2), mar = c(3,3,2,1))
   if (has_valid(res$samples$sigma0_sq))  plot_trace_scalar(res$samples$sigma0_sq,  true = NA, main = "sigma0_sq")
+  if (has_valid(res$samples$sigma1_sq))  plot_trace_scalar(res$samples$sigma1_sq,  true = NA, main = "sigma1_sq (global-local coupling)")
   if (has_valid(res$samples$log_gamma1)) plot_trace_scalar(res$samples$log_gamma1, true = NA, main = "gamma1 (Bin)", transform = exp)
   if (has_valid(res$samples$log_gamma2)) plot_trace_scalar(res$samples$log_gamma2, true = NA, main = "gamma2 (Con)", transform = exp)
   if (has_valid(res$samples$log_gamma3)) plot_trace_scalar(res$samples$log_gamma3, true = NA, main = "gamma3 (Cnt)", transform = exp)
@@ -605,13 +625,14 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
 
 
 ################################################################################
-# 5. Biplot helper
+# 5. Biplot helper (V6: z as global, a1-a5 as local, b1-b5 as items)
 ################################################################################
 make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
 
   res <- if (is.null(result$samples)) result else result$samples
 
-  A_hat <- apply(res$a, c(2,3), mean)
+  # Global respondent position (z)
+  Z_hat <- apply(res$z, c(2,3), mean)
 
   has_bin  <- length(lsirm_data$col_bin)  > 0 && has_valid(res$b1) && dim(res$b1)[2] > 0
   has_con  <- length(lsirm_data$col_con)  > 0 && has_valid(res$b2) && dim(res$b2)[2] > 0
@@ -625,10 +646,7 @@ make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
   B4_hat <- if (has_ord1) apply(res$b4, c(2,3), mean) else NULL
   B5_hat <- if (has_ord2) apply(res$b5, c(2,3), mean) else NULL
 
-  branch_col <- rep("gray80", nrow(A_hat))
-  branch_pch <- rep(21, nrow(A_hat))
-
-  all_pts <- rbind(A_hat, B1_hat, B2_hat, B3_hat, B4_hat, B5_hat)
+  all_pts <- rbind(Z_hat, B1_hat, B2_hat, B3_hat, B4_hat, B5_hat)
   expand <- 0.08
   xr <- range(all_pts[,1], na.rm = TRUE)
   yr <- range(all_pts[,2], na.rm = TRUE)
@@ -639,7 +657,7 @@ make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
   if (dy == 0) ylim <- yr + c(-1,1)
 
   pdf(file.path(plot_dir, filename), width = 10, height = 8)
-  base::plot(A_hat, pch = branch_pch, col = "black", bg = branch_col, cex = 0.8,
+  base::plot(Z_hat, pch = 21, col = "black", bg = "gray80", cex = 0.8,
        xlab = "Dim1", ylab = "Dim2", main = title,
        xlim = xlim, ylim = ylim)
 
@@ -664,7 +682,7 @@ make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
     text(B5_hat, labels = lsirm_data$col_ord2, cex = 0.7, pos = 4, col = "deeppink4")
   }
 
-  resp_legend <- "Respondent"
+  resp_legend <- "Respondent (z: global)"
   resp_bg  <- "gray80"
   resp_pch <- 21
 
@@ -694,22 +712,22 @@ make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
 
 
 ################################################################################
-# 5b. 3D Biplot helper (requires rgl)
+# 5b. 3D Biplot helper (requires rgl) - V6: uses z (global)
 ################################################################################
 make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
 
   if (!requireNamespace("rgl", quietly = TRUE)) {
-    cat("  [SKIP] rgl package not installed — skipping 3D biplot\n")
+    cat("  [SKIP] rgl package not installed -skipping 3D biplot\n")
     return(invisible(NULL))
   }
   library(rgl)
 
   res <- if (is.null(result$samples)) result else result$samples
 
-  A_hat <- apply(res$a, c(2,3), mean)
-  d <- ncol(A_hat)
+  Z_hat <- apply(res$z, c(2,3), mean)
+  d <- ncol(Z_hat)
   if (d < 3) {
-    cat("  [SKIP] d < 3 — skipping 3D biplot\n")
+    cat("  [SKIP] d < 3 -skipping 3D biplot\n")
     return(invisible(NULL))
   }
 
@@ -729,8 +747,8 @@ make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
   open3d()
   par3d(windowRect = c(50, 50, 850, 650))
 
-  # Respondents
-  plot3d(A_hat[,1], A_hat[,2], A_hat[,3],
+  # Respondents (global z)
+  plot3d(Z_hat[,1], Z_hat[,2], Z_hat[,3],
          xlab = "Dim1", ylab = "Dim2", zlab = "Dim3",
          col = "gray70", size = 3, type = "s",
          main = title)
@@ -762,7 +780,7 @@ make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
   }
 
   legend3d("topright",
-           legend = c("Respondent",
+           legend = c("Respondent (z: global)",
                       if(has_bin)  "Binary (CESD)" else NULL,
                       if(has_con)  "Continuous (bio/cog)" else NULL,
                       if(has_cnt)  "Count (sleep/drink/cog)" else NULL,
@@ -791,7 +809,7 @@ make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
 
   for (dp in dim_pairs) {
     d1 <- dp[1]; d2 <- dp[2]
-    all_pts <- rbind(A_hat[, c(d1,d2)], B1_hat[, c(d1,d2)], B2_hat[, c(d1,d2)],
+    all_pts <- rbind(Z_hat[, c(d1,d2)], B1_hat[, c(d1,d2)], B2_hat[, c(d1,d2)],
                      B3_hat[, c(d1,d2)], B4_hat[, c(d1,d2)], B5_hat[, c(d1,d2)])
     xr <- range(all_pts[,1], na.rm = TRUE); yr <- range(all_pts[,2], na.rm = TRUE)
     expand <- 0.08
@@ -800,7 +818,7 @@ make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
     if (diff(xr) == 0) xlim <- xr + c(-1,1)
     if (diff(yr) == 0) ylim <- yr + c(-1,1)
 
-    base::plot(A_hat[,d1], A_hat[,d2], pch = 21, bg = "gray80", col = "black", cex = 0.8,
+    base::plot(Z_hat[,d1], Z_hat[,d2], pch = 21, bg = "gray80", col = "black", cex = 0.8,
          xlab = dim_labels[d1], ylab = dim_labels[d2],
          main = paste0(dim_labels[d1], " vs ", dim_labels[d2]),
          xlim = xlim, ylim = ylim)
@@ -830,6 +848,138 @@ make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
 }
 
 ################################################################################
+# 5c. Respondent position scatter plots (global z + local a1-a5) with labels
+################################################################################
+make_respondent_scatter <- function(result, title, filename, plot_dir) {
+
+  res <- if (is.null(result$samples)) result else result$samples
+
+  Z_hat  <- apply(res$z,  c(2,3), mean)  # n x d
+  A1_hat <- apply(res$a1, c(2,3), mean)
+  A2_hat <- apply(res$a2, c(2,3), mean)
+  A3_hat <- apply(res$a3, c(2,3), mean)
+  A4_hat <- apply(res$a4, c(2,3), mean)
+  A5_hat <- apply(res$a5, c(2,3), mean)
+
+  n <- nrow(Z_hat)
+  labels <- as.character(1:n)
+
+  layer_names <- c("Global (z)", "L1: Binary", "L2: Continuous",
+                   "L3: Count", "L4: Ordinal-5", "L5: Ordinal-4")
+  layer_mats  <- list(Z_hat, A1_hat, A2_hat, A3_hat, A4_hat, A5_hat)
+  layer_cols   <- c("black", "forestgreen", "orange", "cyan4", "purple", "deeppink")
+  layer_bgs    <- c("gray80", "lightgreen", "lightyellow", "lightskyblue", "plum", "lightpink")
+
+  # --- (a) All-in-one overlay plot ---
+  all_pts <- do.call(rbind, layer_mats)
+  xr <- range(all_pts[,1], na.rm = TRUE); yr <- range(all_pts[,2], na.rm = TRUE)
+  expand <- 0.1
+  xlim <- xr + c(-1,1) * expand * max(diff(xr), 0.1)
+  ylim <- yr + c(-1,1) * expand * max(diff(yr), 0.1)
+
+  pdf(file.path(plot_dir, filename), width = 12, height = 10)
+  base::plot(NULL, xlim = xlim, ylim = ylim,
+       xlab = "Dim1", ylab = "Dim2",
+       main = paste0(title, " - All Respondent Positions"))
+
+  for (l in seq_along(layer_mats)) {
+    points(layer_mats[[l]], pch = 21, bg = layer_bgs[l], col = layer_cols[l], cex = 0.7)
+  }
+  # Label only global z to avoid clutter
+  text(Z_hat, labels = labels, cex = 0.5, pos = 3, col = "black")
+
+  legend("topright", legend = layer_names, pch = 21, pt.bg = layer_bgs,
+         col = layer_cols, bty = "n", cex = 0.8)
+  dev.off()
+
+  # --- (b) 6-panel: one panel per layer ---
+  pdf_panel <- sub("\\.pdf$", "_panels.pdf", file.path(plot_dir, filename))
+  pdf(pdf_panel, width = 15, height = 10)
+  par(mfrow = c(2, 3), mar = c(4, 4, 3, 1))
+
+  for (l in seq_along(layer_mats)) {
+    mat <- layer_mats[[l]]
+    base::plot(mat, pch = 21, bg = layer_bgs[l], col = layer_cols[l], cex = 0.8,
+         xlab = "Dim1", ylab = "Dim2", main = layer_names[l],
+         xlim = xlim, ylim = ylim)
+    text(mat, labels = labels, cex = 0.45, pos = 3, col = layer_cols[l])
+  }
+  dev.off()
+}
+
+
+################################################################################
+# 5d. Global-local distance histograms (||z_i - a_l_i|| per layer)
+################################################################################
+make_distance_histogram <- function(result, title, filename, plot_dir) {
+
+  res <- if (is.null(result$samples)) result else result$samples
+
+  Z_hat  <- apply(res$z,  c(2,3), mean)  # n x d
+  A1_hat <- apply(res$a1, c(2,3), mean)
+  A2_hat <- apply(res$a2, c(2,3), mean)
+  A3_hat <- apply(res$a3, c(2,3), mean)
+  A4_hat <- apply(res$a4, c(2,3), mean)
+  A5_hat <- apply(res$a5, c(2,3), mean)
+
+  # Euclidean distance ||z_i - a_l_i|| for each respondent
+  euc_dist <- function(A, B) sqrt(rowSums((A - B)^2))
+
+  dist1 <- euc_dist(Z_hat, A1_hat)
+  dist2 <- euc_dist(Z_hat, A2_hat)
+  dist3 <- euc_dist(Z_hat, A3_hat)
+  dist4 <- euc_dist(Z_hat, A4_hat)
+  dist5 <- euc_dist(Z_hat, A5_hat)
+
+  layer_names <- c("L1: Binary", "L2: Continuous", "L3: Count",
+                   "L4: Ordinal-5", "L5: Ordinal-4")
+  dist_list <- list(dist1, dist2, dist3, dist4, dist5)
+  layer_cols <- c("forestgreen", "orange", "cyan4", "purple", "deeppink")
+
+  # --- (a) 5-panel histograms ---
+  pdf(file.path(plot_dir, filename), width = 15, height = 6)
+  par(mfrow = c(1, 5), mar = c(4, 4, 3, 1))
+
+  x_max <- max(unlist(dist_list), na.rm = TRUE) * 1.05
+  breaks_common <- seq(0, ceiling(x_max * 10) / 10, length.out = 25)
+
+  for (l in 1:5) {
+    hist(dist_list[[l]], breaks = breaks_common, col = layer_cols[l], border = "white",
+         main = layer_names[l],
+         xlab = expression(paste("||", z[i], " - ", a[i]^(l), "||")),
+         ylab = "Frequency", xlim = c(0, x_max))
+    abline(v = mean(dist_list[[l]]), col = "red", lwd = 2, lty = 2)
+    legend("topright",
+           legend = sprintf("mean=%.3f\nsd=%.3f", mean(dist_list[[l]]), sd(dist_list[[l]])),
+           bty = "n", cex = 0.8)
+  }
+  dev.off()
+
+  # --- (b) Overlaid density plot ---
+  pdf_density <- sub("\\.pdf$", "_density.pdf", file.path(plot_dir, filename))
+  pdf(pdf_density, width = 8, height = 6)
+
+  dens_list <- lapply(dist_list, density)
+  y_max <- max(sapply(dens_list, function(d) max(d$y)))
+
+  base::plot(NULL, xlim = c(0, x_max), ylim = c(0, y_max * 1.1),
+       xlab = expression(paste("||", z[i], " - ", a[i]^(l), "||")),
+       ylab = "Density",
+       main = paste0(title, " -Global-Local Distance Density"))
+
+  for (l in 1:5) {
+    lines(dens_list[[l]], col = layer_cols[l], lwd = 2)
+  }
+  legend("topright", legend = layer_names, col = layer_cols, lwd = 2, bty = "n", cex = 0.9)
+  dev.off()
+}
+
+
+################################################################################
+# 6. 순차 실행
+################################################################################
+
+################################################################################
 # 6-0. Continuous layer variable subsets (switch active_con_group to change)
 ################################################################################
 inflammation_vars <- c("B4BSCL14", "B4BNE12", "B4BIL6", "B4BFGN", "B4BCRP")
@@ -838,7 +988,7 @@ cognition_vars    <- c("B3TCOMPZ3", "B3TEMZ3", "B3TEFZ3", "B3TWLF",
                         "B3TSMXBS", "B3TSMXNO", "B3TSMXRO")
 
 # ★ Switch here: "inflammation" or "cognition"
-active_con_group <- "inflammation"
+active_con_group <- "cognition"
 
 if (active_con_group == "inflammation") {
   active_con_vars <- inflammation_vars
@@ -857,101 +1007,32 @@ col_con_subset <- con_all_names[active_idx]
 cat(sprintf("\n=== Active continuous group: %s (%d vars) ===\n", active_con_group, length(active_idx)))
 cat(sprintf("  Variables: %s\n", paste(col_con_subset, collapse = ", ")))
 
-
-################################################################################
-# 6-1. Count layer variable subsets (switch active_cnt_group to change)
-################################################################################
-cnt_cognition_vars <- c("B3TSPN", "B3TSPR")
-
-# ★ Switch here: "all" (use full Y_cnt), "cognition", or "none" (exclude count layer)
-active_cnt_group <- "cognition"
-
-if (active_cnt_group == "none") {
-  Y_cnt_subset   <- matrix(0L, nrow = nrow(Y_cnt_full), ncol = 0)
-  col_cnt_subset <- character(0)
-} else if (active_cnt_group == "all") {
-  Y_cnt_subset   <- Y_cnt_full
-  col_cnt_subset <- colnames(Y_cnt_full)
-} else if (active_cnt_group == "cognition") {
-  cnt_all_names <- colnames(Y_cnt_full)
-  cnt_idx <- which(cnt_all_names %in% cnt_cognition_vars)
-  if (length(cnt_idx) == 0) stop("No matching count variables found for: ", active_cnt_group)
-  Y_cnt_subset   <- Y_cnt_full[, cnt_idx, drop = FALSE]
-  col_cnt_subset <- cnt_all_names[cnt_idx]
-}
-
-cat(sprintf("\n=== Active count group: %s (%d vars) ===\n", active_cnt_group, ncol(Y_cnt_subset)))
-cat(sprintf("  Variables: %s\n", paste(col_cnt_subset, collapse = ", ")))
-
-
-################################################################################
-# 6-2. Ordinal layer variable subsets (switch active_ord_group to change)
-################################################################################
-ord_GDA_vars <- c("B4Q1D", "B4Q1H", "B4Q1K", "B4Q1N", "B4Q1P", "B4Q1T",
-                   "B4Q1Z", "B4Q1FF", "B4Q1II", "B4Q1CCC", "B4Q1GGG")
-ord_AA_vars  <- c("B4Q1B", "B4Q1F", "B4Q1M", "B4Q1Q", "B4Q1S", "B4Q1X",
-                   "B4Q1BB", "B4Q1DD", "B4Q1KK", "B4Q1NN", "B4Q1PP",
-                   "B4Q1RR", "B4Q1TT", "B4Q1VV", "B4Q1ZZ", "B4Q1BBB", "B4Q1JJJ")
-
-# ★ Switch here: "all", "GDA", "AA", or "none"
-active_ord_group <- "GDA"
-
-if (active_ord_group == "none") {
-  Y_ord1_subset   <- matrix(0L, nrow = nrow(Y_ord1_full), ncol = 0)
-  col_ord1_subset <- character(0)
-} else if (active_ord_group == "all") {
-  Y_ord1_subset   <- Y_ord1_full
-  col_ord1_subset <- colnames(Y_ord1_full)
-} else if (active_ord_group == "GDA") {
-  ord_all_names <- colnames(Y_ord1_full)
-  ord_idx <- which(ord_all_names %in% ord_GDA_vars)
-  if (length(ord_idx) == 0) stop("No matching ordinal variables found for: GDA")
-  Y_ord1_subset   <- Y_ord1_full[, ord_idx, drop = FALSE]
-  col_ord1_subset <- ord_all_names[ord_idx]
-} else if (active_ord_group == "AA") {
-  ord_all_names <- colnames(Y_ord1_full)
-  ord_idx <- which(ord_all_names %in% ord_AA_vars)
-  if (length(ord_idx) == 0) stop("No matching ordinal variables found for: AA")
-  Y_ord1_subset   <- Y_ord1_full[, ord_idx, drop = FALSE]
-  col_ord1_subset <- ord_all_names[ord_idx]
-}
-
-cat(sprintf("\n=== Active ordinal group: %s (%d vars) ===\n", active_ord_group, ncol(Y_ord1_subset)))
-if (length(col_ord1_subset) > 0) cat(sprintf("  Variables: %s\n", paste(col_ord1_subset, collapse = ", ")))
-
-
 ################################################################################
 # 6. 순차 실행
 ################################################################################
 
-# Label combining all subsets
-run_label <- paste0("con_", active_con_group, "_cnt_", active_cnt_group, "_ord_", active_ord_group)
-
 for (cs in cases[1]) {
-  # Override Y_con, Y_cnt, Y_ord1 with subsets
-  cs$Y_con   <- Y_con_subset
+  cs <- cases[[1]]
+
+  # Override Y_con with subset
+  cs$Y_con  <- Y_con_subset
   cs$col_con <- col_con_subset
-  cs$Y_cnt   <- Y_cnt_subset
-  cs$col_cnt <- col_cnt_subset
-  cs$Y_ord1   <- Y_ord1_subset
-  cs$col_ord1 <- col_ord1_subset
 
-  cat(sprintf("\n\n========== %s [con=%s, cnt=%s, ord=%s] ==========\n",
-              cs$label, active_con_group, active_cnt_group, active_ord_group))
+  cat(sprintf("\n\n========== %s [con=%s] ==========\n", cs$label, active_con_group))
 
-  # Case-specific plot directory (include all group names)
-  case_plot_dir <- file.path(plot_root, paste0(cs$name, "_", run_label))
+  # Case-specific plot directory (include group name)
+  case_plot_dir <- file.path(plot_root, paste0(cs$name, "_", active_con_group))
   if (!dir.exists(case_plot_dir)) dir.create(case_plot_dir, recursive = TRUE)
 
   cat(sprintf("  Y_bin: %d×%d | Y_con: %d×%d | Y_cnt: %d×%d | Y_ord1: %d×%d | Y_ord2: %d×%d\n",
-              nrow(cs$Y_bin), ncol(cs$Y_bin),
+              nrow(cs$Y_bin), ncol(cs$Y_con),
               nrow(cs$Y_con), ncol(cs$Y_con),
               nrow(cs$Y_cnt), ncol(cs$Y_cnt),
               nrow(cs$Y_ord1), ncol(cs$Y_ord1),
               nrow(cs$Y_ord2), ncol(cs$Y_ord2)))
 
-  result <- lsirm_sharedpos_layer5_grm_cpp(
-    cs$Y_bin, round(cs$Y_con,1), cs$Y_cnt, cs$Y_ord1, cs$Y_ord2,
+  result <- lsirm_hierarchical_layer5_grm_cpp(
+    cs$Y_bin, round(cs$Y_con, 1), cs$Y_cnt, cs$Y_ord1, cs$Y_ord2,
     d = common_mcmc$d,
     n_iter = common_mcmc$n_iter,
     burnin = common_mcmc$burnin,
@@ -963,8 +1044,7 @@ for (cs in cases[1]) {
     verbose = TRUE
   )
 
-  cat(sprintf("\n-- %s [con=%s, cnt=%s, ord=%s]: Acceptance Rates --\n",
-              cs$name, active_con_group, active_cnt_group, active_ord_group))
+  cat(sprintf("\n-- %s [con=%s]: Acceptance Rates --\n", cs$name, active_con_group))
   print(result$accept)
 
   # lsirm_data for plot labels
@@ -974,30 +1054,155 @@ for (cs in cases[1]) {
     branch   = lsirm_all$branch
   )
 
-  prefix <- paste0("v5_", cs$name, "_", run_label)
+  prefix <- paste0("v6_", cs$name, "_", active_con_group)
 
   make_traceplots(result, prefix = prefix, lsirm_data = lsirm_data, plot_dir = case_plot_dir)
   make_biplot(result, lsirm_data = lsirm_data,
-              title = paste0("MIDUS W2+R1: ", cs$label, " [", run_label, "] (GRM v5)"),
+              title = paste0("MIDUS W2+R1: ", cs$label, " [", active_con_group, "] (v6)"),
               filename = paste0(prefix, "_biplot.pdf"),
               plot_dir = case_plot_dir)
-  # make_biplot_3d(result, lsirm_data = lsirm_data,
-  #                title = paste0("MIDUS W2+R1: ", cs$label, " [", run_label, "] (GRM v5, 3D)"),
-  #                filename = paste0(prefix, "_biplot_3d.png"),
-  #                plot_dir = case_plot_dir)
+  make_respondent_scatter(result,
+                          title = paste0("MIDUS W2+R1: ", cs$label, " [", active_con_group, "]"),
+                          filename = paste0(prefix, "_respondent_scatter.pdf"),
+                          plot_dir = case_plot_dir)
+  make_distance_histogram(result,
+                          title = paste0("MIDUS W2+R1: ", cs$label, " [", active_con_group, "]"),
+                          filename = paste0(prefix, "_dist_histogram.pdf"),
+                          plot_dir = case_plot_dir)
 
   # Save result object
-  result_file <- file.path(case_plot_dir, paste0(cs$name, "_", run_label, "_result.rds"))
+  result_file <- file.path(case_plot_dir, paste0(cs$name, "_", active_con_group, "_v6_result.rds"))
   saveRDS(result, result_file)
   cat(sprintf("  -> Plots & result saved to: %s\n", case_plot_dir))
 }
-result$accept$log_gamma1
-result$accept$log_gamma2
-result$accept$log_gamma3
-result$accept$log_gamma4
 
-par(mfrow = c(2,2))
-hist(colMeans(result$alpha1))
-hist(colMeans(result$alpha2))
-hist(colMeans(result$alpha3))
-hist(colMeans(result$alpha4))
+
+
+
+
+
+
+
+# 염증지표
+# B4BSCL14
+# B4BNE12
+# B4BIL6
+# B4BFGN
+# B4BCRP
+
+# 인지
+# B3TCOMPZ3
+# B3TEMZ3
+# B3TEFZ3
+# B3TWLF
+# B3TSMXNS
+# B3TSMXRS
+# B3TSMN
+# B3TSMR
+# B3TSMXBS
+# B3TSMXNO
+# B3TSMXRO
+
+################################################################################
+# Continuous layer variable-group histograms (colMeans, rowMeans removed)
+################################################################################
+
+Y_con_raw <- cases[[1]]$Y_con
+con_names <- colnames(Y_con_raw)
+
+# Variable groups
+inflammation_vars <- c("B4BSCL14", "B4BNE12", "B4BIL6", "B4BFGN", "B4BCRP")
+cognition_vars    <- c("B3TCOMPZ3", "B3TEMZ3", "B3TEFZ3", "B3TWLF",
+                        "B3TSMXNS", "B3TSMXRS", "B3TSMN", "B3TSMR",
+                        "B3TSMXBS", "B3TSMXNO", "B3TSMXRO")
+
+# Double-centering: remove colMeans and rowMeans
+double_center <- function(M) {
+  M <- as.matrix(M)
+  cm <- colMeans(M, na.rm = TRUE)
+  M_c <- sweep(M, 2, cm, "-")       # remove column means
+  rm <- rowMeans(M_c, na.rm = TRUE)
+  M_dc <- sweep(M_c, 1, rm, "-")    # remove row means
+  M_dc
+}
+
+# --- Inflammation group ---
+inf_idx <- which(con_names %in% inflammation_vars)
+if (length(inf_idx) > 0) {
+  Y_inf <- double_center(Y_con_raw[, inf_idx, drop = FALSE])
+
+  pdf(file.path(data_dir, "plot", "v6_hist_inflammation_double_centered.pdf"),
+      width = 12, height = ceiling(length(inf_idx) / 3) * 3)
+  par(mfrow = c(ceiling(length(inf_idx) / 3), 3), mar = c(4, 4, 3, 1))
+  for (j in seq_len(ncol(Y_inf))) {
+    vals <- Y_inf[, j]
+    hist(vals[!is.na(vals)], breaks = 30, col = "salmon", border = "white",
+         main = paste0(colnames(Y_inf)[j], " (double-centered)"),
+         xlab = "Value", ylab = "Frequency")
+    abline(v = 0, col = "red", lty = 2)
+  }
+  dev.off()
+  cat(sprintf("Inflammation group: %d variables found in Y_con\n", length(inf_idx)))
+} else {
+  cat("Inflammation group: no matching variables found in Y_con\n")
+}
+
+# --- Cognition group ---
+cog_idx <- which(con_names %in% cognition_vars)
+if (length(cog_idx) > 0) {
+  Y_cog <- double_center(Y_con_raw[, cog_idx, drop = FALSE])
+
+  pdf(file.path(data_dir, "plot", "v6_hist_cognition_double_centered.pdf"),
+      width = 12, height = ceiling(length(cog_idx) / 3) * 4)
+  par(mfrow = c(ceiling(length(cog_idx) / 3), 3), mar = c(4, 4, 3, 1))
+  for (j in seq_len(ncol(Y_cog))) {
+    vals <- Y_cog[, j]
+    hist(vals[!is.na(vals)], breaks = 30, col = "steelblue", border = "white",
+         main = paste0(colnames(Y_cog)[j], " (double-centered)"),
+         xlab = "Value", ylab = "Frequency")
+    abline(v = 0, col = "red", lty = 2)
+  }
+  dev.off()
+  cat(sprintf("Cognition group: %d variables found in Y_con\n", length(cog_idx)))
+} else {
+  cat("Cognition group: no matching variables found in Y_con\n")
+}
+
+# --- Summary ---
+cat("\n=== Y_con column names ===\n")
+print(con_names)
+cat(sprintf("\nInflammation matched: %s\n", paste(con_names[inf_idx], collapse = ", ")))
+cat(sprintf("Cognition matched:    %s\n", paste(con_names[cog_idx], collapse = ", ")))
+
+# --- Combined: both groups in one plot ---
+both_idx <- c(inf_idx, cog_idx)
+if (length(both_idx) > 0) {
+  Y_both <- double_center(Y_con_raw[, both_idx, drop = FALSE])
+  n_vars <- ncol(Y_both)
+  n_inf  <- length(inf_idx)
+  n_cog  <- length(cog_idx)
+
+  # Color: salmon for inflammation, steelblue for cognition
+  var_cols <- c(rep("salmon", n_inf), rep("steelblue", n_cog))
+  group_labels <- c(rep("Inflammation", n_inf), rep("Cognition", n_cog))
+
+  ncol_layout <- 4
+  nrow_layout <- ceiling(n_vars / ncol_layout)
+
+  pdf(file.path(data_dir, "plot", "v6_hist_combined_double_centered.pdf"),
+      width = 14, height = nrow_layout * 3.5)
+  par(mfrow = c(nrow_layout, ncol_layout), mar = c(4, 4, 3, 1))
+  for (j in seq_len(n_vars)) {
+    vals <- Y_both[, j]
+    hist(vals[!is.na(vals)], breaks = 30, col = var_cols[j], border = "white",
+         main = paste0(colnames(Y_both)[j], "\n(", group_labels[j], ")"),
+         xlab = "Value", ylab = "Frequency", cex.main = 0.9)
+    abline(v = 0, col = "red", lty = 2)
+  }
+  dev.off()
+  cat(sprintf("Combined plot: %d inflammation + %d cognition = %d variables\n",
+              n_inf, n_cog, n_vars))
+}
+
+
+

@@ -1,0 +1,476 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{mathtools}
+\usepackage{hyperref}
+
+\title{5-Layered Hierarchical LSIRM for Mixed-Type Data\\with Global--Local Respondent Positions}
+\date{April 13, 2026}
+
+\begin{document}
+\maketitle
+
+\section{Notation}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $n$: number of respondents (subjects), indexed by $i=1,\dots,n$.
+    \item $P_l$: number of items in layer $l$ ($l=1,\dots,5$).
+    \item $d$: dimension of the latent interaction space.
+    \item $K_1$: number of ordinal categories in Layer 4.
+    \item $K_2$: number of ordinal categories in Layer 5.
+    \item $z_i \in \mathbb{R}^d$: \textbf{global} latent position of respondent $i$. Does not appear in any likelihood; serves only as the hierarchical mean for the layer-specific local positions.
+    \item $a_i^{(l)} \in \mathbb{R}^d$: \textbf{local} (layer-specific) latent position of respondent $i$ in layer $l$ ($l=1,\dots,5$). Appears in the likelihood of layer $l$.
+    \item $\sigma_1^2 > 0$: global--local coupling variance. Controls how tightly the local positions $a_i^{(l)}$ cluster around the global position $z_i$.
+    \item $b_j^{(l)} \in \mathbb{R}^d$: latent position of item $j$ in layer $l$.
+    \item $\alpha_i^{(l)} \in \mathbb{R}$: respondent effect for respondent $i$ in layer $l$.
+    \item $\beta_j^{(l)} \in \mathbb{R}$: item difficulty for item $j$ in layers $l=1,2,3$.
+    \item $\gamma_l > 0$: distance weight for layer $l$, parametrized as $\gamma_l = \exp(\log \gamma_l)$.
+    \item $\kappa > 0$: overdispersion parameter for the count layer, parametrized as $\kappa = \exp(\log \kappa)$.
+    \item $\sigma_{\alpha l}^2$: variance of the respondent effects in layer $l$.
+    \item $\tau_{\beta l}^2$: variance of item difficulties in layers $l=1,2,3$ (fixed at $1$).
+    \item $\sigma_0^2$: residual scale parameter for the continuous layer.
+    \item $\nu_2 > 0$: degrees of freedom for the robust continuous layer (fixed).
+    \item $\lambda_{ij}^{(2)} > 0$: observation-specific latent scale variable for Layer 2, introduced through the normal--gamma mixture representation of the Student-$t$ distribution.
+    \item For ordinal layers ($l=4,5$): thresholds $\beta_{j,1}^{(l)} > \beta_{j,2}^{(l)} > \cdots > \beta_{j,K_l-1}^{(l)}$ (descending order), where each $\beta_{j,c}^{(l)}$ is a GRM threshold parameter.
+\end{itemize}
+
+\subsection*{Key Difference from the Nonhierarchical Model (V5)}
+
+In V5, a single shared position $a_i \in \mathbb{R}^d$ is used across all five layers. In the present hierarchical model (V6), this is replaced by:
+\begin{itemize}[leftmargin=1.5em]
+    \item a global position $z_i$ that captures the respondent's overall tendency in the latent space,
+    \item five layer-specific local positions $a_i^{(1)},\dots,a_i^{(5)}$ that are drawn around $z_i$ with variance $\sigma_1^2$.
+\end{itemize}
+This allows each layer to have its own respondent geometry while coupling them through the shared global structure.
+
+\section{Hierarchical Respondent Position Structure}
+
+The hierarchical prior for respondent positions is:
+\begin{align}
+z_i &\overset{iid}{\sim} N_d(0_d, I_d), \qquad i=1,\dots,n, \label{eq:z-prior}\\
+a_i^{(l)} \mid z_i, \sigma_1^2 &\overset{ind}{\sim} N_d(z_i, \sigma_1^2 I_d), \qquad i=1,\dots,n,\; l=1,\dots,5, \label{eq:a-prior}\\
+\sigma_1^2 &\sim \operatorname{Inv\text{-}Gamma}(a_{\sigma_g}, b_{\sigma_g}). \label{eq:sig1-prior}
+\end{align}
+
+\paragraph{Interpretation.}
+\begin{itemize}[leftmargin=1.5em]
+    \item $z_i$ does \emph{not} appear in any likelihood. It acts purely as a hierarchical mean for $a_i^{(1)},\dots,a_i^{(5)}$.
+    \item When $\sigma_1^2 \to 0$, all local positions collapse to $z_i$, recovering the shared-position model (V5).
+    \item When $\sigma_1^2 \to \infty$, the layers become fully independent (no information sharing across layers).
+    \item $\sigma_1^2$ is estimated from the data, allowing the model to learn the appropriate degree of coupling.
+\end{itemize}
+
+\section{Data and Likelihood}
+
+In each layer, the linear predictor now uses the \textbf{layer-specific local position} $a_i^{(l)}$ instead of the shared position $a_i$.
+
+\subsection{Layer 1 --- Binary (Bernoulli--Logit)}
+
+Data: $Y_{ij}^{(1)} \in \{0,1\}$, $i=1,\dots,n$, $j=1,\dots,P_1$.
+
+Linear predictor:
+\[
+\eta_{ij}^{(1)} = \alpha_i^{(1)} - \beta_j^{(1)} - \gamma_1\|a_i^{(1)} - b_j^{(1)}\|.
+\]
+
+Likelihood:
+\[
+Y_{ij}^{(1)} \mid \eta_{ij}^{(1)} \overset{ind}{\sim} \operatorname{Bernoulli}\!\left(\operatorname{logit}^{-1}(\eta_{ij}^{(1)})\right),
+\]
+that is,
+\[
+\log p\bigl(Y_{ij}^{(1)}\mid \cdot\bigr) = Y_{ij}^{(1)}\eta_{ij}^{(1)} - \log\bigl(1+e^{\eta_{ij}^{(1)}}\bigr).
+\]
+
+\subsection{Layer 2 --- Continuous (Robust Student-$t$ via Normal--Gamma Mixture)}
+
+Data: $Y_{ij}^{(2)} \in \mathbb{R}$, $i=1,\dots,n$, $j=1,\dots,P_2$.
+
+Mean function:
+\[
+\mu_{ij}^{(2)} = \alpha_i^{(2)} - \beta_j^{(2)} - \gamma_2\|a_i^{(2)} - b_j^{(2)}\|.
+\]
+
+Robustness is introduced through an observation-specific latent weight $\lambda_{ij}^{(2)}$:
+\begin{align*}
+Y_{ij}^{(2)} \mid \mu_{ij}^{(2)}, \sigma_0^2, \lambda_{ij}^{(2)}
+&\overset{ind}{\sim}
+N\!\left(\mu_{ij}^{(2)}, \frac{\sigma_0^2}{\lambda_{ij}^{(2)}}\right),\\
+\lambda_{ij}^{(2)} \mid \nu_2
+&\overset{iid}{\sim}
+\operatorname{Gamma}\!\left(\frac{\nu_2}{2},\frac{\nu_2}{2}\right).
+\end{align*}
+
+Marginally, $Y_{ij}^{(2)} \mid \mu_{ij}^{(2)},\sigma_0^2,\nu_2 \sim t_{\nu_2}\!\left(\mu_{ij}^{(2)},\sigma_0^2\right)$.
+
+Conditional log-likelihood given $\lambda_{ij}^{(2)}$:
+\[
+\log p\bigl(Y_{ij}^{(2)} \mid \cdot\bigr)
+=
+-\frac{1}{2}\log\left(2\pi \frac{\sigma_0^2}{\lambda_{ij}^{(2)}}\right)
+-
+\frac{\lambda_{ij}^{(2)}}{2\sigma_0^2}\left(Y_{ij}^{(2)}-\mu_{ij}^{(2)}\right)^2.
+\]
+
+\subsection{Layer 3 --- Count (Negative Binomial)}
+
+Data: $Y_{ij}^{(3)} \in \{0,1,2,\dots\}$, $i=1,\dots,n$, $j=1,\dots,P_3$.
+
+Log-mean:
+\[
+\log \mu_{ij}^{(3)} = \alpha_i^{(3)} - \beta_j^{(3)} - \gamma_3\|a_i^{(3)} - b_j^{(3)}\|.
+\]
+
+Let $r=1/\kappa$ (size parameter). Then
+\[
+Y_{ij}^{(3)} \mid \mu_{ij}^{(3)},\kappa
+\overset{ind}{\sim}
+\operatorname{NegBin}\left(r, \frac{r}{r+\mu_{ij}^{(3)}}\right),
+\]
+where $\operatorname{NegBin}(r,p)$ has probability mass function
+\[
+\Pr(Y=y)=\binom{y+r-1}{y}p^r(1-p)^y.
+\]
+
+\subsection{Layer 4 --- Ordinal 1 (GRM)}
+
+Data: $Y_{ij}^{(4)} \in \{1,\dots,K_1\}$, $i=1,\dots,n$, $j=1,\dots,P_4$.
+
+Linear predictor (no $\beta$):
+\[
+\eta_{ij}^{(4)} = \alpha_i^{(4)} - \gamma_4\|a_i^{(4)} - b_j^{(4)}\|.
+\]
+
+Cumulative probabilities (GRM, descending thresholds):
+\[
+P\!\left(Y_{ij}^{(4)} \geq k \mid \cdot\right)
+= \operatorname{logit}^{-1}\!\left(\eta_{ij}^{(4)} + \beta_{j,k}^{(4)}\right),
+\qquad k=1,\ldots,K_1-1,
+\]
+where $\beta_{j,1}^{(4)} > \beta_{j,2}^{(4)} > \cdots > \beta_{j,K_1-1}^{(4)}$.
+
+Category probabilities: letting $P^*_{ij,k} \equiv P(Y_{ij}^{(4)} \geq k)$,
+\[
+P\!\left(Y_{ij}^{(4)} = k \mid \cdot\right) =
+\begin{cases}
+1 - P^*_{ij,1}, & k = 1, \\[4pt]
+P^*_{ij,k-1} - P^*_{ij,k}, & 2 \leq k \leq K_1 - 1, \\[4pt]
+P^*_{ij,K_1-1}, & k = K_1.
+\end{cases}
+\]
+
+\subsection{Layer 5 --- Ordinal 2 (GRM)}
+
+Data: $Y_{ij}^{(5)} \in \{1,\dots,K_2\}$, $i=1,\dots,n$, $j=1,\dots,P_5$.
+
+The structure is identical to Layer 4 with its own parameters:
+\[
+\eta_{ij}^{(5)} = \alpha_i^{(5)} - \gamma_5\|a_i^{(5)} - b_j^{(5)}\|,
+\]
+and descending GRM thresholds $\beta_{j,1}^{(5)} > \cdots > \beta_{j,K_2-1}^{(5)}$.
+
+\section{Prior Distributions}
+
+\subsection{Hierarchical Respondent Positions}
+
+\begin{align*}
+z_i &\overset{iid}{\sim} N_d(0_d, I_d), & i&=1,\dots,n, \\
+a_i^{(l)} \mid z_i, \sigma_1^2 &\overset{ind}{\sim} N_d(z_i, \sigma_1^2 I_d), & i&=1,\dots,n,\; l=1,\dots,5, \\
+\sigma_1^2 &\sim \operatorname{Inv\text{-}Gamma}(a_{\sigma_g}, b_{\sigma_g}).
+\end{align*}
+
+\subsection{Respondent Effects}
+\[
+\alpha_i^{(l)} \mid \sigma_{\alpha l}^2 \overset{iid}{\sim} N(0,\sigma_{\alpha l}^2),
+\qquad i=1,\dots,n,\; l=1,\dots,5.
+\]
+
+\subsection{Item Difficulties (Layers 1, 2, 3)}
+\[
+\beta_j^{(l)} \mid \tau_{\beta l}^2 \overset{iid}{\sim} N(0,\tau_{\beta l}^2),
+\qquad j=1,\dots,P_l,\; l=1,2,3.
+\]
+In this implementation, $\tau_{\beta l}^2 \equiv 1$ is fixed.
+
+\subsection{Item Positions}
+\[
+b_j^{(l)} \overset{iid}{\sim} N_d(0_d,I_d),
+\qquad j=1,\dots,P_l,\; l=1,\dots,5.
+\]
+
+\subsection{Distance Weights}
+\[
+\log \gamma_l \overset{ind}{\sim} N(\mu_{\log \gamma_l},\sigma_{\log \gamma_l}^2),
+\qquad l=1,\dots,5.
+\]
+
+\subsection{Overdispersion (Count Layer)}
+\[
+\log \kappa \sim N(\mu_{\log \kappa},\sigma_{\log \kappa}^2).
+\]
+
+\subsection{Variance Parameters}
+\[
+\sigma_{\alpha l}^2 \sim \operatorname{Inv\text{-}Gamma}(a_\sigma,b_\sigma),
+\qquad l=1,\dots,5,
+\]
+\[
+\sigma_0^2 \sim \operatorname{Inv\text{-}Gamma}(a_{\sigma_0},b_{\sigma_0}).
+\]
+
+\subsection{GRM Threshold Parameters (Layers 4, 5)}
+For Layer 4 ($K_1 > 1$): each threshold element has an independent normal prior,
+\[
+\beta_{j,c}^{(4)} \overset{ind}{\sim} N(\mu_{\beta_4}, \sigma_{\beta_4}^2),
+\qquad j=1,\dots,P_4,\; c=1,\dots,K_1-1.
+\]
+For Layer 5 ($K_2 > 1$):
+\[
+\beta_{j,c}^{(5)} \overset{ind}{\sim} N(\mu_{\beta_5}, \sigma_{\beta_5}^2),
+\qquad j=1,\dots,P_5,\; c=1,\dots,K_2-1.
+\]
+The descending order constraint $\beta_{j,1}^{(l)} > \cdots > \beta_{j,K_l-1}^{(l)}$ is enforced during sampling by rejecting proposals that violate the ordering.
+
+\section{MCMC Sampling Algorithm}
+
+All Metropolis--Hastings (MH) steps use a symmetric random-walk proposal $\theta^*\sim N(\theta^{(cur)},\sigma_{prop}^2)$ with acceptance ratio
+\[
+\min\left\{1,\frac{p(\theta^*\mid \cdot)}{p(\theta^{(cur)}\mid \cdot)}\right\}.
+\]
+Gibbs steps sample directly from the full conditional distribution.
+
+\bigskip
+\noindent
+\textbf{Algorithm 1: MCMC for 5-Layered Hierarchical LSIRM}
+
+\begin{enumerate}[leftmargin=1.8em]
+    \item[for] $iter=1,\dots,T$ do
+
+    \item \textbf{Step 0. Update latent scales $\lambda_{ij}^{(2)}$ for Layer 2 (Gibbs).}
+    For each $i=1,\dots,n$ and $j=1,\dots,P_2$, let
+    \[
+    e_{ij}^{(2)} = Y_{ij}^{(2)} - \mu_{ij}^{(2)},
+    \quad \text{where } \mu_{ij}^{(2)} = \alpha_i^{(2)} - \beta_j^{(2)} - \gamma_2\|a_i^{(2)} - b_j^{(2)}\|.
+    \]
+    Then
+    \[
+    \lambda_{ij}^{(2)}\mid \cdot
+    \sim
+    \operatorname{Gamma}\left(
+    \frac{\nu_2+1}{2},\;
+    \frac{\nu_2 + \{e_{ij}^{(2)}\}^2/\sigma_0^2}{2}
+    \right).
+    \]
+
+    \item \textbf{Step 1. Update respondent effects $\alpha_i^{(l)}$ (MH, per layer).}
+    For $l=1,\dots,5$, and for $i=1,\dots,n$:
+    \begin{itemize}[leftmargin=1.5em]
+        \item Propose $\alpha_i^{(l)*}\sim N(\alpha_i^{(l)},\sigma_{prop,\alpha l}^2)$.
+        \item Log-prior ratio:
+        $-\bigl[(\alpha_i^{(l)*})^2-(\alpha_i^{(l)})^2\bigr]/(2\sigma_{\alpha l}^2)$.
+        \item Log-likelihood ratio:
+        $\sum_{j=1}^{P_l}\bigl[\ell_l(Y_{ij}^{(l)}\mid \alpha_i^{(l)*})-\ell_l(Y_{ij}^{(l)}\mid \alpha_i^{(l)})\bigr]$.
+        \item Accept/reject by the MH ratio.
+    \end{itemize}
+    Note: the likelihood for layer $l$ uses $a_i^{(l)}$ (the local position for that layer).
+
+    \item \textbf{Step 2. Update item difficulties $\beta_j^{(l)}$ for $l=1,2,3$ (MH).}
+    For $l\in\{1,2,3\}$ and $j=1,\dots,P_l$:
+    \begin{itemize}[leftmargin=1.5em]
+        \item Propose $\beta_j^{(l)*}\sim N(\beta_j^{(l)},\sigma_{prop,\beta l}^2)$.
+        \item Log-prior ratio:
+        $-\bigl[(\beta_j^{(l)*})^2-(\beta_j^{(l)})^2\bigr]/(2\tau_{\beta l}^2)$.
+        \item Log-likelihood ratio:
+        $\sum_{i=1}^{n}\bigl[\ell_l(Y_{ij}^{(l)}\mid \beta_j^{(l)*})-\ell_l(Y_{ij}^{(l)}\mid \beta_j^{(l)})\bigr]$.
+        \item Accept/reject by the MH ratio.
+    \end{itemize}
+
+    \item \textbf{Step 3. Update distance weights $\log \gamma_l$ for $l=1,\dots,5$ (MH).}
+    For $l=1,\dots,5$:
+    \begin{itemize}[leftmargin=1.5em]
+        \item Propose $\log \gamma_l^*\sim N(\log \gamma_l,\sigma_{prop,\log \gamma_l}^2)$, set $\gamma_l^*=\exp(\log \gamma_l^*)$.
+        \item Log-prior ratio:
+        $-\bigl[(\log \gamma_l^*-\mu_{\log \gamma_l})^2-(\log \gamma_l-\mu_{\log \gamma_l})^2\bigr]/(2\sigma_{\log \gamma_l}^2)$.
+        \item Log-likelihood ratio: sum over all $(i,j)$ pairs in layer $l$, using $a_i^{(l)}$.
+        \item Accept/reject by the MH ratio.
+    \end{itemize}
+
+    \item \textbf{Step 4. Update local respondent positions $a_i^{(l)}$ (MH, per layer).}
+
+    \textit{This is the key structural change from V5.} In V5, a single shared $a_i$ is updated using the joint likelihood from all 5 layers. In V6, each $a_i^{(l)}$ is updated independently using only layer $l$'s likelihood plus the hierarchical prior $a_i^{(l)} \mid z_i, \sigma_1^2 \sim N_d(z_i, \sigma_1^2 I_d)$.
+
+    For $l=1,\dots,5$ and $i=1,\dots,n$:
+    \begin{itemize}[leftmargin=1.5em]
+        \item Propose $a_i^{(l)*}\sim N_d(a_i^{(l)},\sigma_{prop,a_l}^2 I_d)$.
+        \item Log-prior ratio (hierarchical):
+        \[
+        -\frac{\|a_i^{(l)*} - z_i\|^2 - \|a_i^{(l)} - z_i\|^2}{2\sigma_1^2}.
+        \]
+        \item Log-likelihood ratio (layer $l$ only):
+        \[
+        \sum_{j=1}^{P_l}
+        \left[\ell_l\bigl(Y_{ij}^{(l)}\mid a_i^{(l)*}\bigr)-\ell_l\bigl(Y_{ij}^{(l)}\mid a_i^{(l)}\bigr)\right].
+        \]
+        \item Accept/reject by the MH ratio.
+    \end{itemize}
+
+    \item \textbf{Step 5. Update item positions $b_j^{(l)}$ for $l=1,\dots,5$ (MH).}
+    For $l=1,\dots,5$ and $j=1,\dots,P_l$:
+    \begin{itemize}[leftmargin=1.5em]
+        \item Propose $b_j^{(l)*}\sim N_d(b_j^{(l)},\sigma_{prop,b_l}^2 I_d)$.
+        \item Log-prior ratio:
+        $-\bigl[\|b_j^{(l)*}\|^2-\|b_j^{(l)}\|^2\bigr]/2$.
+        \item Log-likelihood ratio:
+        $\sum_{i=1}^{n}\bigl[\ell_l(Y_{ij}^{(l)}\mid b_j^{(l)*})-\ell_l(Y_{ij}^{(l)}\mid b_j^{(l)})\bigr]$, using $a_i^{(l)}$.
+        \item Accept/reject by the MH ratio.
+    \end{itemize}
+
+    \item \textbf{Step 6a. Update GRM thresholds for Layer 4 (component-wise MH).}
+    For $j=1,\dots,P_4$ and $c=1,\dots,K_1-1$:
+    \begin{itemize}[leftmargin=1.5em]
+        \item Propose $\beta_{j,c}^{(4)*}\sim N(\beta_{j,c}^{(4)},\sigma_{prop,\beta_4}^2)$.
+        \item \textbf{Order constraint check}: reject immediately if the descending order
+        $\beta_{j,c-1}^{(4)} > \beta_{j,c}^{(4)*} > \beta_{j,c+1}^{(4)}$
+        is violated (with boundary conventions $\beta_{j,0}^{(4)}=+\infty$, $\beta_{j,K_1}^{(4)}=-\infty$).
+        \item If valid, form the proposed threshold vector $\bm{\beta}_j^{(4)*}$ (replacing only the $c$-th element).
+        \item Log-prior ratio:
+        $\bigl[\log \mathcal{N}(\beta_{j,c}^{(4)*}\mid \mu_{\beta_4},\sigma_{\beta_4}^2) - \log \mathcal{N}(\beta_{j,c}^{(4)}\mid \mu_{\beta_4},\sigma_{\beta_4}^2)\bigr]$.
+        \item Log-likelihood ratio:
+        $\sum_{i=1}^{n}\bigl[\log P(Y_{ij}^{(4)}\mid \bm{\beta}_j^{(4)*},\cdot) - \log P(Y_{ij}^{(4)}\mid \bm{\beta}_j^{(4)},\cdot)\bigr]$, using $a_i^{(4)}$.
+        \item Accept/reject by the MH ratio.
+    \end{itemize}
+
+    \item \textbf{Step 6b. Update GRM thresholds for Layer 5 (component-wise MH).}
+    Identical to Step 6a with $P_5$, $K_2$, $\beta_{j,c}^{(5)}$, $\mu_{\beta_5}$, $\sigma_{\beta_5}^2$ replacing their Layer 4 counterparts, and using $a_i^{(5)}$.
+
+    \item \textbf{Step 7. Update overdispersion $\log \kappa$ (MH).}
+    \begin{itemize}[leftmargin=1.5em]
+        \item Propose $\log \kappa^*\sim N(\log \kappa,\sigma_{prop,\log \kappa}^2)$ and set $\kappa^*=\exp(\log \kappa^*)$.
+        \item Log-prior ratio:
+        $-\bigl[(\log \kappa^*-\mu_{\log \kappa})^2-(\log \kappa-\mu_{\log \kappa})^2\bigr]/(2\sigma_{\log \kappa}^2)$.
+        \item Log-likelihood ratio: over all $(i,j)$ in Layer 3 with $r^*=1/\kappa^*$, using $a_i^{(3)}$.
+        \item Accept/reject by the MH ratio.
+    \end{itemize}
+
+    \item \textbf{Step 8. Gibbs updates for variance parameters.}
+
+    \begin{itemize}[leftmargin=1.5em]
+        \item[(a)] \textit{Residual variance for the robust continuous layer:}
+        \[
+        \sigma_0^2\mid \cdot
+        \sim
+        \operatorname{Inv\text{-}Gamma}
+        \left(
+        a_{\sigma_0}+\frac{nP_2}{2},\;
+        b_{\sigma_0}+\frac{1}{2}\sum_{i=1}^{n}\sum_{j=1}^{P_2}\lambda_{ij}^{(2)}\bigl(Y_{ij}^{(2)}-\mu_{ij}^{(2)}\bigr)^2
+        \right).
+        \]
+
+        \item[(b)] \textit{Respondent-effect variances} ($l=1,\dots,5$):
+        \[
+        \sigma_{\alpha l}^2\mid \cdot
+        \sim
+        \operatorname{Inv\text{-}Gamma}
+        \left(
+        a_\sigma+\frac{n}{2},\;
+        b_\sigma+\frac{1}{2}\sum_{i=1}^{n}(\alpha_i^{(l)})^2
+        \right).
+        \]
+    \end{itemize}
+
+    \item \textbf{Step 9. Update global positions $z_i$ and coupling variance $\sigma_1^2$ (Gibbs).}
+
+    \textit{This is a new step in V6, not present in V5.}
+
+    \begin{itemize}[leftmargin=1.5em]
+        \item[(a)] \textit{Global position $z_i$ (conjugate Normal):}
+
+        The full conditional for each component $z_{i,k}$ ($k=1,\dots,d$) is derived from:
+        \begin{itemize}[leftmargin=1em]
+            \item Prior: $z_{i,k} \sim N(0, 1)$ $\Rightarrow$ precision $= 1$.
+            \item Likelihood from 5 layers: $a_{i,k}^{(l)} \mid z_{i,k} \sim N(z_{i,k}, \sigma_1^2)$ for $l=1,\dots,5$ $\Rightarrow$ total precision $= 5/\sigma_1^2$.
+        \end{itemize}
+        Posterior:
+        \begin{align*}
+        \operatorname{Var}(z_{i,k}\mid \cdot) &= \left(1 + \frac{5}{\sigma_1^2}\right)^{-1} \eqqcolon v_z, \\
+        \operatorname{E}(z_{i,k}\mid \cdot) &= v_z \cdot \frac{a_{i,k}^{(1)} + a_{i,k}^{(2)} + a_{i,k}^{(3)} + a_{i,k}^{(4)} + a_{i,k}^{(5)}}{\sigma_1^2}, \\
+        z_{i,k}\mid \cdot &\sim N\!\left(\operatorname{E}(z_{i,k}\mid \cdot),\; v_z\right).
+        \end{align*}
+
+        \item[(b)] \textit{Global--local coupling variance $\sigma_1^2$ (conjugate Inverse-Gamma):}
+
+        Define the total sum of squared deviations:
+        \[
+        \text{SSE}_z = \sum_{i=1}^{n}\sum_{k=1}^{d}\sum_{l=1}^{5}\bigl(a_{i,k}^{(l)} - z_{i,k}\bigr)^2.
+        \]
+        The total number of observations is $5 \times n \times d$. Then:
+        \[
+        \sigma_1^2\mid \cdot
+        \sim
+        \operatorname{Inv\text{-}Gamma}
+        \left(
+        a_{\sigma_g} + \frac{5 n d}{2},\;
+        b_{\sigma_g} + \frac{\text{SSE}_z}{2}
+        \right).
+        \]
+    \end{itemize}
+
+    \item \textbf{Step 10. Store samples} (after burn-in and with thinning).
+
+    \item[end] do
+\end{enumerate}
+
+\section{Summary of Layer-Specific Log-Likelihoods $\ell_l$}
+
+For reference, the per-observation log-likelihood contributions used in the MH ratios are:
+\begin{align*}
+\ell_1\bigl(Y_{ij}^{(1)}\mid \cdot\bigr)
+&= Y_{ij}^{(1)}\eta_{ij}^{(1)} - \log\bigl(1+e^{\eta_{ij}^{(1)}}\bigr), \\
+\ell_2\bigl(Y_{ij}^{(2)}\mid \cdot,\lambda_{ij}^{(2)}\bigr)
+&= -\frac{1}{2}\log\left(2\pi \frac{\sigma_0^2}{\lambda_{ij}^{(2)}}\right)
+-\frac{\lambda_{ij}^{(2)}}{2\sigma_0^2}\left(Y_{ij}^{(2)}-\mu_{ij}^{(2)}\right)^2, \\
+\ell_3\bigl(Y_{ij}^{(3)}\mid \cdot\bigr)
+&= \log\binom{Y_{ij}^{(3)}+r-1}{Y_{ij}^{(3)}}
++ r\log\left(\frac{r}{r+\mu_{ij}^{(3)}}\right)
++ Y_{ij}^{(3)}\log\left(\frac{\mu_{ij}^{(3)}}{r+\mu_{ij}^{(3)}}\right), \\
+\ell_4\bigl(Y_{ij}^{(4)}\mid \cdot\bigr)
+&= \log \Pr\bigl(Y_{ij}^{(4)}=k\mid \eta_{ij}^{(4)}, \bm{\beta}_j^{(4)}\bigr), \\
+\ell_5\bigl(Y_{ij}^{(5)}\mid \cdot\bigr)
+&= \log \Pr\bigl(Y_{ij}^{(5)}=k\mid \eta_{ij}^{(5)}, \bm{\beta}_j^{(5)}\bigr),
+\end{align*}
+where $r=1/\kappa$ and
+\[
+\mu_{ij}^{(3)} = \exp\left(\alpha_i^{(3)} - \beta_j^{(3)} - \gamma_3\|a_i^{(3)}-b_j^{(3)}\|\right).
+\]
+In each expression, $\eta_{ij}^{(l)}$ and the distance terms use the \textbf{layer-specific local position} $a_i^{(l)}$.
+
+\section{Procrustes Matching}
+
+The latent space model is invariant to rotation, reflection, and translation. To align MCMC samples, Procrustes matching is applied \emph{jointly} to the full stacked coordinate matrix
+\[
+\mathbf{X}^{(s)} = \begin{bmatrix} z_1^{(s)} \\ \vdots \\ z_n^{(s)} \\ a_1^{(1,s)} \\ \vdots \\ a_n^{(1,s)} \\ \vdots \\ a_n^{(5,s)} \\ b_1^{(1,s)} \\ \vdots \\ b_{P_5}^{(5,s)} \end{bmatrix}
+\in \mathbb{R}^{(6n + \sum_l P_l) \times d},
+\]
+where $s$ indexes the MCMC sample. A reference sample (e.g., the last saved iteration) is chosen, and all other samples are Procrustes-rotated toward it without scaling. This joint alignment ensures that global positions, all five sets of local positions, and all item positions are transformed by the same orthogonal transformation at each iteration.
+
+\section{Remarks on the Hierarchical Extension}
+
+Compared to the nonhierarchical model (V5):
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{New parameters}: $z_i$ ($n \times d$), $\sigma_1^2$ (scalar). Total new parameters: $nd + 1$.
+    \item \textbf{Replaced parameter}: The single shared $a_i$ ($n \times d$) is replaced by five layer-specific $a_i^{(l)}$ ($5 \times n \times d$). Net increase in respondent position parameters: $4nd$.
+    \item \textbf{Step 4 change}: One joint MH step using all 5 layers $\to$ five independent MH steps, each using a single layer's likelihood.
+    \item \textbf{Step 9 is new}: Gibbs sampling of $z_i$ (closed form) and $\sigma_1^2$ (conjugate Inverse-Gamma).
+    \item \textbf{Limiting behavior}:
+    \begin{itemize}[leftmargin=1em]
+        \item $\sigma_1^2 \to 0$: all $a_i^{(l)} \to z_i$, recovering V5.
+        \item $\sigma_1^2 \to \infty$: layers become independent.
+    \end{itemize}
+    \item \textbf{All other components} (Steps 0--3, 5--8) remain structurally identical to V5, with the mechanical substitution $a_i \to a_i^{(l)}$ in each layer $l$.
+\end{enumerate}
+
+\end{document}

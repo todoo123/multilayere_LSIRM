@@ -62,6 +62,7 @@ combine_lsirm <- function(l_w2, l_r1, label = "") {
               nrow(Y_con), ncol(Y_con)))
   combined
 }
+lsirm_all$Y_ord1
 
 lsirm_all <- combine_lsirm(lsirm_all_w2, lsirm_all_r1, label = "P1-P3-P4")
 lsirm_p4  <- combine_lsirm(lsirm_p4_w2,  lsirm_p4_r1,  label = "P1-P4")
@@ -573,6 +574,3 @@ make_biplot <- function(result, lsirm_data, title, filename) {
 
 result_all
 make_biplot(result_all, lsirm_all, "MIDUS W2+R1: P1-P3-P4 (Robust v4)",  "M2R1_ALL_v4_biplot.pdf")
-
-
-lsi

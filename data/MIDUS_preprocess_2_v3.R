@@ -6,7 +6,7 @@ library(purrr)
 ################################################################################
 # 0. load
 ################################################################################
-setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/MIDUS_2")
+setwd("/Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/data/MIDUS_2")
 
 # ─── ICPSR_04652: Survey (MIDUS 2, 2004-2006) ────────────────────────────────
 load("ICPSR_04652/DS0001/04652-0001-Data.rda")
