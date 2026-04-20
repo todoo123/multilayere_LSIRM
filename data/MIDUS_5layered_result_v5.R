@@ -16,7 +16,7 @@ setwd(data_dir)
 # ── Wave 2 전처리 (격리 환경) ──
 cat("\n====== Wave 2 전처리 ======\n")
 env_w2 <- new.env(parent = globalenv())
-source(file.path(data_dir, "MIDUS_preprocess_2_v3.R"), local = env_w2)
+source(file.path(data_dir, "MIDUS_preprocess_v4.R"), local = env_w2)
 lsirm_all_w2 <- env_w2$lsirm_all
 lsirm_p4_w2  <- env_w2$lsirm_p4
 lsirm_p3_w2  <- env_w2$lsirm_p3
@@ -24,7 +24,7 @@ lsirm_p3_w2  <- env_w2$lsirm_p3
 # ── Refresher 1 전처리 (격리 환경) ──
 cat("\n====== Refresher 1 전처리 ======\n")
 env_r1 <- new.env(parent = globalenv())
-source(file.path(data_dir, "MIDUS_preprocess_refresher_v3.R"), local = env_r1)
+source(file.path(data_dir, "MIDUS_preprocess_refresher_v4.R"), local = env_r1)
 lsirm_all_r1 <- env_r1$lsirm_all
 lsirm_p4_r1  <- env_r1$lsirm_p4
 lsirm_p3_r1  <- env_r1$lsirm_p3
@@ -833,9 +833,8 @@ make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
 # 6-0. Continuous layer variable subsets (switch active_con_group to change)
 ################################################################################
 inflammation_vars <- c("B4BSCL14", "B4BNE12", "B4BIL6", "B4BFGN", "B4BCRP")
-cognition_vars    <- c("B3TCOMPZ3", "B3TEMZ3", "B3TEFZ3", "B3TWLF",
-                        "B3TSMXNS", "B3TSMXRS", "B3TSMN", "B3TSMR",
-                        "B3TSMXBS", "B3TSMXNO", "B3TSMXRO")
+# v4: continuous layer에 cognitive Z-score 변수 없음 (bio_continuous_vars만 사용)
+cognition_vars    <- character(0)
 
 # ★ Switch here: "inflammation" or "cognition"
 active_con_group <- "inflammation"
@@ -861,7 +860,16 @@ cat(sprintf("  Variables: %s\n", paste(col_con_subset, collapse = ", ")))
 ################################################################################
 # 6-1. Count layer variable subsets (switch active_cnt_group to change)
 ################################################################################
-cnt_cognition_vars <- c("B3TSPN", "B3TSPR")
+# v4: 새 cognitive score count 변수 (15개, 모두 cognitive)
+cnt_cognition_vars <- c(
+  "wl_immediate_omit", "wl_immediate_repetition", "wl_immediate_intrusion",
+  "wl_delayed_omit",   "wl_delayed_repetition",   "wl_delayed_intrusion",
+  "catflu_repetition", "catflu_intrusion",
+  "numseries_incorrect", "backcount_error",
+  "sgst_normal_incorrect", "sgst_reverse_incorrect",
+  "sgst_mixed_nonswitch_incorrect", "sgst_mixed_switch_incorrect",
+  "sgst_mixed_all_incorrect"
+)
 
 # ★ Switch here: "all" (use full Y_cnt), "cognition", or "none" (exclude count layer)
 active_cnt_group <- "cognition"
@@ -894,7 +902,7 @@ ord_AA_vars  <- c("B4Q1B", "B4Q1F", "B4Q1M", "B4Q1Q", "B4Q1S", "B4Q1X",
                    "B4Q1RR", "B4Q1TT", "B4Q1VV", "B4Q1ZZ", "B4Q1BBB", "B4Q1JJJ")
 
 # ★ Switch here: "all", "GDA", "AA", or "none"
-active_ord_group <- "GDA"
+active_ord_group <- "all"
 
 if (active_ord_group == "none") {
   Y_ord1_subset   <- matrix(0L, nrow = nrow(Y_ord1_full), ncol = 0)
@@ -1001,3 +1009,11 @@ hist(colMeans(result$alpha1))
 hist(colMeans(result$alpha2))
 hist(colMeans(result$alpha3))
 hist(colMeans(result$alpha4))
+
+
+
+dim(cases[[1]]$Y_cnt)
+par(mfrow = c(2,2))
+for(i in 1:dim(cases[[1]]$Y_cnt)[2]){
+  hist(cases[[1]]$Y_cnt[,i], main = colnames(cases[[1]]$Y_cnt)[i])
+}

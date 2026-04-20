@@ -259,6 +259,336 @@ result_assess <- function(result, true_value, model, comparison_plot = FALSE){
 
 
 
+# =============================================================================
+# Column-wise dichotomization helpers (for unilayered LSIRM 비교용)
+# -----------------------------------------------------------------------------
+# binarize_by_colthreshold: 각 컬럼을 mean / Q1..Q4 기준으로 이진화
+# make_binarized_multilayer_for_lsirm: bin/con/cnt/ord1/ord2 계층을 묶어 하나의
+#   binary matrix로 반환 (unilayered LSIRM의 Y_bin_all로 바로 투입 가능)
+# =============================================================================
+binarize_by_colthreshold <- function(X,
+                                     method = c("mean","Q1","Q2","Q3","Q4"),
+                                     strict = TRUE,
+                                     probs_map = c(Q1=0.25, Q2=0.50, Q3=0.75, Q4=0.90)) {
+  method <- match.arg(method)
+  X <- as.matrix(X)
+  thr <- switch(
+    method,
+    mean = colMeans(X, na.rm = TRUE),
+    Q1   = apply(X, 2, quantile, probs = probs_map["Q1"], na.rm = TRUE, names = FALSE, type = 7),
+    Q2   = apply(X, 2, quantile, probs = probs_map["Q2"], na.rm = TRUE, names = FALSE, type = 7),
+    Q3   = apply(X, 2, quantile, probs = probs_map["Q3"], na.rm = TRUE, names = FALSE, type = 7),
+    Q4   = apply(X, 2, quantile, probs = probs_map["Q4"], na.rm = TRUE, names = FALSE, type = 7)
+  )
+  X_bin <- if (strict) sweep(X, 2, thr, FUN = ">") else sweep(X, 2, thr, FUN = ">=")
+  storage.mode(X_bin) <- "integer"
+  list(X_bin = X_bin, threshold = thr, method = method, strict = strict)
+}
+
+# Y_bin / Y_con / Y_cnt / Y_ord1 / Y_ord2 중 NULL이 아닌 계층만 묶어 이진화 후 cbind.
+# 반환 list:
+#   Y_bin_all    : 합쳐진 binary matrix (n × P_total)
+#   layer_labels : 각 컬럼이 어느 layer에서 왔는지 (길이 P_total)
+#   col_names    : 원 컬럼 이름
+#   info         : 각 layer별 threshold 정보
+make_binarized_multilayer_for_lsirm <- function(Y_bin  = NULL,
+                                                Y_con  = NULL,
+                                                Y_cnt  = NULL,
+                                                Y_ord1 = NULL,
+                                                Y_ord2 = NULL,
+                                                bin_method  = c("none","mean","Q1","Q2","Q3","Q4"),
+                                                con_method  = c("mean","Q1","Q2","Q3","Q4"),
+                                                cnt_method  = c("mean","Q1","Q2","Q3","Q4"),
+                                                ord1_method = c("mean","Q1","Q2","Q3","Q4"),
+                                                ord2_method = c("mean","Q1","Q2","Q3","Q4"),
+                                                strict = TRUE,
+                                                ord_input = c("raw","topbox"),
+                                                ord_top = NULL,
+                                                probs_map = c(Q1=0.25, Q2=0.50, Q3=0.75, Q4=0.90)) {
+
+  bin_method  <- match.arg(bin_method)
+  con_method  <- match.arg(con_method)
+  cnt_method  <- match.arg(cnt_method)
+  ord1_method <- match.arg(ord1_method)
+  ord2_method <- match.arg(ord2_method)
+  ord_input   <- match.arg(ord_input)
+
+  parts     <- list()
+  col_parts <- list()
+  info      <- list()
+
+  # --- Binary (optional re-binarize) ---
+  if (!is.null(Y_bin) && ncol(as.matrix(Y_bin)) > 0) {
+    Yb <- as.matrix(Y_bin)
+    storage.mode(Yb) <- "integer"
+    if (bin_method != "none") {
+      out <- binarize_by_colthreshold(Yb, method = bin_method, strict = strict, probs_map = probs_map)
+      Yb  <- out$X_bin
+      info$bin <- out
+    }
+    parts$bin     <- Yb
+    col_parts$bin <- colnames(Yb)
+  }
+
+  # --- Continuous ---
+  if (!is.null(Y_con) && ncol(as.matrix(Y_con)) > 0) {
+    out <- binarize_by_colthreshold(Y_con, method = con_method, strict = strict, probs_map = probs_map)
+    info$con      <- out
+    parts$con     <- out$X_bin
+    col_parts$con <- colnames(out$X_bin)
+  }
+
+  # --- Count ---
+  if (!is.null(Y_cnt) && ncol(as.matrix(Y_cnt)) > 0) {
+    out <- binarize_by_colthreshold(Y_cnt, method = cnt_method, strict = strict, probs_map = probs_map)
+    info$cnt      <- out
+    parts$cnt     <- out$X_bin
+    col_parts$cnt <- colnames(out$X_bin)
+  }
+
+  # --- Ordinal 1 / 2 ---
+  ord_specs <- list(
+    list(key = "ord1", Y = Y_ord1, method = ord1_method),
+    list(key = "ord2", Y = Y_ord2, method = ord2_method)
+  )
+  for (spec in ord_specs) {
+    Y_o <- spec$Y
+    if (!is.null(Y_o) && ncol(as.matrix(Y_o)) > 0) {
+      if (ord_input == "raw") {
+        out <- binarize_by_colthreshold(Y_o, method = spec$method,
+                                        strict = strict, probs_map = probs_map)
+        info[[spec$key]]      <- out
+        parts[[spec$key]]     <- out$X_bin
+        col_parts[[spec$key]] <- colnames(out$X_bin)
+      } else {  # "topbox"
+        top_cut <- if (is.null(ord_top)) max(Y_o, na.rm = TRUE) else ord_top
+        Y_top   <- (as.matrix(Y_o) >= top_cut) * 1L
+        storage.mode(Y_top) <- "integer"
+        info[[spec$key]]      <- list(X_bin = Y_top,
+                                      threshold = rep(top_cut, ncol(Y_top)),
+                                      method = paste0("topbox(>=", top_cut, ")"))
+        parts[[spec$key]]     <- Y_top
+        col_parts[[spec$key]] <- colnames(Y_top)
+      }
+    }
+  }
+
+  if (length(parts) == 0) stop("모든 layer가 비어 있습니다.")
+
+  Y_bin_all <- do.call(cbind, parts)
+  storage.mode(Y_bin_all) <- "integer"
+  layer_labels <- unlist(lapply(names(parts), function(k) rep(k, ncol(parts[[k]]))))
+  col_names    <- unlist(col_parts)
+  colnames(Y_bin_all) <- col_names
+
+  list(
+    Y_bin_all    = Y_bin_all,
+    layer_labels = layer_labels,
+    col_names    = col_names,
+    info         = info
+  )
+}
+
+
+# =============================================================================
+# K-means clustering on item-position matrix b (rows = items, cols = latent dims)
+# -----------------------------------------------------------------------------
+# Input:
+#   b           : (p × d) matrix; rownames = item names (없으면 자동 생성)
+#   b_layer     : (optional) length-p character vector of layer labels
+#                 (e.g. c("bin","con","cnt","ord1")). shape 인코딩에 사용.
+#                 NULL이면 모든 item이 같은 모양으로 표시됨.
+#   K_range     : 후보 K 범위. K가 직접 주어지면 무시됨.
+#   K           : (optional) fix K. NULL이면 silhouette 최댓값으로 자동 선택.
+#   plot_dir    : PDF 저장 경로. NULL이면 현재 device로 출력.
+#   file_prefix : 저장 파일 prefix (plot_dir 지정 시에만 사용)
+#   seed        : reproducibility
+#   verbose     : TRUE면 console 요약 출력
+#
+# Returns (invisibly): list(K_best, km, cluster_summary, sil, sil_scores, wss_scores)
+# =============================================================================
+kmeans_cluster_b <- function(b,
+                             b_layer   = NULL,
+                             K_range   = 2:8,
+                             K         = NULL,
+                             plot_dir  = NULL,
+                             file_prefix = "kmeans_b",
+                             seed      = 42,
+                             verbose   = TRUE) {
+
+  if (!requireNamespace("cluster", quietly = TRUE)) {
+    install.packages("cluster", repos = "https://cloud.r-project.org")
+  }
+  stopifnot(is.matrix(b) || is.data.frame(b))
+  b <- as.matrix(b)
+  p <- nrow(b)
+  if (p < 3) stop("b must have at least 3 rows for clustering.")
+
+  b_names <- rownames(b)
+  if (is.null(b_names)) b_names <- paste0("item", seq_len(p))
+
+  if (is.null(b_layer)) {
+    b_layer <- rep("item", p)
+  } else if (length(b_layer) != p) {
+    stop("length(b_layer) must equal nrow(b).")
+  }
+
+  # ---- 1. K selection (silhouette + within-SS) -----------------------------
+  set.seed(seed)
+  sil_scores <- sapply(K_range, function(k) {
+    km <- kmeans(b, centers = k, nstart = 25, iter.max = 100)
+    if (length(unique(km$cluster)) < 2) return(NA_real_)
+    mean(cluster::silhouette(km$cluster, dist(b))[, "sil_width"])
+  })
+  set.seed(seed)
+  wss_scores <- sapply(K_range, function(k) {
+    kmeans(b, centers = k, nstart = 25, iter.max = 100)$tot.withinss
+  })
+
+  if (is.null(K)) {
+    K_best <- K_range[which.max(sil_scores)]
+  } else {
+    K_best <- as.integer(K)
+    if (!(K_best %in% K_range)) K_range <- sort(unique(c(K_range, K_best)))
+  }
+
+  if (verbose) {
+    cat("\n=== K-means diagnostic ===\n")
+    print(data.frame(K          = K_range,
+                     silhouette = round(sil_scores, 3),
+                     within_SS  = round(wss_scores, 3)))
+    cat(sprintf("\nSelected K = %d (silhouette = %.3f)\n",
+                K_best,
+                sil_scores[K_range == K_best]))
+  }
+
+  # ---- 2. Final k-means at K_best ------------------------------------------
+  set.seed(seed)
+  km_final   <- kmeans(b, centers = K_best, nstart = 50, iter.max = 200)
+  cluster_id <- km_final$cluster
+  sil_final  <- cluster::silhouette(cluster_id, dist(b))
+  sil_mean   <- mean(sil_final[, "sil_width"])
+
+  cluster_summary <- data.frame(
+    item    = b_names,
+    layer   = b_layer,
+    cluster = cluster_id,
+    sil_w   = round(sil_final[, "sil_width"], 3)
+  )
+  cluster_summary <- cluster_summary[order(cluster_summary$cluster,
+                                           -cluster_summary$sil_w), ]
+
+  if (verbose) {
+    cat(sprintf("\n=== K-means result (K=%d, avg silhouette=%.3f) ===\n",
+                K_best, sil_mean))
+    print(cluster_summary, row.names = FALSE)
+  }
+
+  # ---- 3. Plotting ----------------------------------------------------------
+  cluster_pal <- c("#E41A1C","#377EB8","#4DAF4A","#984EA3",
+                   "#FF7F00","#FFFF33","#A65628","#F781BF")
+  cluster_pal <- rep(cluster_pal, length.out = K_best)
+
+  unique_layers <- unique(b_layer)
+  shape_pool    <- c(21, 22, 24, 23, 25, 3, 4, 8)
+  layer_pch     <- setNames(shape_pool[seq_along(unique_layers)],
+                            unique_layers)
+
+  # (a) diagnostic
+  if (!is.null(plot_dir)) {
+    if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
+    pdf(file.path(plot_dir, paste0(file_prefix, "_diagnostic.pdf")),
+        width = 10, height = 5)
+  }
+  op <- par(no.readonly = TRUE)
+  par(mfrow = c(1,2), mar = c(4,4,3,1))
+  plot(K_range, sil_scores, type = "b", pch = 19, col = "steelblue", lwd = 2,
+       xlab = "K (clusters)", ylab = "Avg silhouette width",
+       main = "Silhouette vs K")
+  abline(v = K_best, col = "red", lty = 2)
+  plot(K_range, wss_scores, type = "b", pch = 19, col = "darkorange", lwd = 2,
+       xlab = "K (clusters)", ylab = "Total within-cluster SS",
+       main = "Elbow: within-SS vs K")
+  abline(v = K_best, col = "red", lty = 2)
+  par(op)
+  if (!is.null(plot_dir)) dev.off()
+
+  # (b) cluster biplot (using first 2 dims of b)
+  if (ncol(b) >= 2) {
+    if (!is.null(plot_dir)) {
+      pdf(file.path(plot_dir,
+                    sprintf("%s_clusters_K%d.pdf", file_prefix, K_best)),
+          width = 11, height = 9)
+    }
+    op <- par(no.readonly = TRUE)
+    par(mfrow = c(1,1), mar = c(4,4,3,8), xpd = FALSE)
+    xr <- range(b[,1]); yr <- range(b[,2])
+    dx <- diff(xr); dy <- diff(yr); expand <- 0.12
+    plot(b[, 1:2],
+         pch = layer_pch[b_layer], bg = cluster_pal[cluster_id],
+         col = "black", cex = 1.6,
+         xlim = xr + c(-1,1)*expand*dx,
+         ylim = yr + c(-1,1)*expand*dy,
+         xlab = "Dim1", ylab = "Dim2",
+         main = sprintf("K-means on b (K=%d, avg silhouette=%.3f)",
+                        K_best, sil_mean))
+    text(b[,1], b[,2], labels = b_names, pos = 4, cex = 0.6, offset = 0.4)
+    points(km_final$centers[, 1:2], pch = 4, cex = 2.5, lwd = 3,
+           col = cluster_pal[1:K_best])
+    par(xpd = TRUE)
+    legend("topright", inset = c(-0.22, 0),
+           title = "Cluster",
+           legend = paste0("C", 1:K_best),
+           pch = 21, pt.bg = cluster_pal, pt.cex = 1.5, bty = "n")
+    legend("right", inset = c(-0.22, 0),
+           title = "Layer",
+           legend = unique_layers,
+           pch = layer_pch, pt.bg = "gray80", pt.cex = 1.3, bty = "n")
+    par(op)
+    if (!is.null(plot_dir)) dev.off()
+  }
+
+  # (c) silhouette plot
+  if (!is.null(plot_dir)) {
+    pdf(file.path(plot_dir,
+                  sprintf("%s_silhouette_K%d.pdf", file_prefix, K_best)),
+        width = 8, height = 9)
+  }
+  op <- par(no.readonly = TRUE)
+  par(mar = c(4,4,3,1))
+  plot(sil_final, col = cluster_pal[1:K_best], border = NA,
+       main = sprintf("Silhouette (K=%d, avg=%.3f)", K_best, sil_mean))
+  abline(v = sil_mean, lty = 2, col = "red")
+  par(op)
+  if (!is.null(plot_dir)) dev.off()
+
+  # Save cluster assignment CSV
+  if (!is.null(plot_dir)) {
+    write.csv(cluster_summary,
+              file.path(plot_dir,
+                        sprintf("%s_clusters_K%d.csv", file_prefix, K_best)),
+              row.names = FALSE)
+    if (verbose) {
+      cat(sprintf("\n-> Plots & CSV saved to: %s\n", plot_dir))
+      cat(sprintf("   * %s_diagnostic.pdf\n", file_prefix))
+      cat(sprintf("   * %s_clusters_K%d.pdf\n", file_prefix, K_best))
+      cat(sprintf("   * %s_silhouette_K%d.pdf\n", file_prefix, K_best))
+      cat(sprintf("   * %s_clusters_K%d.csv\n", file_prefix, K_best))
+    }
+  }
+
+  invisible(list(
+    K_best          = K_best,
+    km              = km_final,
+    cluster_summary = cluster_summary,
+    sil             = sil_final,
+    sil_mean        = sil_mean,
+    sil_scores      = setNames(sil_scores, K_range),
+    wss_scores      = setNames(wss_scores, K_range)
+  ))
+}
+
+
 rank_svd_compare_refactored <- function(D_true, D_hat, k = 3,
                                         plotting = TRUE,
                                         center = TRUE,

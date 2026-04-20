@@ -10,13 +10,13 @@ data_dir <- "/Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/d
 setwd(data_dir)
 
 ################################################################################
-# 0-1. 데이터 준비: Wave 2 + Refresher 1 합치기
+# 0-1. 데이터 준비: Wave 2 + Refresher 1 합치기 (v4 preprocess 사용)
 ################################################################################
 
 # ── Wave 2 전처리 (격리 환경) ──
 cat("\n====== Wave 2 전처리 ======\n")
 env_w2 <- new.env(parent = globalenv())
-source(file.path(data_dir, "MIDUS_preprocess_2_v3.R"), local = env_w2)
+source(file.path(data_dir, "MIDUS_preprocess_v4.R"), local = env_w2)
 lsirm_all_w2 <- env_w2$lsirm_all
 lsirm_p4_w2  <- env_w2$lsirm_p4
 lsirm_p3_w2  <- env_w2$lsirm_p3
@@ -24,7 +24,7 @@ lsirm_p3_w2  <- env_w2$lsirm_p3
 # ── Refresher 1 전처리 (격리 환경) ──
 cat("\n====== Refresher 1 전처리 ======\n")
 env_r1 <- new.env(parent = globalenv())
-source(file.path(data_dir, "MIDUS_preprocess_refresher_v3.R"), local = env_r1)
+source(file.path(data_dir, "MIDUS_preprocess_refresher_v4.R"), local = env_r1)
 lsirm_all_r1 <- env_r1$lsirm_all
 lsirm_p4_r1  <- env_r1$lsirm_p4
 lsirm_p3_r1  <- env_r1$lsirm_p3
@@ -69,9 +69,10 @@ combine_lsirm <- function(l_w2, l_r1, label = "") {
 
 lsirm_all <- combine_lsirm(lsirm_all_w2, lsirm_all_r1, label = "P1-P3-P4")
 
-# 5-layered hierarchical LSIRM (v6: GRM ordinal + robust continuous + hierarchical positions) 모델 로드
+# 5-layered LSIRM (v6: per-item kappa_j, nonhierarchical) 모델 로드
+# sourceCpp는 fork 전에 한 번만 실행해야 함
 setwd(data_dir)
-source(file.path(data_dir, "my_LSIRM_5layered_hierarchical_cpp_v6.R"))
+source(file.path(data_dir, "my_LSIRM_5layered_nonhierarchical_cpp_v6.R"))
 source(file.path(data_dir, "utils.R"))
 
 ################################################################################
@@ -91,28 +92,27 @@ has_valid <- function(x) {
 common_hyper <- list(
   a_sigma=1, b_sigma=1,
   a_tau1=1, b_tau1=1, a_tau2=1, b_tau2=1, a_tau3=1, b_tau3=1,
-  a_sigma0=3, b_sigma0=2,
+  a_sigma0=1, b_sigma0=1,
   mu_log_gamma1=0, sd_log_gamma1=0.5,
   mu_log_gamma2=0, sd_log_gamma2=0.5,
   mu_log_gamma3=0, sd_log_gamma3=0.5,
   mu_log_gamma4=0, sd_log_gamma4=0.5,
   mu_log_gamma5=0, sd_log_gamma5=0.5,
-  mu_log_kappa=0, sd_log_kappa=0.5,
+  # v6: shared prior hyperparameters for per-item log_kappa_j (v5와 동일)
+  mu_log_kappa=0, sd_log_kappa=0.1,
   mu_beta4=0, sd_beta4=2,
-  mu_beta5=0, sd_beta5=2,
-  a_sigma_global=3, b_sigma_global=1
+  mu_beta5=0, sd_beta5=2
 )
 
 common_prop_sd <- list(
   alpha1=0.5, alpha2=0.5, alpha3=0.5, alpha4=0.5, alpha5=0.5,
-  log_gamma1=0.1, log_gamma2=0.05, log_gamma3=0.10, log_gamma4=0.2, log_gamma5=0.2,
-  a1=0.3, a2=0.3, a3=0.3, a4=0.3, a5=0.3,
+  log_gamma1=0.1, log_gamma2=0.05, log_gamma3=0.10, log_gamma4=0.2, log_gamma5=0.2, a=0.3,
   beta1=0.6, beta2=0.25, beta3=0.2, beta4=0.3, beta5=0.3,
   b1=0.35, b2=0.2, b3=0.2, b4=0.5, b5=0.5,
   log_kappa=0.4
 )
 
-common_mcmc <- list(d = 3, n_iter = 50000, burnin = 10000, thin = 10)
+common_mcmc <- list(d = 2, n_iter = 100000, burnin = 20000, thin = 10)
 
 # Robust continuous layer: degrees of freedom
 nu2 <- 4
@@ -132,61 +132,6 @@ make_empty <- function(n) matrix(0L, nrow = n, ncol = 0)
 n_all <- nrow(lsirm_all$Y_con)
 
 Y_con_full  <- scale(lsirm_all$Y_con)
-# Y_con_full  <- Y_con_full[, , drop = FALSE]          # strip scale/center attrs
-# attr(Y_con_full, "scaled:center") <- NULL
-# attr(Y_con_full, "scaled:scale")  <- NULL
-# 
-# # --- Yeo-Johnson 변환 (car::yjPower + 직접 MLE) ---
-# library(car)
-# 
-# # Yeo-Johnson 변환 함수 (car::yjPower와 동일)
-# yj_transform <- function(x, lambda) {
-#   car::yjPower(x, lambda = lambda)
-# }
-# 
-# # Yeo-Johnson log-likelihood → lambda MLE
-# yj_mle_lambda <- function(x) {
-#   neg_ll <- function(lambda) {
-#     xt <- yj_transform(x, lambda)
-#     n <- length(x)
-#     sigma2 <- var(xt) * (n - 1) / n
-#     ll <- -n/2 * log(sigma2)
-#     # Jacobian: (|x|+1)^(lambda-1) * sign 보정
-#     ll <- ll + (lambda - 1) * sum(sign(x) * log(abs(x) + 1))
-#     -ll
-#   }
-#   opt <- optimize(neg_ll, interval = c(-3, 3))
-#   opt$minimum
-# }
-# 
-# yj_lambdas <- numeric(ncol(Y_con_full))
-# names(yj_lambdas) <- colnames(Y_con_full)
-# 
-# for (j in seq_len(ncol(Y_con_full))) {
-#   x <- as.numeric(Y_con_full[, j])
-#   valid <- which(!is.na(x))
-#   if (length(valid) < 10) next
-#   xv <- x[valid]
-#   # lambda 추정 (직접 MLE)
-#   lam <- yj_mle_lambda(xv)
-#   yj_lambdas[j] <- lam
-#   # Yeo-Johnson 변환 적용
-#   Y_con_full[valid, j] <- yj_transform(xv, lam)
-#   cat(sprintf("  [%d] %s: n=%d, lambda=%.4f\n",
-#               j, colnames(Y_con_full)[j], length(xv), lam))
-# }
-# 
-# cat("\n=== Yeo-Johnson lambda estimates ===\n")
-# print(round(yj_lambdas, 4))
-# 
-# # 변환 후 히스토그램 확인
-# par(mfrow = c(ceiling(ncol(Y_con_full) / 4), 4), mar = c(3, 3, 2, 1))
-# for (j in seq_len(ncol(Y_con_full))) {
-#   hist(Y_con_full[, j], breaks = 30,
-#        main = sprintf("%s (λ=%.2f)", colnames(Y_con_full)[j], yj_lambdas[j]),
-#        xlab = "", col = "steelblue", border = "white")
-# }
-
 Y_bin_full  <- lsirm_all$Y_bin
 Y_cnt_full  <- lsirm_all$Y_cnt
 Y_ord1_full <- lsirm_all$Y_ord1
@@ -307,7 +252,8 @@ cases <- list(
 
 
 ################################################################################
-# 4. Traceplot helper (V6: z, a1-a5 hierarchical)
+# 4. Traceplot helper
+#    v6 change: log_kappa is now a matrix (n_save × P3) — plot as vector trace
 ################################################################################
 make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
 
@@ -332,34 +278,17 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
     }
   }
 
-  # z (global latent positions)
-  if (has_valid(res$samples$z) && dim(res$samples$z)[2] > 0) {
-    n_show <- dim(res$samples$z)[2]
-    pdf(file.path(plot_dir, paste0(prefix, "_trace_z.pdf")), width = 8, height = 12)
+  # a (latent positions)
+  if (has_valid(res$samples$a) && dim(res$samples$a)[2] > 0) {
+    n_show <- dim(res$samples$a)[2]
+    pdf(file.path(plot_dir, paste0(prefix, "_trace_a.pdf")), width = 8, height = 12)
     par(mfrow = c(4,2), mar = c(3,3,2,1))
     for (i in 1:n_show) {
-      for (j in 1:dim(res$samples$z)[3]) {
-        ts.plot(res$samples$z[, i, j], main = paste0("z_global: ", i, "_", j))
+      for (j in 1:dim(res$samples$a)[3]) {
+        ts.plot(res$samples$a[, i, j], main = paste0("a: ", i, "_", j))
       }
     }
     dev.off()
-  }
-
-  # a1-a5 (layer-specific local positions)
-  layer_names <- c("a1_bin", "a2_con", "a3_cnt", "a4_ord1", "a5_ord2")
-  for (al in 1:5) {
-    aname <- paste0("a", al)
-    if (has_valid(res$samples[[aname]]) && dim(res$samples[[aname]])[2] > 0) {
-      n_show <- dim(res$samples[[aname]])[2]
-      pdf(file.path(plot_dir, paste0(prefix, "_trace_", aname, "_pos.pdf")), width = 8, height = 12)
-      par(mfrow = c(4,2), mar = c(3,3,2,1))
-      for (i in 1:n_show) {
-        for (j in 1:dim(res$samples[[aname]])[3]) {
-          ts.plot(res$samples[[aname]][, i, j], main = paste0(layer_names[al], ": ", i, "_", j))
-        }
-      }
-      dev.off()
-    }
   }
 
   # b1 (binary item positions)
@@ -398,7 +327,7 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
     dev.off()
   }
 
-  # b4 (ordinal-1 item positions)
+  # b4 / b5 (ordinal item positions)
   if (has_valid(res$samples$b4) && dim(res$samples$b4)[2] > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_b4.pdf")), width = 8, height = 12)
     par(mfrow = c(2,2), mar = c(3,3,2,1))
@@ -409,8 +338,6 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
     }
     dev.off()
   }
-
-  # b5 (ordinal-2 item positions)
   if (has_valid(res$samples$b5) && dim(res$samples$b5)[2] > 0) {
     pdf(file.path(plot_dir, paste0(prefix, "_trace_b5.pdf")), width = 8, height = 12)
     par(mfrow = c(2,2), mar = c(3,3,2,1))
@@ -432,44 +359,27 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
     }
   }
 
-  # beta1
-  if (has_valid(res$samples$beta1) && ncol(res$samples$beta1) > 0) {
-    pdf(file.path(plot_dir, paste0(prefix, "_trace_beta1.pdf")), width = 8, height = 12)
-    plot_trace_vec(res$samples$beta1, name = "beta1", mfrow = c(3,2))
-    dev.off()
-  }
-
-  # beta2
-  if (has_valid(res$samples$beta2) && ncol(res$samples$beta2) > 0) {
-    pdf(file.path(plot_dir, paste0(prefix, "_trace_beta2.pdf")), width = 8, height = 12)
-    plot_trace_vec(res$samples$beta2, name = "beta2", mfrow = c(3,2))
-    dev.off()
-  }
-
-  # beta3
-  if (has_valid(res$samples$beta3) && ncol(res$samples$beta3) > 0) {
-    pdf(file.path(plot_dir, paste0(prefix, "_trace_beta3.pdf")), width = 8, height = 12)
-    plot_trace_vec(res$samples$beta3, name = "beta3", mfrow = c(3,2))
-    dev.off()
+  # beta1/2/3
+  for (bn in c("beta1","beta2","beta3")) {
+    if (has_valid(res$samples[[bn]]) && ncol(res$samples[[bn]]) > 0) {
+      pdf(file.path(plot_dir, paste0(prefix, "_trace_", bn, ".pdf")), width = 8, height = 12)
+      plot_trace_vec(res$samples[[bn]], name = bn, mfrow = c(3,2))
+      dev.off()
+    }
   }
 
   # beta4 (GRM thresholds L4)
   if (has_valid(res$samples$beta4)) {
     b4_s <- res$samples$beta4
-    P4_d <- dim(b4_s)[2]
-    Km1  <- dim(b4_s)[3]
+    P4_d <- dim(b4_s)[2]; Km1  <- dim(b4_s)[3]
     col_ord1 <- if (length(lsirm_data$col_ord1) > 0) lsirm_data$col_ord1 else paste0("ord1_j", 1:P4_d)
-
     pdf(file.path(plot_dir, paste0(prefix, "_trace_beta4_thr.pdf")), width = 8, height = 12)
     par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
-    for (j in 1:P4_d) {
-      for (k in 1:Km1) {
-        x <- b4_s[, j, k]
-        q <- quantile(x, c(.025, .975), na.rm = TRUE)
-        ts.plot(x, main = sprintf("beta4[%s, k=%d]", col_ord1[j], k))
-        abline(h = c(mean(x, na.rm = TRUE), q),
-               col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
-      }
+    for (j in 1:P4_d) for (k in 1:Km1) {
+      x <- b4_s[, j, k]; q <- quantile(x, c(.025, .975), na.rm = TRUE)
+      ts.plot(x, main = sprintf("beta4[%s, k=%d]", col_ord1[j], k))
+      abline(h = c(mean(x, na.rm = TRUE), q),
+             col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
     }
     dev.off()
   }
@@ -477,35 +387,59 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
   # beta5 (GRM thresholds L5)
   if (has_valid(res$samples$beta5)) {
     b5_s <- res$samples$beta5
-    P5_d <- dim(b5_s)[2]
-    Km1  <- dim(b5_s)[3]
+    P5_d <- dim(b5_s)[2]; Km1  <- dim(b5_s)[3]
     col_ord2 <- if (length(lsirm_data$col_ord2) > 0) lsirm_data$col_ord2 else paste0("ord2_j", 1:P5_d)
-
     pdf(file.path(plot_dir, paste0(prefix, "_trace_beta5_thr.pdf")), width = 8, height = 12)
     par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
-    for (j in 1:P5_d) {
-      for (k in 1:Km1) {
-        x <- b5_s[, j, k]
-        q <- quantile(x, c(.025, .975), na.rm = TRUE)
-        ts.plot(x, main = sprintf("beta5[%s, k=%d]", col_ord2[j], k))
-        abline(h = c(mean(x, na.rm = TRUE), q),
-               col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
-      }
+    for (j in 1:P5_d) for (k in 1:Km1) {
+      x <- b5_s[, j, k]; q <- quantile(x, c(.025, .975), na.rm = TRUE)
+      ts.plot(x, main = sprintf("beta5[%s, k=%d]", col_ord2[j], k))
+      abline(h = c(mean(x, na.rm = TRUE), q),
+             col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
     }
     dev.off()
   }
 
-  # Extra scalar parameters (including sigma1_sq)
-  pdf(file.path(plot_dir, paste0(prefix, "_trace_extra.pdf")), width = 8, height = 20)
-  par(mfrow = c(8,2), mar = c(3,3,2,1))
+  # v6: per-item kappa_j traceplot (log_kappa is n_save × P3 matrix)
+  if (has_valid(res$samples$log_kappa) && is.matrix(res$samples$log_kappa) && ncol(res$samples$log_kappa) > 0) {
+    lk_mat <- res$samples$log_kappa
+    P3_d <- ncol(lk_mat)
+    col_cnt_names <- if (length(lsirm_data$col_cnt) >= P3_d) lsirm_data$col_cnt else paste0("cnt_j", 1:P3_d)
+
+    pdf(file.path(plot_dir, paste0(prefix, "_trace_kappa_per_item.pdf")), width = 10, height = 12)
+    par(mfrow = c(4, 2), mar = c(3, 3, 2, 1))
+    for (j in 1:P3_d) {
+      kx <- exp(lk_mat[, j])
+      q <- quantile(kx, c(.025, .975), na.rm = TRUE)
+      ts.plot(kx, main = sprintf("kappa[%s]", col_cnt_names[j]))
+      abline(h = c(mean(kx, na.rm = TRUE), q),
+             col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
+    }
+    dev.off()
+
+    # Summary: posterior mean kappa_j + 95% CI per item
+    kappa_summary <- data.frame(
+      item   = col_cnt_names,
+      mean   = apply(exp(lk_mat), 2, mean),
+      q2.5   = apply(exp(lk_mat), 2, quantile, probs = 0.025),
+      q97.5  = apply(exp(lk_mat), 2, quantile, probs = 0.975)
+    )
+    write.csv(kappa_summary,
+              file.path(plot_dir, paste0(prefix, "_kappa_per_item_summary.csv")),
+              row.names = FALSE)
+    cat("\n── Per-item kappa_j Posterior Summary ──\n")
+    print(round(kappa_summary[, -1], 3))
+  }
+
+  # Extra scalar parameters (v6: log_kappa removed from scalar trace — plotted above)
+  pdf(file.path(plot_dir, paste0(prefix, "_trace_extra.pdf")), width = 8, height = 18)
+  par(mfrow = c(7,2), mar = c(3,3,2,1))
   if (has_valid(res$samples$sigma0_sq))  plot_trace_scalar(res$samples$sigma0_sq,  true = NA, main = "sigma0_sq")
-  if (has_valid(res$samples$sigma1_sq))  plot_trace_scalar(res$samples$sigma1_sq,  true = NA, main = "sigma1_sq (global-local coupling)")
   if (has_valid(res$samples$log_gamma1)) plot_trace_scalar(res$samples$log_gamma1, true = NA, main = "gamma1 (Bin)", transform = exp)
   if (has_valid(res$samples$log_gamma2)) plot_trace_scalar(res$samples$log_gamma2, true = NA, main = "gamma2 (Con)", transform = exp)
   if (has_valid(res$samples$log_gamma3)) plot_trace_scalar(res$samples$log_gamma3, true = NA, main = "gamma3 (Cnt)", transform = exp)
   if (has_valid(res$samples$log_gamma4)) plot_trace_scalar(res$samples$log_gamma4, true = NA, main = "gamma4 (Ord1)", transform = exp)
   if (has_valid(res$samples$log_gamma5)) plot_trace_scalar(res$samples$log_gamma5, true = NA, main = "gamma5 (Ord2)", transform = exp)
-  if (has_valid(res$samples$log_kappa))  plot_trace_scalar(res$samples$log_kappa,  true = NA, main = "kappa", transform = exp)
   for (al in 1:5) {
     sname <- paste0("sigma_alpha", al, "_sq")
     if (has_valid(res$samples[[sname]])) plot_trace_scalar(res$samples[[sname]], true = NA, main = sname)
@@ -518,14 +452,11 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
   # --- Lambda2 per-edge traceplots ---
   if (has_valid(res$samples$lambda2) && length(dim(res$samples$lambda2)) == 3 && dim(res$samples$lambda2)[3] > 0) {
     lam <- res$samples$lambda2
-    n_resp <- dim(lam)[2]
-    n_item <- dim(lam)[3]
-
+    n_resp <- dim(lam)[2]; n_item <- dim(lam)[3]
     n_edge_show <- min(12, n_resp * n_item)
     set.seed(42)
     all_edges <- expand.grid(i = 1:n_resp, j = 1:n_item)
     edge_idx  <- all_edges[sort(sample(nrow(all_edges), n_edge_show)), ]
-
     pdf(file.path(plot_dir, paste0(prefix, "_trace_lambda2_edges.pdf")), width = 10, height = 12)
     par(mfrow = c(4, 3), mar = c(3, 3, 2, 1))
     for (r in seq_len(nrow(edge_idx))) {
@@ -543,7 +474,6 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
   if (has_valid(res$samples$lambda2_postmean) && ncol(res$samples$lambda2_postmean) > 0) {
     lam_pm <- res$samples$lambda2_postmean
     col_names <- if (length(lsirm_data$col_con) > 0) lsirm_data$col_con else paste0("j", 1:ncol(lam_pm))
-
     pdf(file.path(plot_dir, paste0(prefix, "_lambda2_postmean_heatmap.pdf")), width = 10, height = 8)
     col_pal <- colorRampPalette(c("red", "white", "steelblue"))(100)
     lam_clipped <- pmin(lam_pm, quantile(lam_pm, 0.99))
@@ -585,54 +515,42 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
 
   if (sum(gamma_exist) >= 1) {
     gamma_val_list <- lapply(gamma_list[gamma_exist], exp)
-
     pdf(file.path(plot_dir, paste0(prefix, "_trace_gamma_compare.pdf")), width = 10, height = 8)
     par(mfrow = c(2,1), mar = c(4,4,3,1))
-
     yr <- range(unlist(gamma_val_list))
     base::plot(gamma_val_list[[1]], type = "l", col = gamma_cols[gamma_exist][1],
          ylim = yr, xlab = "Iteration", ylab = expression(gamma[l]),
          main = "Layer-Specific Gamma Traceplots")
-    if (length(gamma_val_list) > 1) {
-      for (k in seq_along(gamma_val_list)[-1]) {
-        lines(gamma_val_list[[k]], col = gamma_cols[gamma_exist][k])
-      }
-    }
+    if (length(gamma_val_list) > 1) for (k in seq_along(gamma_val_list)[-1])
+      lines(gamma_val_list[[k]], col = gamma_cols[gamma_exist][k])
     legend("topright", legend = gamma_names[gamma_exist],
            col = gamma_cols[gamma_exist], lwd = 1, bty = "n", cex = 0.9)
-
     dens_list <- lapply(gamma_val_list, density)
     xr <- range(unlist(lapply(dens_list, function(d) d$x)))
     yr <- range(unlist(lapply(dens_list, function(d) d$y)))
     base::plot(dens_list[[1]], col = gamma_cols[gamma_exist][1], lwd = 2,
          xlim = xr, ylim = yr, xlab = expression(gamma[l]), ylab = "Density",
          main = "Posterior Density: Layer-Specific Gamma")
-    if (length(dens_list) > 1) {
-      for (k in seq_along(dens_list)[-1]) {
-        lines(dens_list[[k]], col = gamma_cols[gamma_exist][k], lwd = 2)
-      }
-    }
-    for (k in seq_along(gamma_val_list)) {
+    if (length(dens_list) > 1) for (k in seq_along(dens_list)[-1])
+      lines(dens_list[[k]], col = gamma_cols[gamma_exist][k], lwd = 2)
+    for (k in seq_along(gamma_val_list))
       abline(v = mean(gamma_val_list[[k]]), col = gamma_cols[gamma_exist][k], lty = 3)
-    }
     legend("topright", legend = paste0(gamma_names[gamma_exist], " (mean=",
            sprintf("%.3f", sapply(gamma_val_list, mean)), ")"),
            col = gamma_cols[gamma_exist], lwd = 2, bty = "n", cex = 0.9)
-
     dev.off()
   }
 }
 
 
 ################################################################################
-# 5. Biplot helper (V6: z as global, a1-a5 as local, b1-b5 as items)
+# 5. Biplot helper
 ################################################################################
 make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
 
   res <- if (is.null(result$samples)) result else result$samples
 
-  # Global respondent position (z)
-  Z_hat <- apply(res$z, c(2,3), mean)
+  A_hat <- apply(res$a, c(2,3), mean)
 
   has_bin  <- length(lsirm_data$col_bin)  > 0 && has_valid(res$b1) && dim(res$b1)[2] > 0
   has_con  <- length(lsirm_data$col_con)  > 0 && has_valid(res$b2) && dim(res$b2)[2] > 0
@@ -646,50 +564,30 @@ make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
   B4_hat <- if (has_ord1) apply(res$b4, c(2,3), mean) else NULL
   B5_hat <- if (has_ord2) apply(res$b5, c(2,3), mean) else NULL
 
-  all_pts <- rbind(Z_hat, B1_hat, B2_hat, B3_hat, B4_hat, B5_hat)
+  branch_col <- rep("gray80", nrow(A_hat))
+  branch_pch <- rep(21, nrow(A_hat))
+
+  all_pts <- rbind(A_hat, B1_hat, B2_hat, B3_hat, B4_hat, B5_hat)
   expand <- 0.08
-  xr <- range(all_pts[,1], na.rm = TRUE)
-  yr <- range(all_pts[,2], na.rm = TRUE)
+  xr <- range(all_pts[,1], na.rm = TRUE); yr <- range(all_pts[,2], na.rm = TRUE)
   dx <- diff(xr); dy <- diff(yr)
-  xlim <- xr + c(-1,1) * expand * dx
-  ylim <- yr + c(-1,1) * expand * dy
-  if (dx == 0) xlim <- xr + c(-1,1)
-  if (dy == 0) ylim <- yr + c(-1,1)
+  xlim <- xr + c(-1,1) * expand * dx; ylim <- yr + c(-1,1) * expand * dy
+  if (dx == 0) xlim <- xr + c(-1,1); if (dy == 0) ylim <- yr + c(-1,1)
 
   pdf(file.path(plot_dir, filename), width = 10, height = 8)
-  base::plot(Z_hat, pch = 21, col = "black", bg = "gray80", cex = 0.8,
+  base::plot(A_hat, pch = branch_pch, col = "black", bg = branch_col, cex = 0.8,
        xlab = "Dim1", ylab = "Dim2", main = title,
        xlim = xlim, ylim = ylim)
-
-  if (has_bin) {
-    points(B1_hat, pch = 21, bg = "forestgreen", col = "forestgreen", cex = 1.2)
-    text(B1_hat, labels = lsirm_data$col_bin, cex = 0.7, pos = 4, col = "darkgreen")
-  }
-  if (has_con) {
-    points(B2_hat, pch = 21, bg = "orange", col = "orange", cex = 1.2)
-    text(B2_hat, labels = lsirm_data$col_con, cex = 0.7, pos = 4, col = "orange4")
-  }
-  if (has_cnt) {
-    points(B3_hat, pch = 21, bg = "cyan3", col = "cyan3", cex = 1.2)
-    text(B3_hat, labels = lsirm_data$col_cnt, cex = 0.7, pos = 4, col = "cyan4")
-  }
-  if (has_ord1) {
-    points(B4_hat, pch = 21, bg = "purple", col = "purple", cex = 1.2)
-    text(B4_hat, labels = lsirm_data$col_ord1, cex = 0.7, pos = 4, col = "purple4")
-  }
-  if (has_ord2) {
-    points(B5_hat, pch = 21, bg = "deeppink", col = "deeppink", cex = 1.2)
-    text(B5_hat, labels = lsirm_data$col_ord2, cex = 0.7, pos = 4, col = "deeppink4")
-  }
-
-  resp_legend <- "Respondent (z: global)"
-  resp_bg  <- "gray80"
-  resp_pch <- 21
+  if (has_bin)  { points(B1_hat, pch=21, bg="forestgreen", col="forestgreen", cex=1.2); text(B1_hat, labels=lsirm_data$col_bin, cex=0.7, pos=4, col="darkgreen") }
+  if (has_con)  { points(B2_hat, pch=21, bg="orange",      col="orange",      cex=1.2); text(B2_hat, labels=lsirm_data$col_con, cex=0.7, pos=4, col="orange4") }
+  if (has_cnt)  { points(B3_hat, pch=21, bg="cyan3",       col="cyan3",       cex=1.2); text(B3_hat, labels=lsirm_data$col_cnt, cex=0.7, pos=4, col="cyan4") }
+  if (has_ord1) { points(B4_hat, pch=21, bg="purple",      col="purple",      cex=1.2); text(B4_hat, labels=lsirm_data$col_ord1, cex=0.7, pos=4, col="purple4") }
+  if (has_ord2) { points(B5_hat, pch=21, bg="deeppink",    col="deeppink",    cex=1.2); text(B5_hat, labels=lsirm_data$col_ord2, cex=0.7, pos=4, col="deeppink4") }
 
   item_legend <- c(
     if(has_bin)  "Binary (CESD)" else NULL,
-    if(has_con)  "Continuous (bio/cog)" else NULL,
-    if(has_cnt)  "Count (sleep/drink/cog)" else NULL,
+    if(has_con)  "Continuous (bio)" else NULL,
+    if(has_cnt)  "Count (cog-error)" else NULL,
     if(has_ord1) "Ordinal-5 (MASQ)" else NULL,
     if(has_ord2) "Ordinal-4 (PSQI)" else NULL
   )
@@ -700,295 +598,24 @@ make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
     if(has_ord1) "purple" else NULL,
     if(has_ord2) "deeppink" else NULL
   )
-
   legend("topright",
-         legend = c(resp_legend, item_legend),
-         pch = c(resp_pch, rep(21, length(item_legend))),
-         pt.bg = c(resp_bg, item_bg),
+         legend = c("Respondent", item_legend),
+         pch = c(21, rep(21, length(item_legend))),
+         pt.bg = c("gray80", item_bg),
          bty = "n", cex = 0.8)
-
   dev.off()
 }
 
 
 ################################################################################
-# 5b. 3D Biplot helper (requires rgl) - V6: uses z (global)
+# 6. Variable subsets (v5와 동일한 switch 구조)
 ################################################################################
-make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
-
-  if (!requireNamespace("rgl", quietly = TRUE)) {
-    cat("  [SKIP] rgl package not installed -skipping 3D biplot\n")
-    return(invisible(NULL))
-  }
-  library(rgl)
-
-  res <- if (is.null(result$samples)) result else result$samples
-
-  Z_hat <- apply(res$z, c(2,3), mean)
-  d <- ncol(Z_hat)
-  if (d < 3) {
-    cat("  [SKIP] d < 3 -skipping 3D biplot\n")
-    return(invisible(NULL))
-  }
-
-  has_bin  <- length(lsirm_data$col_bin)  > 0 && has_valid(res$b1) && dim(res$b1)[2] > 0
-  has_con  <- length(lsirm_data$col_con)  > 0 && has_valid(res$b2) && dim(res$b2)[2] > 0
-  has_cnt  <- length(lsirm_data$col_cnt)  > 0 && has_valid(res$b3) && dim(res$b3)[2] > 0
-  has_ord1 <- length(lsirm_data$col_ord1) > 0 && has_valid(res$b4) && dim(res$b4)[2] > 0
-  has_ord2 <- length(lsirm_data$col_ord2) > 0 && has_valid(res$b5) && dim(res$b5)[2] > 0
-
-  B1_hat <- if (has_bin)  apply(res$b1, c(2,3), mean) else NULL
-  B2_hat <- if (has_con)  apply(res$b2, c(2,3), mean) else NULL
-  B3_hat <- if (has_cnt)  apply(res$b3, c(2,3), mean) else NULL
-  B4_hat <- if (has_ord1) apply(res$b4, c(2,3), mean) else NULL
-  B5_hat <- if (has_ord2) apply(res$b5, c(2,3), mean) else NULL
-
-  # --- Interactive 3D plot ---
-  open3d()
-  par3d(windowRect = c(50, 50, 850, 650))
-
-  # Respondents (global z)
-  plot3d(Z_hat[,1], Z_hat[,2], Z_hat[,3],
-         xlab = "Dim1", ylab = "Dim2", zlab = "Dim3",
-         col = "gray70", size = 3, type = "s",
-         main = title)
-
-  if (has_bin) {
-    spheres3d(B1_hat[,1], B1_hat[,2], B1_hat[,3], radius = 0.08, col = "forestgreen")
-    text3d(B1_hat[,1], B1_hat[,2], B1_hat[,3], texts = lsirm_data$col_bin,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "darkgreen")
-  }
-  if (has_con) {
-    spheres3d(B2_hat[,1], B2_hat[,2], B2_hat[,3], radius = 0.08, col = "orange")
-    text3d(B2_hat[,1], B2_hat[,2], B2_hat[,3], texts = lsirm_data$col_con,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "orange4")
-  }
-  if (has_cnt) {
-    spheres3d(B3_hat[,1], B3_hat[,2], B3_hat[,3], radius = 0.08, col = "cyan3")
-    text3d(B3_hat[,1], B3_hat[,2], B3_hat[,3], texts = lsirm_data$col_cnt,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "cyan4")
-  }
-  if (has_ord1) {
-    spheres3d(B4_hat[,1], B4_hat[,2], B4_hat[,3], radius = 0.08, col = "purple")
-    text3d(B4_hat[,1], B4_hat[,2], B4_hat[,3], texts = lsirm_data$col_ord1,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "purple4")
-  }
-  if (has_ord2) {
-    spheres3d(B5_hat[,1], B5_hat[,2], B5_hat[,3], radius = 0.08, col = "deeppink")
-    text3d(B5_hat[,1], B5_hat[,2], B5_hat[,3], texts = lsirm_data$col_ord2,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "deeppink4")
-  }
-
-  legend3d("topright",
-           legend = c("Respondent (z: global)",
-                      if(has_bin)  "Binary (CESD)" else NULL,
-                      if(has_con)  "Continuous (bio/cog)" else NULL,
-                      if(has_cnt)  "Count (sleep/drink/cog)" else NULL,
-                      if(has_ord1) "Ordinal-5 (MASQ)" else NULL,
-                      if(has_ord2) "Ordinal-4 (PSQI)" else NULL),
-           pch = 16,
-           col = c("gray70",
-                   if(has_bin)  "forestgreen" else NULL,
-                   if(has_con)  "orange" else NULL,
-                   if(has_cnt)  "cyan3" else NULL,
-                   if(has_ord1) "purple" else NULL,
-                   if(has_ord2) "deeppink" else NULL),
-           bty = "n", cex = 0.9)
-
-  # Save as PNG snapshot
-  rgl.snapshot(file.path(plot_dir, filename), fmt = "png")
-  close3d()
-
-  # --- Also save 2D pairwise projections as PDF ---
-  pdf_file <- sub("\\.[^.]+$", "_pairs.pdf", file.path(plot_dir, filename))
-  pdf(pdf_file, width = 12, height = 4.5)
-  par(mfrow = c(1,3), mar = c(4,4,3,1))
-
-  dim_pairs <- list(c(1,2), c(1,3), c(2,3))
-  dim_labels <- c("Dim1", "Dim2", "Dim3")
-
-  for (dp in dim_pairs) {
-    d1 <- dp[1]; d2 <- dp[2]
-    all_pts <- rbind(Z_hat[, c(d1,d2)], B1_hat[, c(d1,d2)], B2_hat[, c(d1,d2)],
-                     B3_hat[, c(d1,d2)], B4_hat[, c(d1,d2)], B5_hat[, c(d1,d2)])
-    xr <- range(all_pts[,1], na.rm = TRUE); yr <- range(all_pts[,2], na.rm = TRUE)
-    expand <- 0.08
-    xlim <- xr + c(-1,1) * expand * diff(xr)
-    ylim <- yr + c(-1,1) * expand * diff(yr)
-    if (diff(xr) == 0) xlim <- xr + c(-1,1)
-    if (diff(yr) == 0) ylim <- yr + c(-1,1)
-
-    base::plot(Z_hat[,d1], Z_hat[,d2], pch = 21, bg = "gray80", col = "black", cex = 0.8,
-         xlab = dim_labels[d1], ylab = dim_labels[d2],
-         main = paste0(dim_labels[d1], " vs ", dim_labels[d2]),
-         xlim = xlim, ylim = ylim)
-
-    if (has_bin) {
-      points(B1_hat[,d1], B1_hat[,d2], pch = 21, bg = "forestgreen", col = "forestgreen", cex = 1.2)
-      text(B1_hat[,d1], B1_hat[,d2], labels = lsirm_data$col_bin, cex = 0.6, pos = 4, col = "darkgreen")
-    }
-    if (has_con) {
-      points(B2_hat[,d1], B2_hat[,d2], pch = 21, bg = "orange", col = "orange", cex = 1.2)
-      text(B2_hat[,d1], B2_hat[,d2], labels = lsirm_data$col_con, cex = 0.6, pos = 4, col = "orange4")
-    }
-    if (has_cnt) {
-      points(B3_hat[,d1], B3_hat[,d2], pch = 21, bg = "cyan3", col = "cyan3", cex = 1.2)
-      text(B3_hat[,d1], B3_hat[,d2], labels = lsirm_data$col_cnt, cex = 0.6, pos = 4, col = "cyan4")
-    }
-    if (has_ord1) {
-      points(B4_hat[,d1], B4_hat[,d2], pch = 21, bg = "purple", col = "purple", cex = 1.2)
-      text(B4_hat[,d1], B4_hat[,d2], labels = lsirm_data$col_ord1, cex = 0.6, pos = 4, col = "purple4")
-    }
-    if (has_ord2) {
-      points(B5_hat[,d1], B5_hat[,d2], pch = 21, bg = "deeppink", col = "deeppink", cex = 1.2)
-      text(B5_hat[,d1], B5_hat[,d2], labels = lsirm_data$col_ord2, cex = 0.6, pos = 4, col = "deeppink4")
-    }
-  }
-  dev.off()
-}
-
-################################################################################
-# 5c. Respondent position scatter plots (global z + local a1-a5) with labels
-################################################################################
-make_respondent_scatter <- function(result, title, filename, plot_dir) {
-
-  res <- if (is.null(result$samples)) result else result$samples
-
-  Z_hat  <- apply(res$z,  c(2,3), mean)  # n x d
-  A1_hat <- apply(res$a1, c(2,3), mean)
-  A2_hat <- apply(res$a2, c(2,3), mean)
-  A3_hat <- apply(res$a3, c(2,3), mean)
-  A4_hat <- apply(res$a4, c(2,3), mean)
-  A5_hat <- apply(res$a5, c(2,3), mean)
-
-  n <- nrow(Z_hat)
-  labels <- as.character(1:n)
-
-  layer_names <- c("Global (z)", "L1: Binary", "L2: Continuous",
-                   "L3: Count", "L4: Ordinal-5", "L5: Ordinal-4")
-  layer_mats  <- list(Z_hat, A1_hat, A2_hat, A3_hat, A4_hat, A5_hat)
-  layer_cols   <- c("black", "forestgreen", "orange", "cyan4", "purple", "deeppink")
-  layer_bgs    <- c("gray80", "lightgreen", "lightyellow", "lightskyblue", "plum", "lightpink")
-
-  # --- (a) All-in-one overlay plot ---
-  all_pts <- do.call(rbind, layer_mats)
-  xr <- range(all_pts[,1], na.rm = TRUE); yr <- range(all_pts[,2], na.rm = TRUE)
-  expand <- 0.1
-  xlim <- xr + c(-1,1) * expand * max(diff(xr), 0.1)
-  ylim <- yr + c(-1,1) * expand * max(diff(yr), 0.1)
-
-  pdf(file.path(plot_dir, filename), width = 12, height = 10)
-  base::plot(NULL, xlim = xlim, ylim = ylim,
-       xlab = "Dim1", ylab = "Dim2",
-       main = paste0(title, " - All Respondent Positions"))
-
-  for (l in seq_along(layer_mats)) {
-    points(layer_mats[[l]], pch = 21, bg = layer_bgs[l], col = layer_cols[l], cex = 0.7)
-  }
-  # Label only global z to avoid clutter
-  text(Z_hat, labels = labels, cex = 0.5, pos = 3, col = "black")
-
-  legend("topright", legend = layer_names, pch = 21, pt.bg = layer_bgs,
-         col = layer_cols, bty = "n", cex = 0.8)
-  dev.off()
-
-  # --- (b) 6-panel: one panel per layer ---
-  pdf_panel <- sub("\\.pdf$", "_panels.pdf", file.path(plot_dir, filename))
-  pdf(pdf_panel, width = 15, height = 10)
-  par(mfrow = c(2, 3), mar = c(4, 4, 3, 1))
-
-  for (l in seq_along(layer_mats)) {
-    mat <- layer_mats[[l]]
-    base::plot(mat, pch = 21, bg = layer_bgs[l], col = layer_cols[l], cex = 0.8,
-         xlab = "Dim1", ylab = "Dim2", main = layer_names[l],
-         xlim = xlim, ylim = ylim)
-    text(mat, labels = labels, cex = 0.45, pos = 3, col = layer_cols[l])
-  }
-  dev.off()
-}
-
-
-################################################################################
-# 5d. Global-local distance histograms (||z_i - a_l_i|| per layer)
-################################################################################
-make_distance_histogram <- function(result, title, filename, plot_dir) {
-
-  res <- if (is.null(result$samples)) result else result$samples
-
-  Z_hat  <- apply(res$z,  c(2,3), mean)  # n x d
-  A1_hat <- apply(res$a1, c(2,3), mean)
-  A2_hat <- apply(res$a2, c(2,3), mean)
-  A3_hat <- apply(res$a3, c(2,3), mean)
-  A4_hat <- apply(res$a4, c(2,3), mean)
-  A5_hat <- apply(res$a5, c(2,3), mean)
-
-  # Euclidean distance ||z_i - a_l_i|| for each respondent
-  euc_dist <- function(A, B) sqrt(rowSums((A - B)^2))
-
-  dist1 <- euc_dist(Z_hat, A1_hat)
-  dist2 <- euc_dist(Z_hat, A2_hat)
-  dist3 <- euc_dist(Z_hat, A3_hat)
-  dist4 <- euc_dist(Z_hat, A4_hat)
-  dist5 <- euc_dist(Z_hat, A5_hat)
-
-  layer_names <- c("L1: Binary", "L2: Continuous", "L3: Count",
-                   "L4: Ordinal-5", "L5: Ordinal-4")
-  dist_list <- list(dist1, dist2, dist3, dist4, dist5)
-  layer_cols <- c("forestgreen", "orange", "cyan4", "purple", "deeppink")
-
-  # --- (a) 5-panel histograms ---
-  pdf(file.path(plot_dir, filename), width = 15, height = 6)
-  par(mfrow = c(1, 5), mar = c(4, 4, 3, 1))
-
-  x_max <- max(unlist(dist_list), na.rm = TRUE) * 1.05
-  breaks_common <- seq(0, ceiling(x_max * 10) / 10, length.out = 25)
-
-  for (l in 1:5) {
-    hist(dist_list[[l]], breaks = breaks_common, col = layer_cols[l], border = "white",
-         main = layer_names[l],
-         xlab = expression(paste("||", z[i], " - ", a[i]^(l), "||")),
-         ylab = "Frequency", xlim = c(0, x_max))
-    abline(v = mean(dist_list[[l]]), col = "red", lwd = 2, lty = 2)
-    legend("topright",
-           legend = sprintf("mean=%.3f\nsd=%.3f", mean(dist_list[[l]]), sd(dist_list[[l]])),
-           bty = "n", cex = 0.8)
-  }
-  dev.off()
-
-  # --- (b) Overlaid density plot ---
-  pdf_density <- sub("\\.pdf$", "_density.pdf", file.path(plot_dir, filename))
-  pdf(pdf_density, width = 8, height = 6)
-
-  dens_list <- lapply(dist_list, density)
-  y_max <- max(sapply(dens_list, function(d) max(d$y)))
-
-  base::plot(NULL, xlim = c(0, x_max), ylim = c(0, y_max * 1.1),
-       xlab = expression(paste("||", z[i], " - ", a[i]^(l), "||")),
-       ylab = "Density",
-       main = paste0(title, " -Global-Local Distance Density"))
-
-  for (l in 1:5) {
-    lines(dens_list[[l]], col = layer_cols[l], lwd = 2)
-  }
-  legend("topright", legend = layer_names, col = layer_cols, lwd = 2, bty = "n", cex = 0.9)
-  dev.off()
-}
-
-
-################################################################################
-# 6. 순차 실행
-################################################################################
-
-################################################################################
-# 6-0. Continuous layer variable subsets (switch active_con_group to change)
-################################################################################
+# 6-0. Continuous layer
 inflammation_vars <- c("B4BSCL14", "B4BNE12", "B4BIL6", "B4BFGN", "B4BCRP")
-cognition_vars    <- c("B3TCOMPZ3", "B3TEMZ3", "B3TEFZ3", "B3TWLF",
-                        "B3TSMXNS", "B3TSMXRS", "B3TSMN", "B3TSMR",
-                        "B3TSMXBS", "B3TSMXNO", "B3TSMXRO")
+# v4: continuous layer에 cognitive Z-score 변수 없음
+cognition_vars    <- character(0)
 
-# ★ Switch here: "inflammation" or "cognition"
-active_con_group <- "cognition"
+active_con_group <- "inflammation"   # "inflammation" or "cognition"
 
 if (active_con_group == "inflammation") {
   active_con_vars <- inflammation_vars
@@ -996,43 +623,109 @@ if (active_con_group == "inflammation") {
   active_con_vars <- cognition_vars
 }
 
-# Subset Y_con to active group
 con_all_names <- colnames(Y_con_full)
 active_idx <- which(con_all_names %in% active_con_vars)
 if (length(active_idx) == 0) stop("No matching continuous variables found for: ", active_con_group)
-
 Y_con_subset <- Y_con_full[, active_idx, drop = FALSE]
 col_con_subset <- con_all_names[active_idx]
 
 cat(sprintf("\n=== Active continuous group: %s (%d vars) ===\n", active_con_group, length(active_idx)))
 cat(sprintf("  Variables: %s\n", paste(col_con_subset, collapse = ", ")))
 
+
+# 6-1. Count layer (v4 새 cognitive score count 15개)
+cnt_cognition_vars <- c(
+  "wl_immediate_omit", "wl_immediate_repetition", "wl_immediate_intrusion",
+  "wl_delayed_omit",   "wl_delayed_repetition",   "wl_delayed_intrusion",
+  "catflu_repetition", "catflu_intrusion",
+  "numseries_incorrect", "backcount_error",
+  "sgst_normal_incorrect", "sgst_reverse_incorrect",
+  "sgst_mixed_nonswitch_incorrect", "sgst_mixed_switch_incorrect",
+  "sgst_mixed_all_incorrect"
+)
+
+active_cnt_group <- "cognition"   # "all", "cognition", "none"
+
+if (active_cnt_group == "none") {
+  Y_cnt_subset   <- matrix(0L, nrow = nrow(Y_cnt_full), ncol = 0)
+  col_cnt_subset <- character(0)
+} else if (active_cnt_group == "all") {
+  Y_cnt_subset   <- Y_cnt_full
+  col_cnt_subset <- colnames(Y_cnt_full)
+} else if (active_cnt_group == "cognition") {
+  cnt_all_names <- colnames(Y_cnt_full)
+  cnt_idx <- which(cnt_all_names %in% cnt_cognition_vars)
+  if (length(cnt_idx) == 0) stop("No matching count variables found for: ", active_cnt_group)
+  Y_cnt_subset   <- Y_cnt_full[, cnt_idx, drop = FALSE]
+  col_cnt_subset <- cnt_all_names[cnt_idx]
+}
+
+cat(sprintf("\n=== Active count group: %s (%d vars) ===\n", active_cnt_group, ncol(Y_cnt_subset)))
+cat(sprintf("  Variables: %s\n", paste(col_cnt_subset, collapse = ", ")))
+
+
+# 6-2. Ordinal layer
+ord_GDA_vars <- c("B4Q1D", "B4Q1H", "B4Q1K", "B4Q1N", "B4Q1P", "B4Q1T",
+                   "B4Q1Z", "B4Q1FF", "B4Q1II", "B4Q1CCC", "B4Q1GGG")
+ord_AA_vars  <- c("B4Q1B", "B4Q1F", "B4Q1M", "B4Q1Q", "B4Q1S", "B4Q1X",
+                   "B4Q1BB", "B4Q1DD", "B4Q1KK", "B4Q1NN", "B4Q1PP",
+                   "B4Q1RR", "B4Q1TT", "B4Q1VV", "B4Q1ZZ", "B4Q1BBB", "B4Q1JJJ")
+
+active_ord_group <- "all"   # "all", "GDA", "AA", "none"
+
+if (active_ord_group == "none") {
+  Y_ord1_subset   <- matrix(0L, nrow = nrow(Y_ord1_full), ncol = 0)
+  col_ord1_subset <- character(0)
+} else if (active_ord_group == "all") {
+  Y_ord1_subset   <- Y_ord1_full
+  col_ord1_subset <- colnames(Y_ord1_full)
+} else if (active_ord_group == "GDA") {
+  ord_all_names <- colnames(Y_ord1_full)
+  ord_idx <- which(ord_all_names %in% ord_GDA_vars)
+  if (length(ord_idx) == 0) stop("No matching ordinal variables found for: GDA")
+  Y_ord1_subset   <- Y_ord1_full[, ord_idx, drop = FALSE]
+  col_ord1_subset <- ord_all_names[ord_idx]
+} else if (active_ord_group == "AA") {
+  ord_all_names <- colnames(Y_ord1_full)
+  ord_idx <- which(ord_all_names %in% ord_AA_vars)
+  if (length(ord_idx) == 0) stop("No matching ordinal variables found for: AA")
+  Y_ord1_subset   <- Y_ord1_full[, ord_idx, drop = FALSE]
+  col_ord1_subset <- ord_all_names[ord_idx]
+}
+
+cat(sprintf("\n=== Active ordinal group: %s (%d vars) ===\n", active_ord_group, ncol(Y_ord1_subset)))
+if (length(col_ord1_subset) > 0) cat(sprintf("  Variables: %s\n", paste(col_ord1_subset, collapse = ", ")))
+
+
 ################################################################################
-# 6. 순차 실행
+# 7. 순차 실행 (v6: per-item kappa_j)
 ################################################################################
+run_label <- paste0("v6_con_", active_con_group, "_cnt_", active_cnt_group, "_ord_", active_ord_group)
 
 for (cs in cases[1]) {
-  cs <- cases[[1]]
-
-  # Override Y_con with subset
-  cs$Y_con  <- Y_con_subset
+  # Override Y_con, Y_cnt, Y_ord1 with subsets
+  cs$Y_con   <- Y_con_subset
   cs$col_con <- col_con_subset
+  cs$Y_cnt   <- Y_cnt_subset
+  cs$col_cnt <- col_cnt_subset
+  cs$Y_ord1   <- Y_ord1_subset
+  cs$col_ord1 <- col_ord1_subset
 
-  cat(sprintf("\n\n========== %s [con=%s] ==========\n", cs$label, active_con_group))
+  cat(sprintf("\n\n========== %s [v6 per-item kappa | con=%s, cnt=%s, ord=%s] ==========\n",
+              cs$label, active_con_group, active_cnt_group, active_ord_group))
 
-  # Case-specific plot directory (include group name)
-  case_plot_dir <- file.path(plot_root, paste0(cs$name, "_", active_con_group))
+  case_plot_dir <- file.path(plot_root, paste0(cs$name, "_", run_label))
   if (!dir.exists(case_plot_dir)) dir.create(case_plot_dir, recursive = TRUE)
 
   cat(sprintf("  Y_bin: %d×%d | Y_con: %d×%d | Y_cnt: %d×%d | Y_ord1: %d×%d | Y_ord2: %d×%d\n",
-              nrow(cs$Y_bin), ncol(cs$Y_con),
+              nrow(cs$Y_bin), ncol(cs$Y_bin),
               nrow(cs$Y_con), ncol(cs$Y_con),
               nrow(cs$Y_cnt), ncol(cs$Y_cnt),
               nrow(cs$Y_ord1), ncol(cs$Y_ord1),
               nrow(cs$Y_ord2), ncol(cs$Y_ord2)))
 
-  result <- lsirm_hierarchical_layer5_grm_cpp(
-    cs$Y_bin, round(cs$Y_con, 1), cs$Y_cnt, cs$Y_ord1, cs$Y_ord2,
+  result <- lsirm_sharedpos_layer5_grm_v6_cpp(
+    cs$Y_bin, round(cs$Y_con,1), cs$Y_cnt, cs$Y_ord1, cs$Y_ord2,
     d = common_mcmc$d,
     n_iter = common_mcmc$n_iter,
     burnin = common_mcmc$burnin,
@@ -1044,165 +737,292 @@ for (cs in cases[1]) {
     verbose = TRUE
   )
 
-  cat(sprintf("\n-- %s [con=%s]: Acceptance Rates --\n", cs$name, active_con_group))
-  print(result$accept)
+  cat(sprintf("\n-- %s [%s]: Acceptance Rates --\n", cs$name, run_label))
+  # print summary (not full vectors) for acceptance
+  acc_summary <- list(
+    alpha1_mean = mean(result$accept$alpha1),
+    alpha2_mean = mean(result$accept$alpha2),
+    alpha3_mean = mean(result$accept$alpha3),
+    alpha4_mean = mean(result$accept$alpha4),
+    alpha5_mean = mean(result$accept$alpha5),
+    beta1_mean  = mean(result$accept$beta1),
+    beta2_mean  = mean(result$accept$beta2),
+    beta3_mean  = mean(result$accept$beta3),
+    log_gamma1  = result$accept$log_gamma1,
+    log_gamma2  = result$accept$log_gamma2,
+    log_gamma3  = result$accept$log_gamma3,
+    log_gamma4  = result$accept$log_gamma4,
+    log_gamma5  = result$accept$log_gamma5,
+    log_kappa_mean = if (length(result$accept$log_kappa) > 0) mean(result$accept$log_kappa) else NA,
+    log_kappa_range = if (length(result$accept$log_kappa) > 0) range(result$accept$log_kappa) else NA,
+    a_mean       = mean(result$accept$a)
+  )
+  print(acc_summary)
 
-  # lsirm_data for plot labels
   lsirm_data <- list(
     col_bin  = cs$col_bin,  col_con  = cs$col_con,
     col_cnt  = cs$col_cnt,  col_ord1 = cs$col_ord1, col_ord2 = cs$col_ord2,
     branch   = lsirm_all$branch
   )
 
-  prefix <- paste0("v6_", cs$name, "_", active_con_group)
+  prefix <- paste0(cs$name, "_", run_label)
 
   make_traceplots(result, prefix = prefix, lsirm_data = lsirm_data, plot_dir = case_plot_dir)
   make_biplot(result, lsirm_data = lsirm_data,
-              title = paste0("MIDUS W2+R1: ", cs$label, " [", active_con_group, "] (v6)"),
+              title = paste0("MIDUS W2+R1: ", cs$label, " [", run_label, "] (v6 per-item kappa)"),
               filename = paste0(prefix, "_biplot.pdf"),
               plot_dir = case_plot_dir)
-  make_respondent_scatter(result,
-                          title = paste0("MIDUS W2+R1: ", cs$label, " [", active_con_group, "]"),
-                          filename = paste0(prefix, "_respondent_scatter.pdf"),
-                          plot_dir = case_plot_dir)
-  make_distance_histogram(result,
-                          title = paste0("MIDUS W2+R1: ", cs$label, " [", active_con_group, "]"),
-                          filename = paste0(prefix, "_dist_histogram.pdf"),
-                          plot_dir = case_plot_dir)
 
-  # Save result object
-  result_file <- file.path(case_plot_dir, paste0(cs$name, "_", active_con_group, "_v6_result.rds"))
+  result_file <- file.path(case_plot_dir, paste0(cs$name, "_", run_label, "_result.rds"))
   saveRDS(result, result_file)
   cat(sprintf("  -> Plots & result saved to: %s\n", case_plot_dir))
 }
 
 
+################################################################################
+# 8. Multilayered item positions b → K-means clustering
+################################################################################
+b1 <- colMeans(result$b1); b2 <- colMeans(result$b2)
+b3 <- colMeans(result$b3); b4 <- colMeans(result$b4)
+b  <- rbind(b1, b2, b3, b4)
+rownames(b) <- c(cs$col_bin, cs$col_con, cs$col_cnt, cs$col_ord1)
 
+b_layer <- c(rep("bin",  ncol(result$b1)), rep("con",  ncol(result$b2)),
+             rep("cnt",  ncol(result$b3)), rep("ord1", ncol(result$b4)))
 
+km_multi <- kmeans_cluster_b(
+  b, b_layer = b_layer,
+  plot_dir    = case_plot_dir,
+  file_prefix = "kmeans_multilayer",
+  seed        = 42
+)
 
-
-
-
-# 염증지표
-# B4BSCL14
-# B4BNE12
-# B4BIL6
-# B4BFGN
-# B4BCRP
-
-# 인지
-# B3TCOMPZ3
-# B3TEMZ3
-# B3TEFZ3
-# B3TWLF
-# B3TSMXNS
-# B3TSMXRS
-# B3TSMN
-# B3TSMR
-# B3TSMXBS
-# B3TSMXNO
-# B3TSMXRO
 
 ################################################################################
-# Continuous layer variable-group histograms (colMeans, rowMeans removed)
+# 9. Unilayered LSIRM (모든 변수 이진화 후 단일-layer LSIRM)
 ################################################################################
+# 9-0. Project root에서 basic LSIRM 로드
+proj_root <- dirname(data_dir)
+setwd(proj_root)
+source(file.path(proj_root, "my_LSIRM_cpp.R"))   # compiles my_LSIRM.cpp
+setwd(data_dir)
 
-Y_con_raw <- cases[[1]]$Y_con
-con_names <- colnames(Y_con_raw)
+# 9-1. Dichotomize: con/cnt/ord1 layer를 mean 기준 binary로 변환
+#      (bin layer는 그대로 유지: bin_method="none")
+dichot_method <- "mean"   # "mean", "Q1", "Q2", "Q3", "Q4"
 
-# Variable groups
-inflammation_vars <- c("B4BSCL14", "B4BNE12", "B4BIL6", "B4BFGN", "B4BCRP")
-cognition_vars    <- c("B3TCOMPZ3", "B3TEMZ3", "B3TEFZ3", "B3TWLF",
-                        "B3TSMXNS", "B3TSMXRS", "B3TSMN", "B3TSMR",
-                        "B3TSMXBS", "B3TSMXNO", "B3TSMXRO")
+prep <- make_binarized_multilayer_for_lsirm(
+  Y_bin       = cs$Y_bin,
+  Y_con       = cs$Y_con,
+  Y_cnt       = cs$Y_cnt,
+  Y_ord1      = cs$Y_ord1,
+  Y_ord2      = NULL,
+  bin_method  = "none",
+  con_method  = dichot_method,
+  cnt_method  = dichot_method,
+  ord1_method = dichot_method,
+  strict      = TRUE,
+  ord_input   = "raw"
+)
 
-# Double-centering: remove colMeans and rowMeans
-double_center <- function(M) {
-  M <- as.matrix(M)
-  cm <- colMeans(M, na.rm = TRUE)
-  M_c <- sweep(M, 2, cm, "-")       # remove column means
-  rm <- rowMeans(M_c, na.rm = TRUE)
-  M_dc <- sweep(M_c, 1, rm, "-")    # remove row means
-  M_dc
-}
+Y_bin_all        <- prep$Y_bin_all
+layer_labels_uni <- prep$layer_labels
+uni_names        <- c(cs$col_bin, cs$col_con, cs$col_cnt, cs$col_ord1)
+colnames(Y_bin_all) <- uni_names
 
-# --- Inflammation group ---
-inf_idx <- which(con_names %in% inflammation_vars)
-if (length(inf_idx) > 0) {
-  Y_inf <- double_center(Y_con_raw[, inf_idx, drop = FALSE])
+cat(sprintf("\n=== Unilayered input Y_bin_all: %d × %d (dichot=%s) ===\n",
+            nrow(Y_bin_all), ncol(Y_bin_all), dichot_method))
+cat(sprintf("  layer counts: %s\n",
+            paste(names(table(layer_labels_uni)),
+                  table(layer_labels_uni), sep = "=", collapse = ", ")))
 
-  pdf(file.path(data_dir, "plot", "v6_hist_inflammation_double_centered.pdf"),
-      width = 12, height = ceiling(length(inf_idx) / 3) * 3)
-  par(mfrow = c(ceiling(length(inf_idx) / 3), 3), mar = c(4, 4, 3, 1))
-  for (j in seq_len(ncol(Y_inf))) {
-    vals <- Y_inf[, j]
-    hist(vals[!is.na(vals)], breaks = 30, col = "salmon", border = "white",
-         main = paste0(colnames(Y_inf)[j], " (double-centered)"),
-         xlab = "Value", ylab = "Frequency")
-    abline(v = 0, col = "red", lty = 2)
+# 9-2. Run unilayered LSIRM (lsirm_basic from my_LSIRM_cpp.R)
+uni_plot_dir <- file.path(plot_root,
+                          paste0(cs$name, "_", run_label, "_unilayered_", dichot_method))
+if (!dir.exists(uni_plot_dir)) dir.create(uni_plot_dir, recursive = TRUE)
+
+setwd(proj_root)   # sourceCpp relative path 때문에 proj_root에서 실행
+fit_uni <- lsirm_basic(
+  Y_bin  = Y_bin_all,
+  d      = common_mcmc$d,
+  n_iter = common_mcmc$n_iter,
+  burnin = common_mcmc$burnin,
+  thin   = common_mcmc$thin,
+  prop_sd = list(
+    alpha     = 0.70,
+    beta      = 0.50,
+    log_gamma = 0.05,
+    a         = 0.50,
+    b         = 0.30
+  ),
+  verbose   = TRUE,
+  fix_gamma = TRUE
+)
+setwd(data_dir)
+
+cat("\n-- Unilayered LSIRM acceptance rates --\n")
+print(list(
+  alpha_mean = mean(fit_uni$accept$alpha),
+  beta_mean  = mean(fit_uni$accept$beta),
+  a_mean     = mean(fit_uni$accept$a),
+  b_mean     = mean(fit_uni$accept$b),
+  log_gamma  = fit_uni$accept$log_gamma
+))
+
+
+################################################################################
+# 10. Unilayered LSIRM traceplots / biplot
+################################################################################
+samps_uni <- fit_uni$samples
+
+# (a) latent positions a (respondents)
+pdf(file.path(uni_plot_dir, "uni_trace_a.pdf"), width = 8, height = 12)
+par(mfrow = c(4, 2), mar = c(3, 3, 2, 1))
+for (i in 1:dim(samps_uni$a)[2]) {
+  for (j in 1:dim(samps_uni$a)[3]) {
+    ts.plot(samps_uni$a[, i, j], main = paste0("a: ", i, "_", j))
   }
-  dev.off()
-  cat(sprintf("Inflammation group: %d variables found in Y_con\n", length(inf_idx)))
+}
+dev.off()
+
+# (b) item positions b
+pdf(file.path(uni_plot_dir, "uni_trace_b.pdf"), width = 8, height = 12)
+par(mfrow = c(2, 2), mar = c(3, 3, 2, 1))
+for (i in 1:dim(samps_uni$b)[2]) {
+  for (j in 1:dim(samps_uni$b)[3]) {
+    ts.plot(samps_uni$b[, i, j],
+            main = paste0("b[", uni_names[i], "]_d", j))
+  }
+}
+dev.off()
+
+# (c) alpha & beta
+pdf(file.path(uni_plot_dir, "uni_trace_alpha.pdf"), width = 8, height = 12)
+par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
+for (i in 1:ncol(samps_uni$alpha)) {
+  x <- samps_uni$alpha[, i]
+  q <- quantile(x, c(.025, .975))
+  ts.plot(x, main = sprintf("alpha_%d", i))
+  abline(h = c(mean(x), q), col = c("darkgreen", "blue", "blue"),
+         lwd = 2, lty = c(1, 3, 3))
+}
+dev.off()
+
+pdf(file.path(uni_plot_dir, "uni_trace_beta.pdf"), width = 8, height = 12)
+par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
+for (i in 1:ncol(samps_uni$beta)) {
+  x <- samps_uni$beta[, i]
+  q <- quantile(x, c(.025, .975))
+  ts.plot(x, main = sprintf("beta[%s]", uni_names[i]))
+  abline(h = c(mean(x), q), col = c("darkgreen", "blue", "blue"),
+         lwd = 2, lty = c(1, 3, 3))
+}
+dev.off()
+
+# (d) scalar parameters
+pdf(file.path(uni_plot_dir, "uni_trace_extra.pdf"), width = 8, height = 10)
+par(mfrow = c(3, 1), mar = c(3, 3, 2, 1))
+plot_trace_scalar(samps_uni$log_gamma, true = NA, main = "gamma", transform = exp)
+plot_trace_scalar(samps_uni$sigma_alpha_sq, true = NA, main = "sigma_alpha_sq")
+plot_trace_scalar(samps_uni$tau_beta_sq,    true = NA, main = "tau_beta_sq")
+dev.off()
+
+# (e) posterior-mean positions biplot
+A_uni <- apply(samps_uni$a, c(2, 3), mean)
+B_uni <- apply(samps_uni$b, c(2, 3), mean)
+rownames(B_uni) <- uni_names
+
+layer_colors <- c(bin  = "forestgreen", con  = "orange",
+                  cnt  = "cyan3",       ord1 = "purple", ord2 = "deeppink")
+pdf(file.path(uni_plot_dir, "uni_biplot.pdf"), width = 10, height = 8)
+par(mar = c(4, 4, 3, 1))
+xr <- range(A_uni[,1], B_uni[,1]); yr <- range(A_uni[,2], B_uni[,2])
+plot(A_uni, pch = 21, bg = "gray80", col = "black", cex = 0.8,
+     xlab = "Dim1", ylab = "Dim2",
+     main = sprintf("Unilayered LSIRM (dichot=%s)", dichot_method),
+     xlim = xr + c(-1, 1) * 0.1 * diff(xr),
+     ylim = yr + c(-1, 1) * 0.1 * diff(yr))
+points(B_uni, pch = 21,
+       bg  = layer_colors[layer_labels_uni],
+       col = layer_colors[layer_labels_uni], cex = 1.3)
+text(B_uni, labels = uni_names, pos = 4, cex = 0.6,
+     col = layer_colors[layer_labels_uni])
+present_layers <- unique(layer_labels_uni)
+legend("topright",
+       legend = c("Respondents", present_layers),
+       pch = 21,
+       pt.bg = c("gray80", layer_colors[present_layers]),
+       bty = "n", cex = 0.8)
+dev.off()
+
+saveRDS(fit_uni, file.path(uni_plot_dir, "unilayered_result.rds"))
+cat(sprintf("  -> Unilayered plots & result saved to: %s\n", uni_plot_dir))
+
+
+################################################################################
+# 11. K-means on unilayered b + Multilayered vs Unilayered 비교
+################################################################################
+km_uni <- kmeans_cluster_b(
+  B_uni, b_layer = layer_labels_uni,
+  plot_dir    = uni_plot_dir,
+  file_prefix = "kmeans_unilayer",
+  seed        = 42
+)
+
+# 두 b matrix가 같은 item 순서인지 확인 (전처리에서 동일 순서로 구성)
+stopifnot(identical(rownames(b), rownames(B_uni)))
+
+comp <- merge(
+  km_multi$cluster_summary[, c("item", "layer", "cluster", "sil_w")],
+  km_uni$cluster_summary  [, c("item", "layer", "cluster", "sil_w")],
+  by = "item", suffixes = c("_multi", "_uni")
+)
+comp <- comp[match(rownames(b), comp$item), ]
+
+cat("\n=== Multilayered vs Unilayered clustering ===\n")
+cat(sprintf("  Multilayered: K = %d, avg silhouette = %.3f\n",
+            km_multi$K_best, km_multi$sil_mean))
+cat(sprintf("  Unilayered  : K = %d, avg silhouette = %.3f\n",
+            km_uni$K_best, km_uni$sil_mean))
+
+conf_tab <- table(Multi = comp$cluster_multi, Uni = comp$cluster_uni)
+cat("\n-- Cluster assignment confusion (rows=multi, cols=uni) --\n")
+print(conf_tab)
+
+if (requireNamespace("mclust", quietly = TRUE)) {
+  ari <- mclust::adjustedRandIndex(comp$cluster_multi, comp$cluster_uni)
+  cat(sprintf("\nAdjusted Rand Index (multi vs uni): %.3f\n", ari))
 } else {
-  cat("Inflammation group: no matching variables found in Y_con\n")
+  cat("\n[info] install.packages('mclust') 로 ARI도 확인 가능\n")
 }
 
-# --- Cognition group ---
-cog_idx <- which(con_names %in% cognition_vars)
-if (length(cog_idx) > 0) {
-  Y_cog <- double_center(Y_con_raw[, cog_idx, drop = FALSE])
+write.csv(comp,
+          file.path(uni_plot_dir, "cluster_comparison_multi_vs_uni.csv"),
+          row.names = FALSE)
 
-  pdf(file.path(data_dir, "plot", "v6_hist_cognition_double_centered.pdf"),
-      width = 12, height = ceiling(length(cog_idx) / 3) * 4)
-  par(mfrow = c(ceiling(length(cog_idx) / 3), 3), mar = c(4, 4, 3, 1))
-  for (j in seq_len(ncol(Y_cog))) {
-    vals <- Y_cog[, j]
-    hist(vals[!is.na(vals)], breaks = 30, col = "steelblue", border = "white",
-         main = paste0(colnames(Y_cog)[j], " (double-centered)"),
-         xlab = "Value", ylab = "Frequency")
-    abline(v = 0, col = "red", lty = 2)
-  }
-  dev.off()
-  cat(sprintf("Cognition group: %d variables found in Y_con\n", length(cog_idx)))
-} else {
-  cat("Cognition group: no matching variables found in Y_con\n")
-}
+# Side-by-side biplot
+cluster_pal <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3",
+                 "#FF7F00", "#FFFF33", "#A65628", "#F781BF")
+pdf(file.path(uni_plot_dir, "biplot_compare_multi_vs_uni.pdf"),
+    width = 14, height = 7)
+par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
 
-# --- Summary ---
-cat("\n=== Y_con column names ===\n")
-print(con_names)
-cat(sprintf("\nInflammation matched: %s\n", paste(con_names[inf_idx], collapse = ", ")))
-cat(sprintf("Cognition matched:    %s\n", paste(con_names[cog_idx], collapse = ", ")))
+plot(b, pch = 21,
+     bg  = cluster_pal[km_multi$km$cluster], col = "black", cex = 1.4,
+     xlab = "Dim1", ylab = "Dim2",
+     main = sprintf("Multilayered (K=%d, sil=%.3f)",
+                    km_multi$K_best, km_multi$sil_mean))
+text(b[,1], b[,2], labels = rownames(b), pos = 4, cex = 0.5)
 
-# --- Combined: both groups in one plot ---
-both_idx <- c(inf_idx, cog_idx)
-if (length(both_idx) > 0) {
-  Y_both <- double_center(Y_con_raw[, both_idx, drop = FALSE])
-  n_vars <- ncol(Y_both)
-  n_inf  <- length(inf_idx)
-  n_cog  <- length(cog_idx)
+plot(B_uni, pch = 21,
+     bg  = cluster_pal[km_uni$km$cluster], col = "black", cex = 1.4,
+     xlab = "Dim1", ylab = "Dim2",
+     main = sprintf("Unilayered (K=%d, sil=%.3f)",
+                    km_uni$K_best, km_uni$sil_mean))
+text(B_uni[,1], B_uni[,2], labels = rownames(B_uni), pos = 4, cex = 0.5)
+dev.off()
 
-  # Color: salmon for inflammation, steelblue for cognition
-  var_cols <- c(rep("salmon", n_inf), rep("steelblue", n_cog))
-  group_labels <- c(rep("Inflammation", n_inf), rep("Cognition", n_cog))
-
-  ncol_layout <- 4
-  nrow_layout <- ceiling(n_vars / ncol_layout)
-
-  pdf(file.path(data_dir, "plot", "v6_hist_combined_double_centered.pdf"),
-      width = 14, height = nrow_layout * 3.5)
-  par(mfrow = c(nrow_layout, ncol_layout), mar = c(4, 4, 3, 1))
-  for (j in seq_len(n_vars)) {
-    vals <- Y_both[, j]
-    hist(vals[!is.na(vals)], breaks = 30, col = var_cols[j], border = "white",
-         main = paste0(colnames(Y_both)[j], "\n(", group_labels[j], ")"),
-         xlab = "Value", ylab = "Frequency", cex.main = 0.9)
-    abline(v = 0, col = "red", lty = 2)
-  }
-  dev.off()
-  cat(sprintf("Combined plot: %d inflammation + %d cognition = %d variables\n",
-              n_inf, n_cog, n_vars))
-}
-
-
-
+cat(sprintf("\n-> Comparison outputs saved to: %s\n", uni_plot_dir))
+cat("   * kmeans_unilayer_* (diagnostic / clusters / silhouette)\n")
+cat("   * cluster_comparison_multi_vs_uni.csv\n")
+cat("   * biplot_compare_multi_vs_uni.pdf\n")
