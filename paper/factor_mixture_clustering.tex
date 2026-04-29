@@ -1,0 +1,579 @@
+\subsection{Joint multilayered LSIRM with item-only factor-mixture clustering}
+
+\subsubsection{Index sets and basic notation}
+
+Let $i=1,\dots,n$ index respondents, and let $\ell=1,\dots,L$ index data layers.
+For layer $\ell$, let $\mathcal{J}_\ell$ denote the set of items belonging to that layer,
+with cardinality $p_\ell = |\mathcal{J}_\ell|$.
+Define the total number of items
+\[
+p = \sum_{\ell=1}^L p_\ell,
+\]
+and relabel the pooled item index as $j=1,\dots,p$.
+Let $\ell(j)$ denote the layer to which item $j$ belongs.
+
+For respondent $i$, let
+\[
+a_i \in \mathbb{R}^d
+\]
+denote the shared respondent latent position, and for item $j$, let
+\[
+b_j \in \mathbb{R}^d
+\]
+denote the item latent position in its corresponding layer.
+In this paper we fix $d=2$.
+
+Define the respondent--item latent distance
+\[
+d_{ij} = \|a_i - b_j\|, \qquad i=1,\dots,n,\; j=1,\dots,p.
+\]
+
+\subsubsection{LSIRM observation model}
+
+The observation model for the multilayered LSIRM remains exactly the same as in the original
+model specification.
+That is, for each layer $\ell$, the conditional likelihood is written as
+\[
+p_\ell\!\left(Y_{ij}^{(\ell)} \mid \theta_{ij}^{(\ell)}\right),
+\qquad
+i=1,\dots,n,\; j\in\mathcal{J}_\ell,
+\]
+where the linear predictor depends on the shared respondent position $a_i$, the
+item position $b_j$, and the layer-specific parameters.
+For non-ordinal layers,
+\[
+\theta_{ij}^{(\ell)}
+=
+\alpha_i^{(\ell)} - \beta_j^{(\ell)} - \gamma^{(\ell)} d_{ij},
+\]
+and for ordinal layers the threshold-based predictor is defined as in the original multilayered LSIRM.
+
+Hence the full LSIRM likelihood is
+\[
+p(Y \mid \Theta_{\mathrm{LSIRM}})
+=
+\prod_{\ell=1}^L \prod_{i=1}^n \prod_{j\in\mathcal{J}_\ell}
+p_\ell\!\left(Y_{ij}^{(\ell)} \mid \theta_{ij}^{(\ell)}\right),
+\]
+where
+\[
+\Theta_{\mathrm{LSIRM}}
+=
+\left\{
+a_i,\; b_j,\; \alpha_i^{(\ell)},\; \beta_j^{(\ell)},\; \gamma^{(\ell)},\;
+\text{layer-specific auxiliary parameters}
+\right\}.
+\]
+
+\subsubsection{Item relation profile induced by the current LSIRM state}
+
+At each MCMC iteration, the current LSIRM configuration induces, for each item $j$,
+a respondent-relation profile vector
+\[
+x_j
+=
+(x_{1j},\dots,x_{nj})^\top \in \mathbb{R}^n,
+\]
+where
+\[
+x_{ij} = \log d_{ij} = \log \|a_i-b_j\|.
+\]
+
+Thus the clustering layer is built directly on the current distance profile implied by the
+LSIRM latent positions.
+
+\subsubsection{Factor-mixture clustering layer}
+
+Let $r \ll n$ denote the latent factor dimension, and let $K^\star$ be an overfitted upper bound
+on the number of item clusters.
+
+For each item $j$, introduce a latent factor score
+\[
+\eta_j \in \mathbb{R}^r,
+\]
+and a latent cluster label
+\[
+c_j \in \{1,\dots,K^\star\}.
+\]
+
+We model the respondent-relation profile of item $j$ by
+\[
+x_j \mid \delta,\Lambda,\eta_j,\Psi
+\sim
+N_n(\delta + \Lambda \eta_j,\Psi),
+\]
+where
+\[
+\delta = (\delta_1,\dots,\delta_n)^\top \in \mathbb{R}^n
+\]
+is a respondent-specific baseline vector,
+\[
+\Lambda \in \mathbb{R}^{n\times r}
+\]
+is the common factor loading matrix,
+and
+\[
+\Psi = \mathrm{diag}(\psi_1,\dots,\psi_n)
+\]
+is a diagonal residual covariance matrix.
+
+Conditional on its cluster label,
+\[
+\eta_j \mid c_j=l,\mu_l,\Sigma_l
+\sim
+N_r(\mu_l,\Sigma_l),
+\qquad
+l=1,\dots,K^\star.
+\]
+
+The cluster labels follow
+\[
+c_j \mid \rho \sim \mathrm{Categorical}(\rho),
+\qquad
+j=1,\dots,p,
+\]
+with mixture weights
+\[
+\rho = (\rho_1,\dots,\rho_{K^\star}) \sim \mathrm{Dirichlet}(e_0,\dots,e_0).
+\]
+
+\subsubsection{Prior specification for the clustering block}
+
+For respondent-specific baselines,
+\[
+\delta_i \mid \sigma_\delta^2 \sim N(0,\sigma_\delta^2),
+\qquad
+i=1,\dots,n,
+\]
+\[
+\sigma_\delta^2 \sim IG(a_\delta,b_\delta).
+\]
+
+Let $\lambda_i^\top$ denote the $i$th row of $\Lambda$.
+Then
+\[
+\lambda_i \sim N_r(0,\tau_\lambda^2 I_r),
+\qquad
+i=1,\dots,n.
+\]
+
+For the diagonal residual variances,
+\[
+\psi_i \sim IG(a_\psi,b_\psi),
+\qquad
+i=1,\dots,n.
+\]
+
+For the Gaussian mixture in factor space,
+\[
+\mu_l \sim N_r(m_0,V_0),
+\qquad
+\Sigma_l \sim IW(\nu_0,S_0),
+\qquad
+l=1,\dots,K^\star.
+\]
+
+\subsubsection{Joint hierarchical model}
+
+The full joint model is
+\[
+p(Y,\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{clust}})
+=
+p(Y \mid \Theta_{\mathrm{LSIRM}})
+\,
+p(X(\Theta_{\mathrm{LSIRM}})\mid \Theta_{\mathrm{clust}})
+\,
+p(\Theta_{\mathrm{LSIRM}})
+\,
+p(\Theta_{\mathrm{clust}}),
+\]
+where
+\[
+X(\Theta_{\mathrm{LSIRM}})
+=
+\{x_j(\Theta_{\mathrm{LSIRM}})\}_{j=1}^p,
+\qquad
+x_{ij}(\Theta_{\mathrm{LSIRM}})
+=
+\log \|a_i-b_j\|,
+\]
+and
+\[
+\Theta_{\mathrm{clust}}
+=
+\{\eta_j,c_j,\rho,\delta,\Lambda,\Psi,\mu_l,\Sigma_l,\sigma_\delta^2\}.
+\]
+
+Equivalently, the posterior kernel is
+\[
+p(\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{clust}} \mid Y)
+\propto
+p(Y \mid \Theta_{\mathrm{LSIRM}})
+\left[
+\prod_{j=1}^p
+N_n\!\left(x_j(\Theta_{\mathrm{LSIRM}});\delta+\Lambda\eta_j,\Psi\right)
+N_r\!\left(\eta_j;\mu_{c_j},\Sigma_{c_j}\right)
+\rho_{c_j}
+\right]
+p(\Theta_{\mathrm{LSIRM}})
+p(\rho)
+p(\delta \mid \sigma_\delta^2)
+p(\sigma_\delta^2)
+p(\Lambda)
+p(\Psi)
+\prod_{l=1}^{K^\star} p(\mu_l)p(\Sigma_l).
+\]
+
+\subsubsection{Interpretation}
+
+Under this model, item clustering is determined by the respondent-relation profiles
+\[
+x_j = (\log \|a_1-b_j\|,\dots,\log \|a_n-b_j\|)^\top,
+\]
+which are induced by the current LSIRM latent positions.
+The matrix $\Lambda$ represents a shared low-dimensional basis for respondent-profile variation,
+$\eta_j$ is the factor score of item $j$ in that basis, and the cluster label $c_j$
+groups items with similar factor scores.
+
+Importantly, there is no respondent clustering variable.
+Thus respondent-side collapse does not force the item clustering to collapse into a trivial block model.
+
+\subsubsection{Posterior updates for the clustering block}
+
+Define
+\[
+\mathcal{J}_l = \{j : c_j=l\},
+\qquad
+n_l = |\mathcal{J}_l|.
+\]
+
+\paragraph{1. Update of $\rho$ (Gibbs)}
+\[
+\rho \mid c
+\sim
+\mathrm{Dirichlet}(e_0+n_1,\dots,e_0+n_{K^\star}).
+\]
+
+\paragraph{2. Update of $\eta_j$ (Gibbs)}
+For each item $j$,
+\[
+\eta_j \mid \cdot
+\sim
+N_r(m_{\eta_j},V_{\eta_j}),
+\]
+where
+\[
+V_{\eta_j}
+=
+\left(
+\Lambda^\top \Psi^{-1}\Lambda + \Sigma_{c_j}^{-1}
+\right)^{-1},
+\]
+\[
+m_{\eta_j}
+=
+V_{\eta_j}
+\left(
+\Lambda^\top \Psi^{-1}(x_j-\delta)
++
+\Sigma_{c_j}^{-1}\mu_{c_j}
+\right).
+\]
+
+\paragraph{3. Update of $c_j$ (categorical Gibbs)}
+For each item $j$,
+\[
+P(c_j=l \mid \cdot)
+\propto
+\rho_l \,
+\phi_r(\eta_j;\mu_l,\Sigma_l),
+\qquad
+l=1,\dots,K^\star,
+\]
+where $\phi_r(\cdot;\mu,\Sigma)$ denotes the $r$-dimensional Gaussian density.
+Equivalently,
+\[
+\log \omega_{jl}
+=
+\log \rho_l
+-
+\frac{1}{2}\log |\Sigma_l|
+-
+\frac{1}{2}(\eta_j-\mu_l)^\top \Sigma_l^{-1}(\eta_j-\mu_l),
+\]
+and
+\[
+P(c_j=l \mid \cdot)
+=
+\frac{\exp(\log \omega_{jl})}
+{\sum_{l'=1}^{K^\star}\exp(\log \omega_{jl'})}.
+\]
+
+\paragraph{4. Update of $\mu_l$ (Gibbs)}
+For each cluster $l$,
+\[
+\mu_l \mid \cdot
+\sim
+N_r(m_{\mu_l},V_{\mu_l}),
+\]
+with
+\[
+V_{\mu_l}
+=
+\left(
+V_0^{-1} + n_l \Sigma_l^{-1}
+\right)^{-1},
+\]
+\[
+m_{\mu_l}
+=
+V_{\mu_l}
+\left(
+V_0^{-1}m_0 + \Sigma_l^{-1}\sum_{j\in\mathcal{J}_l}\eta_j
+\right).
+\]
+
+\paragraph{5. Update of $\Sigma_l$ (Gibbs)}
+For each cluster $l$,
+\[
+\Sigma_l \mid \cdot
+\sim
+IW\left(
+\nu_0+n_l,\;
+S_0 + \sum_{j\in\mathcal{J}_l}(\eta_j-\mu_l)(\eta_j-\mu_l)^\top
+\right).
+\]
+
+\paragraph{6. Update of respondent baseline $\delta_i$ (Gibbs)}
+For each respondent $i$,
+\[
+\delta_i \mid \cdot
+\sim
+N(m_{\delta_i},V_{\delta_i}),
+\]
+where
+\[
+V_{\delta_i}
+=
+\left(
+\frac{p}{\psi_i} + \frac{1}{\sigma_\delta^2}
+\right)^{-1},
+\]
+\[
+m_{\delta_i}
+=
+V_{\delta_i}
+\left[
+\frac{1}{\psi_i}
+\sum_{j=1}^p
+\bigl(x_{ij}-\lambda_i^\top \eta_j\bigr)
+\right].
+\]
+
+\paragraph{7. Update of loading row $\lambda_i$ (Gibbs)}
+For each respondent $i$,
+\[
+\lambda_i \mid \cdot
+\sim
+N_r(m_{\lambda_i},V_{\lambda_i}),
+\]
+where
+\[
+V_{\lambda_i}
+=
+\left(
+\tau_\lambda^{-2}I_r
++
+\psi_i^{-1}\sum_{j=1}^p \eta_j\eta_j^\top
+\right)^{-1},
+\]
+\[
+m_{\lambda_i}
+=
+V_{\lambda_i}
+\left[
+\psi_i^{-1}\sum_{j=1}^p \eta_j (x_{ij}-\delta_i)
+\right].
+\]
+
+\paragraph{8. Update of $\psi_i$ (Gibbs)}
+For each respondent $i$,
+\[
+\psi_i \mid \cdot
+\sim
+IG\left(
+a_\psi + \frac{p}{2},
+\;
+b_\psi + \frac{1}{2}\sum_{j=1}^p
+(x_{ij}-\delta_i-\lambda_i^\top \eta_j)^2
+\right).
+\]
+
+\paragraph{9. Update of $\sigma_\delta^2$ (Gibbs)}
+\[
+\sigma_\delta^2 \mid \cdot
+\sim
+IG\left(
+a_\delta + \frac{n}{2},
+\;
+b_\delta + \frac{1}{2}\sum_{i=1}^n \delta_i^2
+\right).
+\]
+
+\subsubsection{Modified LSIRM updates under the joint model}
+
+All layer-specific LSIRM updates for
+\[
+\alpha_i^{(\ell)},\; \beta_j^{(\ell)},\; \gamma^{(\ell)},
+\]
+and layer-specific auxiliary parameters remain the same as in the original multilayered LSIRM,
+except that the updates of the latent positions $a_i$ and $b_j$ must now include the clustering-layer contribution.
+
+\paragraph{1. Update of respondent position $a_i$ (MH)}
+Suppose the proposal is
+\[
+a_i^\ast \sim q_a(\cdot \mid a_i).
+\]
+Then the acceptance probability is
+\[
+\alpha(a_i,a_i^\ast)
+=
+\min\left\{
+1,\;
+\frac{
+p(Y \mid a_i^\ast,\Theta_{-a_i})
+\, p(a_i^\ast)
+\, \prod_{j=1}^p
+N\!\left(\log\|a_i^\ast-b_j\|;\delta_i+\lambda_i^\top\eta_j,\psi_i\right)
+\, q_a(a_i \mid a_i^\ast)
+}{
+p(Y \mid a_i,\Theta_{-a_i})
+\, p(a_i)
+\, \prod_{j=1}^p
+N\!\left(\log\|a_i-b_j\|;\delta_i+\lambda_i^\top\eta_j,\psi_i\right)
+\, q_a(a_i^\ast \mid a_i)
+}
+\right\}.
+\]
+
+\paragraph{2. Update of item position $b_j$ (MH)}
+Suppose the proposal is
+\[
+b_j^\ast \sim q_b(\cdot \mid b_j).
+\]
+Then the acceptance probability is
+\[
+\alpha(b_j,b_j^\ast)
+=
+\min\left\{
+1,\;
+\frac{
+p(Y_{\cdot j} \mid b_j^\ast,\Theta_{-b_j})
+\, p(b_j^\ast)
+\, \prod_{i=1}^n
+N\!\left(\log\|a_i-b_j^\ast\|;\delta_i+\lambda_i^\top\eta_j,\psi_i\right)
+\, q_b(b_j \mid b_j^\ast)
+}{
+p(Y_{\cdot j} \mid b_j,\Theta_{-b_j})
+\, p(b_j)
+\, \prod_{i=1}^n
+N\!\left(\log\|a_i-b_j\|;\delta_i+\lambda_i^\top\eta_j,\psi_i\right)
+\, q_b(b_j^\ast \mid b_j)
+}
+\right\}.
+\]
+Here $Y_{\cdot j}$ denotes the subset of observed responses associated with item $j$
+in its corresponding layer.
+
+\subsubsection{One full MCMC sweep}
+
+One full MCMC iteration proceeds as follows:
+\[
+\text{LSIRM non-position block}
+\;\rightarrow\;
+\{a_i\}_{i=1}^n
+\;\rightarrow\;
+\{b_j\}_{j=1}^p
+\;\rightarrow\;
+\rho
+\;\rightarrow\;
+\{\eta_j\}_{j=1}^p
+\;\rightarrow\;
+\{c_j\}_{j=1}^p
+\;\rightarrow\;
+\{\mu_l,\Sigma_l\}_{l=1}^{K^\star}
+\;\rightarrow\;
+\{\delta_i,\lambda_i,\psi_i\}_{i=1}^n
+\;\rightarrow\;
+\sigma_\delta^2.
+\]
+
+\subsubsection{Pseudo-code}
+
+\begin{algorithm}[H]
+\caption{Joint multilayered LSIRM + item-only factor-mixture clustering}
+\begin{algorithmic}[1]
+\Require Observed multilayer item response data $\{Y_{ij}^{(\ell)}\}$, factor dimension $r$,
+overfitted number of clusters $K^\star$, total iterations $T$, burn-in $B$, thinning $H$.
+\State Initialize LSIRM parameters
+$\Theta_{\mathrm{LSIRM}}^{(0)}$
+and clustering parameters
+$\Theta_{\mathrm{clust}}^{(0)}$.
+\For{$t=1,\dots,T$}
+    \State Update all layer-specific LSIRM parameters except positions
+    using the original multilayered LSIRM full conditionals or MH steps.
+    \For{$i=1,\dots,n$}
+        \State Update respondent position $a_i$ by MH using the original LSIRM likelihood
+        multiplied by the clustering-layer Gaussian contribution.
+    \EndFor
+    \For{$j=1,\dots,p$}
+        \State Update item position $b_j$ by MH using the original item-specific LSIRM likelihood
+        multiplied by the clustering-layer Gaussian contribution.
+    \EndFor
+    \State Compute current distances
+    \[
+    d_{ij}^{(t)} = \|a_i^{(t)}-b_j^{(t)}\|,
+    \qquad
+    x_{ij}^{(t)} = \log d_{ij}^{(t)}.
+    \]
+    \State Update $\rho$ from its Dirichlet full conditional.
+    \For{$j=1,\dots,p$}
+        \State Update factor score $\eta_j$ from its Gaussian full conditional.
+    \EndFor
+    \For{$j=1,\dots,p$}
+        \State Update cluster label $c_j$ from its categorical full conditional.
+    \EndFor
+    \For{$l=1,\dots,K^\star$}
+        \State Update $\mu_l$ from its Gaussian full conditional.
+        \State Update $\Sigma_l$ from its inverse-Wishart full conditional.
+    \EndFor
+    \For{$i=1,\dots,n$}
+        \State Update respondent baseline $\delta_i$ from its Gaussian full conditional.
+        \State Update loading row $\lambda_i$ from its Gaussian full conditional.
+        \State Update residual variance $\psi_i$ from its inverse-gamma full conditional.
+    \EndFor
+    \State Update $\sigma_\delta^2$ from its inverse-gamma full conditional.
+    \If{$t>B$ and $(t-B)$ is divisible by $H$}
+        \State Store the current draw of
+        $\Theta_{\mathrm{LSIRM}}^{(t)}$ and $\Theta_{\mathrm{clust}}^{(t)}$.
+    \EndIf
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Posterior summary}
+
+The occupied number of item clusters at iteration $t$ is
+\[
+K_+^{(t)} = \sum_{l=1}^{K^\star} I(n_l^{(t)} > 0).
+\]
+The posterior co-clustering probability between items $j$ and $j'$ is
+\[
+\widehat P_{jj'}
+=
+\frac{1}{T_{\mathrm{save}}}
+\sum_{t=1}^{T_{\mathrm{save}}}
+I\!\left(c_j^{(t)} = c_{j'}^{(t)}\right).
+\]
+A representative final partition may be obtained from the posterior similarity matrix
+$\widehat P = (\widehat P_{jj'})$ after standard label-switching post-processing.

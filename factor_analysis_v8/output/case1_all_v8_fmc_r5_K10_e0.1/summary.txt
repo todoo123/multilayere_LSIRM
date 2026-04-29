@@ -1,0 +1,22 @@
+Factor analysis on v8 LSIRM result
+Source: /Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/data/plot/case1_all_v8_fmc_r5_K10_e0.1/case1_all_v8_fmc_r5_K10_e0.1_result.rds
+
+Dimensions: n = 221  P = 68  d (LSIRM) = 2
+
+# Factor selection
+  Kaiser-style (eig > mean)     : 4
+  Parallel analysis (q95)       : 3   <-- chosen
+  Cumulative var >= 80%         : 3
+  Cumulative var >= 90%         : 3
+
+# K-means cluster selection (using r = 3 factors)
+  Elbow (largest WSS drop)      : K = 2
+  Silhouette (max average)      : K = 8
+  Gap (Tibs2001SEmax, default)  : K = 1
+  Gap (firstSEmax)              : K = 8
+  Gap (globalmax)               : K = 10
+
+# Items per cluster (chosen rule):
+
+ 1  2  3  4 
+18 10 13 27 

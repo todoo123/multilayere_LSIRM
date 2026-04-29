@@ -799,6 +799,254 @@ km_multi <- kmeans_cluster_b(
 
 
 ################################################################################
+# 8b. Bipartite SBM clustering on full posterior distance trajectory
+#     (paper/bipartite_SBM.tex §1.2: post-LSIRM bipartite SBM)
+#
+#   - Q_sbm / L_sbm 길이 1: 단일 fit
+#   - Q_sbm / L_sbm 중 하나 이상이 vector: grid search + ICL 비교 + best 선택
+################################################################################
+setwd(data_dir)
+source(file.path(data_dir, "bipartite_SBM_cpp.R"))
+
+# Item samples per layer in the same order as section 8 (bin, con, cnt, ord1, ord2)
+b_samps_list <- list(result$b1, result$b2, result$b3, result$b4, result$b5)
+b_samps_list <- b_samps_list[
+  sapply(b_samps_list, function(x) !is.null(x) && length(dim(x)) == 3 && dim(x)[2] > 0)
+]
+
+D_cube <- build_distance_cube(result$a, b_samps_list)        # array (n x p x m)
+cat(sprintf("\n[bipartite SBM] D_cube dim: %s (n x p x m)\n",
+            paste(dim(D_cube), collapse = " x ")))
+
+# --- Posterior-mean positions for biplots (matches §8 b/B_uni convention) ---
+A_hat_pm <- apply(result$a, c(2, 3), mean)
+B_hat_pm <- do.call(rbind,
+                    lapply(b_samps_list, function(x) apply(x, c(2, 3), mean)))
+item_names_full <- c(cs$col_bin, cs$col_con, cs$col_cnt, cs$col_ord1, cs$col_ord2)
+item_names_full <- item_names_full[seq_len(nrow(B_hat_pm))]
+stopifnot(length(item_names_full) == nrow(B_hat_pm),
+          nrow(B_hat_pm) == dim(D_cube)[2])
+rownames(B_hat_pm) <- item_names_full
+
+# --- (Q, L) grid: scalar = single fit, vector = grid search ---
+Q_sbm <- 3
+L_sbm <- c(3,4,5,6,7)
+
+grid_QL <- expand.grid(Q = Q_sbm, L = L_sbm)
+grid_QL$icl            <- NA_real_
+grid_QL$cll            <- NA_real_
+grid_QL$penalty        <- NA_real_
+grid_QL$nu             <- NA_integer_
+grid_QL$acc_log_kappa  <- NA_real_
+grid_QL$kappa_postmean <- NA_real_
+
+cluster_pal <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3",
+                 "#FF7F00", "#FFFF33", "#A65628", "#F781BF",
+                 "#999999", "#66C2A5")
+
+# helper: SBM biplot — respondent (circle, alpha) + item (square) colored by cluster
+make_sbm_biplot <- function(A_hat, B_hat, item_cluster, resp_cluster,
+                            item_names, title, filename, plot_dir, pal) {
+  k_max <- max(c(item_cluster, resp_cluster))
+  if (k_max > length(pal)) pal <- colorRampPalette(pal)(k_max)
+
+  pdf(file.path(plot_dir, filename), width = 10, height = 8)
+  par(mar = c(4, 4, 3, 1))
+  xr <- range(A_hat[, 1], B_hat[, 1])
+  yr <- range(A_hat[, 2], B_hat[, 2])
+  plot(A_hat, pch = 21,
+       bg  = adjustcolor(pal[resp_cluster], alpha.f = 0.45),
+       col = "black", cex = 0.9,
+       xlab = "Dim1", ylab = "Dim2", main = title,
+       xlim = xr + c(-1, 1) * 0.1 * diff(xr),
+       ylim = yr + c(-1, 1) * 0.1 * diff(yr))
+  points(B_hat, pch = 22, bg = pal[item_cluster], col = "black", cex = 1.6)
+  text(B_hat, labels = item_names, pos = 4, cex = 0.55)
+
+  uq_resp <- sort(unique(resp_cluster))
+  uq_item <- sort(unique(item_cluster))
+  legend("topright",
+         legend = c(sprintf("Resp cluster %d", uq_resp),
+                    sprintf("Item cluster %d", uq_item)),
+         pch    = c(rep(21, length(uq_resp)), rep(22, length(uq_item))),
+         pt.bg  = c(adjustcolor(pal[uq_resp], alpha.f = 0.45), pal[uq_item]),
+         bty = "n", cex = 0.75)
+  dev.off()
+}
+
+fits_list <- vector("list", nrow(grid_QL))
+names(fits_list) <- sprintf("Q%d_L%d", grid_QL$Q, grid_QL$L)
+
+# --- Loop over (Q, L) ---
+for (gi in seq_len(nrow(grid_QL))) {
+  Q_g <- grid_QL$Q[gi]; L_g <- grid_QL$L[gi]
+  cat(sprintf("\n========== bipartite SBM: Q=%d, L=%d  (%d/%d) ==========\n",
+              Q_g, L_g, gi, nrow(grid_QL)))
+
+  fit_g <- bipartite_sbm(
+    D_cube,
+    Q       = Q_g, L = L_g,
+    hyper   = list(r = 0.1, mu_log_kappa = 0, sd_log_kappa = 2),
+    prop_sd = list(log_kappa = 0.1),
+    init    = NULL,
+    verbose = TRUE
+  )
+
+  icl_g <- compute_sbm_icl(fit_g, D_cube)
+  grid_QL$icl[gi]            <- icl_g$icl
+  grid_QL$cll[gi]            <- icl_g$cll
+  grid_QL$penalty[gi]        <- icl_g$penalty
+  grid_QL$nu[gi]             <- icl_g$nu
+  grid_QL$acc_log_kappa[gi]  <- fit_g$acc_log_kappa
+  grid_QL$kappa_postmean[gi] <- mean(exp(fit_g$log_kappa))
+
+  cat(sprintf("[Q=%d, L=%d] cll=%.2f, penalty=%.2f, ICL=%.2f, ",
+              Q_g, L_g, icl_g$cll, icl_g$penalty, icl_g$icl))
+  cat(sprintf("acc_kappa=%.3f, kappa_postmean=%.3f\n",
+              fit_g$acc_log_kappa, mean(exp(fit_g$log_kappa))))
+
+  # cluster mode per item / respondent
+  item_cluster <- apply(fit_g$w, 2,
+                        function(v) as.integer(names(sort(table(v), decreasing = TRUE))[1]))
+  resp_cluster <- apply(fit_g$z, 2,
+                        function(v) as.integer(names(sort(table(v), decreasing = TRUE))[1]))
+
+  # Lambda posterior mean (Q × L block intensity)
+  Lambda_pm <- apply(fit_g$Lambda, c(1, 2), mean)
+
+  # item co-clustering probability  P(w_j = w_{j'} | D)
+  n_save_sbm <- nrow(fit_g$w)
+  co_w <- matrix(0, length(item_names_full), length(item_names_full))
+  for (s in seq_len(n_save_sbm))
+    co_w <- co_w + outer(fit_g$w[s, ], fit_g$w[s, ], `==`)
+  co_w <- co_w / n_save_sbm
+  rownames(co_w) <- colnames(co_w) <- item_names_full
+
+  # --- Save per-(Q,L) artifacts ---
+  prefix_g <- sprintf("%s_%s_sbm_Q%d_L%d", cs$name, run_label, Q_g, L_g)
+
+  saveRDS(fit_g, file.path(case_plot_dir, paste0(prefix_g, "_result.rds")))
+  write.csv(data.frame(item = item_names_full, sbm_cluster = item_cluster),
+            file.path(case_plot_dir, paste0(prefix_g, "_item_clusters.csv")),
+            row.names = FALSE)
+  write.csv(data.frame(respondent = seq_along(resp_cluster), sbm_cluster = resp_cluster),
+            file.path(case_plot_dir, paste0(prefix_g, "_respondent_clusters.csv")),
+            row.names = FALSE)
+  write.csv(co_w,
+            file.path(case_plot_dir, paste0(prefix_g, "_co_cluster_w.csv")))
+  write.csv(round(Lambda_pm, 4),
+            file.path(case_plot_dir, paste0(prefix_g, "_Lambda_postmean.csv")),
+            row.names = FALSE)
+
+  # --- Co-clustering heatmap (items reordered by cluster) ---
+  pdf(file.path(case_plot_dir, paste0(prefix_g, "_co_cluster_w.pdf")),
+      width = 9, height = 8)
+  ord <- order(item_cluster)
+  image(seq_along(item_names_full), seq_along(item_names_full), co_w[ord, ord],
+        col  = colorRampPalette(c("white", "steelblue"))(50),
+        xlab = "", ylab = "", axes = FALSE,
+        main = sprintf("Bipartite SBM item co-clustering (Q=%d, L=%d, ICL=%.0f)",
+                       Q_g, L_g, icl_g$icl))
+  axis(1, at = seq_along(item_names_full), labels = item_names_full[ord],
+       las = 2, cex.axis = 0.6)
+  axis(2, at = seq_along(item_names_full), labels = item_names_full[ord],
+       las = 2, cex.axis = 0.6)
+  box()
+  dev.off()
+
+  # --- log_kappa traceplot ---
+  pdf(file.path(case_plot_dir, paste0(prefix_g, "_trace_log_kappa.pdf")),
+      width = 8, height = 5)
+  ts.plot(fit_g$log_kappa,
+          main = sprintf("log kappa trace (Q=%d, L=%d)", Q_g, L_g),
+          ylab = expression(log(kappa)))
+  abline(h = mean(fit_g$log_kappa), col = "darkgreen", lwd = 2)
+  dev.off()
+
+  # --- SBM biplot (resp + item, colored by SBM cluster) ---
+  make_sbm_biplot(
+    A_hat = A_hat_pm, B_hat = B_hat_pm,
+    item_cluster = item_cluster, resp_cluster = resp_cluster,
+    item_names = item_names_full,
+    title = sprintf("Bipartite SBM (Q=%d, L=%d, ICL=%.0f)  |  %s",
+                    Q_g, L_g, icl_g$icl, cs$label),
+    filename = paste0(prefix_g, "_biplot.pdf"),
+    plot_dir = case_plot_dir,
+    pal = cluster_pal
+  )
+
+  cat(sprintf("\n[Q=%d, L=%d] item-cluster table:\n", Q_g, L_g))
+  print(table(item_cluster))
+  cat(sprintf("[Q=%d, L=%d] respondent-cluster table:\n", Q_g, L_g))
+  print(table(resp_cluster))
+
+  fits_list[[gi]] <- fit_g
+}
+
+# --- Grid summary CSV ---
+write.csv(grid_QL,
+          file.path(case_plot_dir,
+                    sprintf("%s_%s_sbm_grid_ICL.csv", cs$name, run_label)),
+          row.names = FALSE)
+
+best_idx <- which.max(grid_QL$icl)
+cat(sprintf("\n=== Best (Q, L) by ICL: (%d, %d), ICL = %.2f ===\n",
+            grid_QL$Q[best_idx], grid_QL$L[best_idx], grid_QL$icl[best_idx]))
+cat("\nFull (Q, L) grid:\n")
+print(grid_QL)
+
+# --- ICL plot (skip if grid has only one row) ---
+if (nrow(grid_QL) > 1) {
+  pdf(file.path(case_plot_dir,
+                sprintf("%s_%s_sbm_ICL.pdf", cs$name, run_label)),
+      width = 9, height = 7)
+  par(mar = c(4, 4, 3, 1))
+  if (length(unique(grid_QL$Q)) > 1 && length(unique(grid_QL$L)) > 1) {
+    Qu <- sort(unique(grid_QL$Q)); Lu <- sort(unique(grid_QL$L))
+    icl_mat <- matrix(NA_real_, length(Qu), length(Lu),
+                      dimnames = list(paste0("Q=", Qu), paste0("L=", Lu)))
+    for (gi in seq_len(nrow(grid_QL))) {
+      qi <- match(grid_QL$Q[gi], Qu); li <- match(grid_QL$L[gi], Lu)
+      icl_mat[qi, li] <- grid_QL$icl[gi]
+    }
+    image(seq_along(Qu), seq_along(Lu), icl_mat,
+          col = colorRampPalette(c("white", "tomato"))(50),
+          xlab = "Q", ylab = "L", axes = FALSE,
+          main = sprintf("Bipartite SBM ICL grid  (best: Q=%d, L=%d, ICL=%.0f)",
+                         grid_QL$Q[best_idx], grid_QL$L[best_idx],
+                         grid_QL$icl[best_idx]))
+    axis(1, at = seq_along(Qu), labels = Qu)
+    axis(2, at = seq_along(Lu), labels = Lu)
+    for (gi in seq_len(nrow(grid_QL))) {
+      qi <- match(grid_QL$Q[gi], Qu); li <- match(grid_QL$L[gi], Lu)
+      text(qi, li, sprintf("%.0f", grid_QL$icl[gi]), cex = 0.75)
+    }
+    qi_b <- match(grid_QL$Q[best_idx], Qu)
+    li_b <- match(grid_QL$L[best_idx], Lu)
+    rect(qi_b - 0.5, li_b - 0.5, qi_b + 0.5, li_b + 0.5,
+         border = "black", lwd = 2.5)
+    box()
+  } else if (length(unique(grid_QL$Q)) > 1) {
+    plot(grid_QL$Q, grid_QL$icl, type = "b", pch = 19, cex = 1.2,
+         xlab = "Q", ylab = "ICL",
+         main = sprintf("ICL vs Q  (L = %d, best Q = %d)",
+                        grid_QL$L[1], grid_QL$Q[best_idx]))
+    abline(v = grid_QL$Q[best_idx], col = "red", lty = 2)
+  } else {
+    plot(grid_QL$L, grid_QL$icl, type = "b", pch = 19, cex = 1.2,
+         xlab = "L", ylab = "ICL",
+         main = sprintf("ICL vs L  (Q = %d, best L = %d)",
+                        grid_QL$Q[1], grid_QL$L[best_idx]))
+    abline(v = grid_QL$L[best_idx], col = "red", lty = 2)
+  }
+  dev.off()
+}
+
+# free large object before next section
+rm(D_cube); gc(verbose = FALSE)
+
+
+################################################################################
 # 9. Unilayered LSIRM (모든 변수 이진화 후 단일-layer LSIRM)
 ################################################################################
 # 9-0. Project root에서 basic LSIRM 로드

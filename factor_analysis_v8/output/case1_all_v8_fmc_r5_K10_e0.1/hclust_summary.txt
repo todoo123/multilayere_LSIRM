@@ -1,0 +1,42 @@
+Hierarchical clustering on item factor scores  (r = 3)
+Source factor scores: /Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/factor_analysis_v8/output/case1_all_v8_fmc_r5_K10_e0.1/item_factor_scores.csv
+
+Validity diagnostics per linkage:
+  linkage cophenetic_corr agglom_coef num_inversions best_silhouette_K
+  ward.D2           0.647       0.970              0                 7
+  average           0.705       0.885              0                 9
+ complete           0.712       0.931              0                 9
+   single           0.653       0.781              0                 2
+ best_silhouette_val
+               0.396
+               0.397
+               0.368
+               0.231
+
+Guideline (rule-of-thumb thresholds):
+  cophenetic_corr > 0.75 -> hierarchy faithfully preserves input distances
+  agglom_coef     > 0.65 -> moderate clustering structure (1 = perfect)
+  num_inversions  == 0   -> monotone dendrogram
+
+Bootstrap stability (ward.D2, K = 7, B = 50):
+  ARI mean = 0.705, median = 0.674, sd = 0.141, q10 = 0.580, q90 = 1.000
+
+Guideline:
+  ARI mean > 0.7  -> highly stable
+  ARI mean > 0.5  -> moderately stable
+  ARI mean < 0.4  -> unstable / hierarchy not robust
+
+Cross-method ARI:
+        method_A                           method_B   ARI
+  hclust:ward.D2 kmeans:partition_K4_silhouette.csv 0.613
+  hclust:ward.D2 kmeans:partition_K8_silhouette.csv 0.690
+  hclust:ward.D2       gmm:gmm_partition_G8_EEV.csv 0.533
+  hclust:average kmeans:partition_K4_silhouette.csv 0.494
+  hclust:average kmeans:partition_K8_silhouette.csv 0.751
+  hclust:average       gmm:gmm_partition_G8_EEV.csv 0.387
+ hclust:complete kmeans:partition_K4_silhouette.csv 0.468
+ hclust:complete kmeans:partition_K8_silhouette.csv 0.501
+ hclust:complete       gmm:gmm_partition_G8_EEV.csv 0.735
+   hclust:single kmeans:partition_K4_silhouette.csv 0.026
+   hclust:single kmeans:partition_K8_silhouette.csv 0.015
+   hclust:single       gmm:gmm_partition_G8_EEV.csv 0.009

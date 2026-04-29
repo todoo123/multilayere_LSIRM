@@ -1,0 +1,21 @@
+GMM clustering on item factor scores (r = 3)
+Source factor scores: /Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/factor_analysis_v8/output/case1_all_v8_fmc_r5_K10_e0.1/item_factor_scores.csv
+
+BIC-optimal model: G = 8, covariance = 'EEV', BIC = -808.98
+Average silhouette width: 0.324
+Mean assignment uncertainty: 0.016
+# items with uncertainty > 0.5: 0 / 68
+
+Adjusted Rand Index vs k-means (partition_K4_silhouette.csv, K = 4): 0.365
+
+Cluster sizes:
+cls
+ 1  2  3  4  5  6  7  8 
+12 12  7  9  6 11  5  6 
+
+Top 5 covariance models by BIC:
+  G = 8, model = EEV, BIC = -808.98
+  G = 7, model = EEV, BIC = -820.22
+  G = 8, model = VEV, BIC = -820.26
+  G = 10, model = VEV, BIC = -822.66
+  G = 9, model = VEV, BIC = -827.32

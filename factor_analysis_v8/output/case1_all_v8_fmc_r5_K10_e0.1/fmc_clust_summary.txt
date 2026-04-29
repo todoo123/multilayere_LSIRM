@@ -1,0 +1,133 @@
+Clustering on Bayesian FMC factor-analysis MCMC samples
+Source result: /Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/plot/case1_all_v8_fmc_r5_K10_e0.1/case1_all_v8_fmc_r5_K10_e0.1_result.rds
+MCMC samples : T = 8000   (eta: 68 x 5 x 8000)
+Cluster grid : K = 2 .. 8
+Distance     : respondent-profile metric, ||Lambda_PM (eta_j - eta_k)||
+               (eta transformed via R = chol(Lambda_PM^T Lambda_PM))
+
+Hierarchy diagnostics:
+  input  linkage cophenetic_corr agglom_coef num_inversions best_silhouette_K
+ eta_PM  ward.D2           0.613       0.963              0                 2
+ eta_PM  average           0.691       0.848              0                 2
+ eta_PM complete           0.688       0.913              0                 2
+ eta_PM   single           0.586       0.669              0                 2
+  D_bar  ward.D2           0.537       0.810              0                 4
+  D_bar  average           0.767       0.504              0                 2
+  D_bar complete           0.696       0.629              0                 2
+  D_bar   single           0.581       0.404              0                 3
+ best_silhouette_val
+               0.387
+               0.385
+               0.421
+               0.257
+               0.148
+               0.228
+               0.226
+               0.082
+
+K-means / PAM validation:
+  K wss_etaPM sil_kmeans sil_pam_Dbar    gap gap_SE
+1 1    0.0417         NA           NA 0.1515 0.0385
+2 2    0.0213     0.4004       0.1769 0.1107 0.0319
+3 3    0.0156     0.3167       0.1721 0.1134 0.0292
+4 4    0.0120     0.3403       0.1431 0.1171 0.0273
+5 5    0.0090     0.3472       0.1296 0.1320 0.0253
+6 6    0.0073     0.3450       0.1127 0.1665 0.0268
+7 7    0.0064     0.3387       0.1187 0.1501 0.0271
+8 8    0.0056     0.3387       0.1228 0.1642 0.0277
+
+Optimal K per method:
+  k-means/eta_PM silhouette : K = 2
+  k-means/eta_PM elbow      : K = 2
+  k-means/eta_PM gap (Tibs) : K = 1
+  PAM/D_bar      silhouette : K = 2
+  hclust per linkage (silhouette):
+    eta_PM    ward.D2   K = 2
+    eta_PM    average   K = 2
+    eta_PM    complete  K = 2
+    eta_PM    single    K = 2
+    D_bar     ward.D2   K = 4
+    D_bar     average   K = 2
+    D_bar     complete  K = 2
+    D_bar     single    K = 3
+
+All optimal K within [2, 8]?  NO
+Range of optimal K's: [1, 4]
+
+Cross-method ARI (silhouette-optimal partitions):
+                  hc_etaPM_ward.D2 hc_Dbar_ward.D2 hc_etaPM_average
+hc_etaPM_ward.D2             1.000           0.203            0.124
+hc_Dbar_ward.D2              0.203           1.000            0.030
+hc_etaPM_average             0.124           0.030            1.000
+hc_Dbar_average              0.045           0.024            0.404
+hc_etaPM_complete            0.577           0.079            0.304
+hc_Dbar_complete             0.029           0.029            0.273
+hc_etaPM_single             -0.009          -0.003           -0.024
+hc_Dbar_single               0.041           0.017            0.327
+kmeans_etaPM                 0.829           0.128            0.142
+pam_Dbar                     0.673           0.212            0.069
+                  hc_Dbar_average hc_etaPM_complete hc_Dbar_complete
+hc_etaPM_ward.D2            0.045             0.577            0.029
+hc_Dbar_ward.D2             0.024             0.079            0.029
+hc_etaPM_average            0.404             0.304            0.273
+hc_Dbar_average             1.000             0.141            0.866
+hc_etaPM_complete           0.141             1.000            0.100
+hc_Dbar_complete            0.866             0.100            1.000
+hc_etaPM_single            -0.023            -0.017           -0.023
+hc_Dbar_single             -0.054             0.123           -0.050
+kmeans_etaPM                0.054             0.623            0.035
+pam_Dbar                    0.111             0.399            0.077
+                  hc_etaPM_single hc_Dbar_single kmeans_etaPM pam_Dbar
+hc_etaPM_ward.D2           -0.009          0.041        0.829    0.673
+hc_Dbar_ward.D2            -0.003          0.017        0.128    0.212
+hc_etaPM_average           -0.024          0.327        0.142    0.069
+hc_Dbar_average            -0.023         -0.054        0.054    0.111
+hc_etaPM_complete          -0.017          0.123        0.623    0.399
+hc_Dbar_complete           -0.023         -0.050        0.035    0.077
+hc_etaPM_single             1.000         -0.022       -0.010   -0.015
+hc_Dbar_single             -0.022          1.000        0.049   -0.042
+kmeans_etaPM               -0.010          0.049        1.000    0.532
+pam_Dbar                   -0.015         -0.042        0.532    1.000
+
+ARI vs earlier scripts' partitions:
+        fmc_method                    external    ARI
+  hc_etaPM_ward.D2 partition_K4_silhouette.csv  0.335
+  hc_etaPM_ward.D2 partition_K8_silhouette.csv  0.189
+  hc_etaPM_ward.D2    gmm_partition_G8_EEV.csv  0.128
+  hc_etaPM_ward.D2          hclust_ward_K7.csv  0.214
+   hc_Dbar_ward.D2 partition_K4_silhouette.csv  0.533
+   hc_Dbar_ward.D2 partition_K8_silhouette.csv  0.437
+   hc_Dbar_ward.D2    gmm_partition_G8_EEV.csv  0.433
+   hc_Dbar_ward.D2          hclust_ward_K7.csv  0.584
+  hc_etaPM_average partition_K4_silhouette.csv  0.087
+  hc_etaPM_average partition_K8_silhouette.csv  0.045
+  hc_etaPM_average    gmm_partition_G8_EEV.csv  0.035
+  hc_etaPM_average          hclust_ward_K7.csv  0.079
+   hc_Dbar_average partition_K4_silhouette.csv  0.062
+   hc_Dbar_average partition_K8_silhouette.csv  0.030
+   hc_Dbar_average    gmm_partition_G8_EEV.csv  0.013
+   hc_Dbar_average          hclust_ward_K7.csv  0.052
+ hc_etaPM_complete partition_K4_silhouette.csv  0.253
+ hc_etaPM_complete partition_K8_silhouette.csv  0.121
+ hc_etaPM_complete    gmm_partition_G8_EEV.csv  0.135
+ hc_etaPM_complete          hclust_ward_K7.csv  0.163
+  hc_Dbar_complete partition_K4_silhouette.csv  0.045
+  hc_Dbar_complete partition_K8_silhouette.csv  0.026
+  hc_Dbar_complete    gmm_partition_G8_EEV.csv  0.013
+  hc_Dbar_complete          hclust_ward_K7.csv  0.043
+   hc_etaPM_single partition_K4_silhouette.csv -0.009
+   hc_etaPM_single partition_K8_silhouette.csv -0.006
+   hc_etaPM_single    gmm_partition_G8_EEV.csv -0.002
+   hc_etaPM_single          hclust_ward_K7.csv -0.010
+    hc_Dbar_single partition_K4_silhouette.csv  0.040
+    hc_Dbar_single partition_K8_silhouette.csv  0.017
+    hc_Dbar_single    gmm_partition_G8_EEV.csv  0.007
+    hc_Dbar_single          hclust_ward_K7.csv  0.014
+      kmeans_etaPM partition_K4_silhouette.csv  0.282
+      kmeans_etaPM partition_K8_silhouette.csv  0.138
+      kmeans_etaPM    gmm_partition_G8_EEV.csv  0.114
+      kmeans_etaPM          hclust_ward_K7.csv  0.164
+          pam_Dbar partition_K4_silhouette.csv  0.280
+          pam_Dbar partition_K8_silhouette.csv  0.187
+          pam_Dbar    gmm_partition_G8_EEV.csv  0.132
+          pam_Dbar          hclust_ward_K7.csv  0.233
