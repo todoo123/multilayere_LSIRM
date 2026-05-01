@@ -1,0 +1,449 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\title{Joint Multilayered LSIRM with Item-Only Factor-Mixture Clustering\\
+(Model V8)}
+\date{April 29, 2026}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+Model V8 couples the 5-layered hierarchical LSIRM of V6 with an item-only
+factor-mixture clustering (FMC) layer in a single Bayesian hierarchical model.
+The structure is summarized as follows.
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{LSIRM block.} Identical to V6.
+        Five mixed-type response layers (binary, robust continuous, count with overdispersion, two ordinal layers) share a hierarchical respondent-position structure $(z_i,\,a_i^{(1)},\dots,a_i^{(5)})$.
+        Item positions $b_j^{(\ell)}\in\mathbb{R}^d$ live in the same latent space.
+        Latent positions are constrained to a unit disk centered at the origin.
+    \item \textbf{Clustering block.} An item-only finite mixture in factor-score
+        space, applied to the respondent-relation profile of each item induced
+        by the current LSIRM state.
+    \item \textbf{Coupling.} The current implementation is strict one-way
+        (LSIRM~$\to$~FMC). The LSIRM acceptance ratios are
+        byte-identical to V6; the clustering block conditions on the LSIRM
+        latent positions but does not feed back into LSIRM updates.
+\end{itemize}
+
+The remainder of the document fixes notation, formalizes the joint model,
+specifies hyperparameters (with explicit rationale for the choices that
+matter for cluster recovery), and documents diagnostic failure modes that
+were observed in fits to the MIDUS data along with the corrective changes
+adopted.
+
+\section{Notation}
+
+\subsection*{LSIRM block}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $n$: number of respondents, indexed $i=1,\dots,n$.
+    \item $L=5$: number of data layers.
+    \item $P_\ell$: number of items in layer $\ell$; $P=\sum_{\ell=1}^L P_\ell$ is the total number of items, indexed $j=1,\dots,P$. Let $\ell(j)$ denote the layer of item $j$.
+    \item $d$: dimension of the latent interaction space (fixed at $d=2$).
+    \item $z_i \in \mathbb{R}^d$: \emph{global} respondent latent position; appears only as the hierarchical mean of the local positions and never enters any likelihood directly.
+    \item $a_i^{(\ell)} \in \mathbb{R}^d$: \emph{local} (layer-specific) respondent latent position in layer $\ell$.
+    \item $b_j^{(\ell)} \in \mathbb{R}^d$: latent position of item $j$ in its corresponding layer.
+    \item $\sigma_1^2 > 0$: global--local coupling variance, controlling how tightly $a_i^{(\ell)}$ clusters around $z_i$.
+    \item $\alpha_i^{(\ell)}$: respondent effect for respondent $i$ in layer $\ell$.
+    \item $\beta_j^{(\ell)}$: item difficulty; for ordinal layers, replaced by GRM thresholds $\beta_{j,1}^{(\ell)}>\cdots>\beta_{j,K_\ell-1}^{(\ell)}$.
+    \item $\gamma_\ell>0$: layer-specific distance weight.
+    \item $\kappa>0$: count-layer overdispersion.
+\end{itemize}
+
+For brevity, layer-specific variances $\sigma_{\alpha\ell}^2,\tau_{\beta\ell}^2,\sigma_0^2$ and the robust-continuous mixture weights $\lambda_{ij}^{(2)}$ follow the V6 specification verbatim.
+
+\subsection*{Clustering block (FMC)}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $r$: latent factor dimension.
+    \item $K^\star$: overfitted upper bound on the number of item clusters.
+    \item $\eta_j\in\mathbb{R}^r$: factor score of item $j$.
+    \item $c_j\in\{1,\dots,K^\star\}$: cluster label of item $j$.
+    \item $K_+^{(t)}=|\{c_j^{(t)}:j=1,\dots,P\}|$: number of \emph{occupied} components at MCMC iteration $t$.
+    \item $\Lambda\in\mathbb{R}^{n\times r}$: shared factor-loading matrix; row $\lambda_i^\top$ is respondent~$i$'s loading.
+    \item $\delta=(\delta_1,\dots,\delta_n)^\top$: per-respondent baseline.
+    \item $\Psi=\mathrm{diag}(\psi_1,\dots,\psi_n)$: per-respondent idiosyncratic variances.
+    \item $\rho=(\rho_1,\dots,\rho_{K^\star})$: mixture weights.
+    \item $\mu_l\in\mathbb{R}^r$, $\Sigma_l\in\mathbb{R}^{r\times r}_{\succ 0}$: mixture component parameters.
+    \item $\sigma_\delta^2$: variance of the respondent baselines.
+\end{itemize}
+
+\section{LSIRM block (recap of V6)}
+
+The hierarchical respondent-position prior is
+\begin{align}
+z_i &\overset{iid}{\sim} N_d(0_d,I_d),\\
+a_i^{(\ell)}\mid z_i,\sigma_1^2 &\overset{ind}{\sim} N_d(z_i,\sigma_1^2 I_d),
+\quad \ell=1,\dots,L,\\
+\sigma_1^2 &\sim IG(a_{\sigma_g},b_{\sigma_g}).
+\end{align}
+
+Per-layer linear predictors and likelihoods are unchanged from V6 and are reproduced compactly:
+\begin{align*}
+\eta_{ij}^{(1)} &= \alpha_i^{(1)}-\beta_j^{(1)}-\gamma_1\|a_i^{(1)}-b_j^{(1)}\|, & Y_{ij}^{(1)}&\sim\mathrm{Bern}(\mathrm{logit}^{-1}\eta_{ij}^{(1)}),\\
+\mu_{ij}^{(2)} &= \alpha_i^{(2)}-\beta_j^{(2)}-\gamma_2\|a_i^{(2)}-b_j^{(2)}\|, & Y_{ij}^{(2)}&\sim t_{\nu_2}(\mu_{ij}^{(2)},\sigma_0^2)\;\text{(via normal--gamma mixture)},\\
+\mu_{ij}^{(3)} &= \alpha_i^{(3)}-\beta_j^{(3)}-\gamma_3\|a_i^{(3)}-b_j^{(3)}\|, & Y_{ij}^{(3)}&\sim\mathrm{NB}(\kappa,\exp \mu_{ij}^{(3)}),\\
+\mu_{ij}^{(4)} &= \alpha_i^{(4)}-\gamma_4\|a_i^{(4)}-b_j^{(4)}\|, & Y_{ij}^{(4)}&\sim \text{GRM}(\mu_{ij}^{(4)};\beta_{j,1}^{(4)},\dots,\beta_{j,K_1-1}^{(4)}),\\
+\mu_{ij}^{(5)} &= \alpha_i^{(5)}-\gamma_5\|a_i^{(5)}-b_j^{(5)}\|, & Y_{ij}^{(5)}&\sim \text{GRM}(\mu_{ij}^{(5)};\beta_{j,1}^{(5)},\dots,\beta_{j,K_2-1}^{(5)}).
+\end{align*}
+
+The full LSIRM likelihood is
+\[
+p(Y\mid\Theta_{\mathrm{LSIRM}})
+=\prod_{\ell=1}^L\prod_{i=1}^n\prod_{j:\,\ell(j)=\ell}
+p_\ell\bigl(Y_{ij}^{(\ell)}\mid\theta_{ij}^{(\ell)}\bigr).
+\]
+
+\section{Item relation profile}
+
+For each MCMC iteration, the current LSIRM configuration induces, for each item~$j$, a respondent-relation profile vector
+\[
+x_j(\Theta_{\mathrm{LSIRM}})
+=
+(x_{1j},\dots,x_{nj})^\top \in \mathbb{R}^n,
+\qquad
+x_{ij} = \log \|a_i^{(\ell(j))}-b_j^{(\ell(j))}\|.
+\]
+Although the LSIRM uses layer-specific local positions $a_i^{(\ell)}$, the FMC sees a single $n$-vector per item; the layer index simply selects which $a_i^{(\ell)}$ is used in the distance computation.
+For notational simplicity we drop the layer superscript on $a_i$ in the FMC equations below.
+
+\paragraph{Row centering (mandatory preprocessing).}
+At the start of every MCMC iteration the FMC input is row-centered:
+\[
+\widetilde{x}_{ij}=x_{ij}-\frac{1}{P}\sum_{j'=1}^P x_{ij'},\qquad
+\sum_{j=1}^P \widetilde x_{ij}=0\;\forall i.
+\]
+Without this step, the per-respondent baseline $\delta_i$ absorbs the respondent-mean log-distance (i.e.\ $\sigma_\delta^2\sim\mathrm{Var}(x_{\log})$), leaving the $\Lambda\eta_j$ block with negligible signal and forcing the FMC to collapse to $K_+=1$.
+Row-centering is therefore not optional: it is a structural requirement for the cluster signal to survive.
+We use $\widetilde x_j$ as the FMC input throughout but write $x_j$ from now on for brevity.
+
+\section{Factor-mixture clustering block}
+
+Conditional on the LSIRM state, the FMC layer specifies
+\begin{align}
+x_j \mid \delta,\Lambda,\eta_j,\Psi
+&\sim N_n\bigl(\delta+\Lambda\eta_j,\;\Psi\bigr),\label{eq:fmc-likelihood}\\
+\eta_j \mid c_j=l,\mu_l,\Sigma_l &\sim N_r(\mu_l,\Sigma_l),\\
+c_j \mid \rho &\sim \mathrm{Categorical}(\rho),\\
+\rho &\sim \mathrm{Dirichlet}(e_0,\dots,e_0).
+\end{align}
+
+\subsection{Priors}
+
+\begin{align}
+\delta_i\mid\sigma_\delta^2 &\sim N(0,\sigma_\delta^2), &
+\sigma_\delta^2 &\sim IG(a_\delta,b_\delta),\\
+\lambda_i &\sim N_r(0,\tau_\lambda^2 I_r),\\
+\psi_i &\sim IG(a_\psi,b_\psi),\\
+\mu_l &\sim N_r(m_0,V_0), &
+\Sigma_l &\sim IW(\nu_0,S_0).
+\end{align}
+
+\subsection{Hyperparameter choices and rationale}\label{sec:hyper-rationale}
+
+The defaults below are used in all V8 fits to the MIDUS data ($n=221$, $P=68$, $r=5$, $K^\star=10$, $e_0=0.1$).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Parameter & Value & Rationale \\
+\midrule
+$e_0$           & $0.1$       & Overfitted Dirichlet (Rousseau--Mengersen): $e_0<d_l/2$ where $d_l=r+r(r+1)/2=20$ for $r=5$, so any $e_0<10$ asymptotically empties redundant components. \\
+$m_0$           & $0_r$       & Center prior on cluster centers at the origin. \\
+$V_0$           & $9I_r$      & Loose prior on $\mu_l$, large mobility. \\
+$\nu_0$         & $r+10=15$   & Informative IW prior; peaks $\Sigma_l$ near $S_0$. \\
+$S_0$           & $0.05\,I_r$ & Tight prior on within-cluster covariance, so distinct $\mu_l$'s correspond to distinct clusters. \\
+$\tau_\lambda^2$ & $0.25$     & Small; loosening $\Lambda$ further reverts the $\Lambda\to 0$ collapse. \\
+$(a_\delta,b_\delta)$ & $(2,1)$ & $E[\sigma_\delta^2]=1$, weak prior.\\
+$\bm{(a_\psi,b_\psi)}$ & $\bm{(5,0.2)}$ & \emph{Tightened from $(2,1)$.} See Section~\ref{sec:fixA}. Forces $\psi_i$ near $0.05$ so that residual variance must flow through $\Lambda\eta_j$ rather than into $\Psi$. \\
+\bottomrule
+\end{tabular}
+\caption{Hyperparameter defaults for the FMC block in V8.}
+\end{table}
+
+\section{Joint hierarchical model and coupling}
+
+The joint posterior kernel is
+\begin{align*}
+p(\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{clust}}\mid Y)
+&\propto
+p(Y\mid\Theta_{\mathrm{LSIRM}})\\
+&\quad\times
+\prod_{j=1}^P
+N_n\!\bigl(x_j(\Theta_{\mathrm{LSIRM}});\delta+\Lambda\eta_j,\Psi\bigr)
+N_r(\eta_j;\mu_{c_j},\Sigma_{c_j})\rho_{c_j}\\
+&\quad\times
+p(\Theta_{\mathrm{LSIRM}})\,p(\rho)\,
+p(\delta\mid\sigma_\delta^2)\,p(\sigma_\delta^2)\,p(\Lambda)\,p(\Psi)
+\prod_{l=1}^{K^\star}p(\mu_l)p(\Sigma_l),
+\end{align*}
+where
+\[
+\Theta_{\mathrm{clust}}=\{\eta_j,c_j,\rho,\delta,\Lambda,\Psi,\mu_l,\Sigma_l,\sigma_\delta^2\}.
+\]
+
+\paragraph{One-way coupling.}
+In V8 the Metropolis--Hastings acceptance ratios for $a_i$ and $b_j$ omit the FMC term~$N_n(x_j;\delta+\Lambda\eta_j,\Psi)$.
+That is, the LSIRM block updates as if the FMC did not exist, and the FMC sees the LSIRM through $x_j(\Theta_{\mathrm{LSIRM}})$ but does not influence it.
+This sacrifices full posterior coherence for two-way coupling, but keeps the V6 LSIRM block byte-identical and avoids the implementation cost of recomputing the cluster contribution at every $a_i,b_j$ proposal.
+A two-way version is sketched in Section~\ref{sec:future} as future work.
+
+\section{Initialization (PCA-based)}\label{sec:init}
+
+The FMC has a degenerate fixed point at $(\Lambda,\eta)=(0,0)$ that random small initial values cannot escape: with $\eta\approx 0$ the data favors $\Lambda\approx 0$, which in turn favors $\eta\approx 0$ via the mixture prior.
+We break this chicken-and-egg using a PCA initialization:
+\begin{enumerate}[leftmargin=2em,label=(\arabic*)]
+    \item Stack the column-standardized observed responses across layers into an $n\times P$ matrix $X$ (NA-imputed at $0$).
+    \item Compute PCA on $X^\top$ (items as rows) and retain the first $r$ scores as $\eta_j^{(0)}$.
+    \item Run $K^\star$-means on $\eta^{(0)}$ to obtain initial cluster labels $c_j^{(0)}$ and centers $\mu_l^{(0)}$.
+    \item Initialize $\Lambda^{(0)}\sim N(0,0.01\,I)$; the first $\lambda_i$ Gibbs sweep then redraws $\Lambda$ conditional on the structured $\eta^{(0)}$.
+\end{enumerate}
+
+\paragraph{FMC warm-up.}
+For $t<T_{\mathrm{warm}}$ (default $T_{\mathrm{warm}}=\max(1000,\mathrm{burnin}/4)$), the FMC parameters are not updated; only LSIRM positions evolve.
+This lets $a_i,b_j$ converge before the FMC starts conditioning on $x_j(\Theta_{\mathrm{LSIRM}})$, so that the FMC is not anchored to noisy initial distances.
+
+\section{Posterior updates}\label{sec:posterior-updates}
+
+LSIRM updates are unchanged from V6.
+We list only the FMC-block conditionals.
+Throughout, $\mathcal{J}_l=\{j:c_j=l\}$ and $n_l=|\mathcal{J}_l|$.
+
+\paragraph{(1) $\rho$.}
+$\rho\mid c\sim\mathrm{Dirichlet}(e_0+n_1,\dots,e_0+n_{K^\star})$.
+
+\paragraph{(2) $\eta_j$.}
+$\eta_j\mid\cdot\sim N_r(m_{\eta_j},V_{\eta_j})$ with
+\[
+V_{\eta_j}=\bigl(\Lambda^\top\Psi^{-1}\Lambda+\Sigma_{c_j}^{-1}\bigr)^{-1},\qquad
+m_{\eta_j}=V_{\eta_j}\bigl(\Lambda^\top\Psi^{-1}(x_j-\delta)+\Sigma_{c_j}^{-1}\mu_{c_j}\bigr).
+\]
+
+\paragraph{(3) $c_j$.}
+$P(c_j=l\mid\cdot)\propto\rho_l\,\phi_r(\eta_j;\mu_l,\Sigma_l)$, $l=1,\dots,K^\star$.
+
+\paragraph{(4) $\mu_l$.}
+$\mu_l\mid\cdot\sim N_r(m_{\mu_l},V_{\mu_l})$ with
+$V_{\mu_l}=(V_0^{-1}+n_l\Sigma_l^{-1})^{-1}$ and
+$m_{\mu_l}=V_{\mu_l}\bigl(V_0^{-1}m_0+\Sigma_l^{-1}\sum_{j\in\mathcal{J}_l}\eta_j\bigr)$.
+
+\paragraph{(5) $\Sigma_l$.}
+$\Sigma_l\mid\cdot\sim IW\bigl(\nu_0+n_l,\;S_0+\sum_{j\in\mathcal{J}_l}(\eta_j-\mu_l)(\eta_j-\mu_l)^\top\bigr)$.
+
+\paragraph{(6) $\delta_i$.}
+$\delta_i\mid\cdot\sim N(m_{\delta_i},V_{\delta_i})$ with
+$V_{\delta_i}=(P/\psi_i+1/\sigma_\delta^2)^{-1}$ and
+$m_{\delta_i}=V_{\delta_i}\Bigl[\psi_i^{-1}\sum_{j=1}^P(x_{ij}-\lambda_i^\top\eta_j)\Bigr]$.
+
+\paragraph{(7) $\lambda_i$.}
+$\lambda_i\mid\cdot\sim N_r(m_{\lambda_i},V_{\lambda_i})$ with
+$V_{\lambda_i}=\bigl(\tau_\lambda^{-2}I_r+\psi_i^{-1}\sum_j\eta_j\eta_j^\top\bigr)^{-1}$ and
+$m_{\lambda_i}=V_{\lambda_i}\Bigl[\psi_i^{-1}\sum_j\eta_j(x_{ij}-\delta_i)\Bigr]$.
+
+\paragraph{(8) $\psi_i$.}
+$\psi_i\mid\cdot\sim IG\bigl(a_\psi+P/2,\;b_\psi+\tfrac12\sum_j(x_{ij}-\delta_i-\lambda_i^\top\eta_j)^2\bigr)$.
+
+\paragraph{(9) $\sigma_\delta^2$.}
+$\sigma_\delta^2\mid\cdot\sim IG\bigl(a_\delta+n/2,\;b_\delta+\tfrac12\sum_i\delta_i^2\bigr)$.
+
+\paragraph{LSIRM positions under one-way coupling.}
+$a_i,b_j$ are updated by Metropolis--Hastings with the V6 acceptance ratios; the FMC factor $N_n(x_j;\delta+\Lambda\eta_j,\Psi)$ is \emph{not} included.
+
+\section{One full MCMC sweep}
+
+\begin{algorithm}[H]
+\caption{One sweep of joint LSIRM~+~FMC (V8, one-way coupling)}
+\begin{algorithmic}[1]
+\State Update LSIRM non-position block ($\alpha,\beta,\gamma,\kappa,\sigma_0^2$, threshold parameters, $\sigma_1^2$, $z_i$).
+\State Update $\{a_i^{(\ell)}\}$ via MH (V6 acceptance, no FMC term).
+\State Update $\{b_j^{(\ell)}\}$ via MH (V6 acceptance, no FMC term).
+\State Form $x_{ij}=\log\|a_i^{(\ell(j))}-b_j^{(\ell(j))}\|$ and row-center to $\widetilde x_{ij}$.
+\If{iter $\geq T_{\mathrm{warm}}$}
+    \State Update $\rho$.
+    \State Update $\{\eta_j\}_{j=1}^P$.
+    \State Update $\{c_j\}_{j=1}^P$.
+    \State Update $\{\mu_l,\Sigma_l\}_{l=1}^{K^\star}$.
+    \State Update $\{\delta_i,\lambda_i,\psi_i\}_{i=1}^n$.
+    \State Update $\sigma_\delta^2$.
+    \State Update online co-cluster matrix $C_{jk}\leftarrow C_{jk}+\mathbb{1}\{c_j=c_k\}$.
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\section{Cluster inference}\label{sec:cluster-inference}
+
+Per-iteration cluster labels $c_j^{(t)}$ are subject to label switching and are not directly interpretable.
+Label-switching-invariant summaries are used:
+
+\paragraph{Posterior similarity matrix (PSM).}
+\[
+C_{jk}=\Pr(c_j=c_k\mid Y)\;\approx\;\frac{1}{T}\sum_{t=1}^T \mathbb{1}\{c_j^{(t)}=c_k^{(t)}\}.
+\]
+
+\paragraph{$K_+$ trace.}
+$K_+^{(t)}=|\{c_j^{(t)}\}|$. The point estimate of cluster count is
+\(
+\hat K=\max\bigl(2,\mathrm{round}(\mathrm{median}_t\,K_+^{(t)})\bigr).
+\)
+
+\paragraph{Final partition.}
+A point partition is obtained by average-linkage hierarchical clustering on the dissimilarity $1-C$, cut at $\hat K$:
+\[
+\hat c_j = \mathrm{cutree}\bigl(\mathrm{hclust}(1-C,\,\text{method}=\text{average}),\;k=\hat K\bigr).
+\]
+
+\section{Diagnostics, failure modes, and remediations}\label{sec:diagnostics}
+
+In MIDUS fits with the original psi prior $(a_\psi,b_\psi)=(2,1)$, the FMC consistently locks at $K_+=2$ across $e_0\in\{0.05,0.1,1\}$. We document the diagnosis here so future runs can be verified.
+
+\subsection{Symptom: $K_+$ lock-in at $K=2$}\label{sec:symptom}
+
+For the canonical run $(r=5,K^\star=10,e_0=0.1)$:
+\begin{itemize}[leftmargin=1.5em]
+    \item $\mathrm{median}\,K_+ = 2$, $\mathrm{sd}\,K_+ = 0$ across all 8000 saved iterations.
+    \item Final partition is a clean $34$-vs-$34$ split.
+    \item Sweeping $e_0$ does not change $\hat K$.
+\end{itemize}
+This persistent lock-in is not the well-known "$K_+=1$ trap" warned in the implementation notes (which occurs without row-centering); it is a deeper failure mode in which the mixture cannot resolve more than 2 components.
+
+\subsection{Diagnosis: $\Lambda\to 0$ collapse}
+
+The following diagnostics, computed on the posterior of the v8 fit, identify the cause.
+
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Loading norm.} $\|\Lambda_{\mathrm{PM}}\|_F=1.20$, while the prior expectation under $\tau_\lambda^2=0.25$ is $\sqrt{n r\tau_\lambda^2}\approx 16.6$. Lambda has collapsed to roughly $1/14$ of its prior scale.
+    \item \textbf{Reconstruction.} $\Lambda\eta_j$ has range $[-0.007,0.008]$ and per-item standard deviation $0.001$; meanwhile the row-centered input $\widetilde x_j$ has standard deviation $\sim 0.5$. The factor block explains less than $2\%$ of the input variance.
+    \item \textbf{Cluster separation vs.~spread.} For the two active components, $\|\mu_4-\mu_{10}\|=0.065$ but $\sqrt{\mathrm{tr}\,\Sigma_l}\approx 0.54$. Component Gaussians are essentially co-incident.
+\end{itemize}
+
+\paragraph{Mechanism.}
+Latent positions $a_i,b_j$ are constrained to a unit disk, hence
+$\|a_i-b_j\|\in[0,2]$, $\log\|a_i-b_j\|$ has very narrow dynamic range, and
+$\widetilde x_{ij}$ has standard deviation of order $0.1$--$0.5$.
+With the loose default psi prior $(a_\psi,b_\psi)=(2,1)$ (mean $1$, heavy tail), the posterior favors the simple decomposition
+\[
+\widetilde x_{ij}\approx \delta_i + \varepsilon_{ij},\qquad \varepsilon_{ij}\sim N(0,\psi_i),
+\]
+absorbing essentially all variance into $\psi_i$.
+This drives $\Lambda\to 0$, which makes $\eta_j$ essentially data-free: each $\eta_j$ is then drawn from its mixture prior, and the mixture cannot discover structure that is not in the data.
+The end state is two indistinguishable Gaussians in $\eta$-space and $K_+=2$.
+
+\subsection{Fix A: tightening the $\psi$ prior}\label{sec:fixA}
+
+We tighten the residual prior to $(a_\psi,b_\psi)=(5,0.2)$, giving
+$E[\psi_i]\approx 0.05$ with concentration ($\mathrm{sd}(\psi_i)\approx 0.03$), versus the original mean $1$ with infinite variance.
+The change forces the posterior to attribute the observed $0.5$-scale variance in $\widetilde x_{ij}$ to the structured term $\Lambda\eta_j$, restoring the factor block to a non-trivial role.
+The other priors (in particular the small $S_0=0.05\,I_r$) do not need adjustment: once $\Lambda\eta_j$ carries variance, $S_0$ correctly biases $\Sigma_l$ toward small within-cluster spread, allowing $K_+>2$ to emerge.
+
+\paragraph{Verification checklist after refit.}
+\begin{enumerate}[leftmargin=2em]
+    \item $\|\Lambda_{\mathrm{PM}}\|_F$ should rise toward the prior expectation~16.6 (target: $\geq 5$).
+    \item $\mathrm{sd}(\widetilde x_j-\delta-\Lambda\eta_j)\approx \sqrt{\mathrm{mean}\,\psi_i}\approx 0.22$ initially, decreasing as $\Lambda\eta_j$ takes over.
+    \item Active $\|\mu_l-\mu_m\|$ should exceed $\sqrt{\mathrm{tr}\,\Sigma_l}$ for at least one pair.
+    \item $K_+^{(t)}$ should show non-degenerate variation (sd~$>0$).
+\end{enumerate}
+
+\subsection{Fix considerations not adopted}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item \emph{Column standardization of $\widetilde x_j$}: rejected. Per-column rescaling can be absorbed by $\Lambda$ or $\eta_j$; it does not change the $\Lambda/\Psi$ trade-off and so does not address the mechanism.
+    \item \emph{Removing row-centering}: rejected; collapses to $K_+=1$ as documented in the cpp implementation notes.
+    \item \emph{Loosening $\tau_\lambda^2$}: rejected. Empirically reverts to a stable but data-disconnected $\Lambda\sim 0$ fixed point.
+    \item \emph{Relaxing the unit-disk constraint on $a_i,b_j$}: a viable structural change but invasive (requires retuning all LSIRM proposals); kept as a fallback if Fix~A proves insufficient.
+\end{itemize}
+
+\section{Post-hoc clustering (sanity check and grid exploration)}\label{sec:posthoc}
+
+Independently of the in-model PSM clustering of Section~\ref{sec:cluster-inference}, V8 stores the per-iteration factor scores $\eta^{(t)}\in\mathbb{R}^{P\times r}$ (`save_eta_full = TRUE`).
+This enables post-hoc clustering on geometric distances to (i) verify that the in-model partition is supported by the factor-space geometry and (ii) probe alternative cluster counts on a $K=2,\dots,8$ grid.
+
+\subsection{Distance in respondent-profile space}
+
+Items live in $\mathbb{R}^r$ via $\eta_j$, but the substantive distance of interest is between their reconstructed respondent profiles $\hat x_j=\delta+\Lambda\eta_j\in\mathbb{R}^n$.
+Since $\delta$ cancels in differences,
+\[
+\|\hat x_j-\hat x_k\|^2 = \|\Lambda(\eta_j-\eta_k)\|^2 = (\eta_j-\eta_k)^\top M\,(\eta_j-\eta_k),
+\quad M=\Lambda^\top\Lambda.
+\]
+With $R$ the Cholesky factor of $M$ ($R^\top R=M$), defining $\tilde\eta_j=R\eta_j$ gives the clean transform
+\[
+\|\hat x_j-\hat x_k\|=\|\tilde\eta_j-\tilde\eta_k\|.
+\]
+Because per-iteration $\Lambda^{(t)}$ is not stored (the FMC saves $\Lambda_{\mathrm{PM}}$ only), $R$ is computed as $\mathrm{chol}(\Lambda_{\mathrm{PM}}^\top\Lambda_{\mathrm{PM}})$ and treated as a plug-in.
+
+\subsection{Two clustering inputs}
+
+\paragraph{(P1) Posterior-mean factor scores in respondent metric.}
+\[
+\eta_{\mathrm{PM},j} \;=\; R\,\bar\eta_j,
+\quad
+\bar\eta_j=\frac{1}{T}\sum_{t=1}^T \eta_j^{(t)}.
+\]
+Used as input to $K$-means and hierarchical clustering (Euclidean).
+
+\paragraph{(P2) Posterior-mean pairwise distance.}
+\[
+\bar D_{jk} \;=\; \frac{1}{T}\sum_{t=1}^T \bigl\|R(\eta_j^{(t)}-\eta_k^{(t)})\bigr\|.
+\]
+Used as input to PAM and hierarchical clustering (precomputed dissimilarity).
+By Jensen's inequality $\bar D_{jk}\geq \|\eta_{\mathrm{PM},j}-\eta_{\mathrm{PM},k}\|$, with equality only when $\eta_j-\eta_k$ is constant across iterations.
+$\bar D$ thus preserves posterior uncertainty about pairwise positions that point estimation discards.
+
+\subsection{Cluster-quality grid}
+
+For each input we run hierarchical clustering with four linkages (ward.D2, average, complete, single) and $K$-means or PAM, sweeping $K=2,\dots,8$ and selecting $K$ by the average silhouette width, with elbow and gap statistics as cross-checks.
+The resulting partitions are compared via the adjusted Rand index against the in-model PSM partition $\hat c$ and against pre-existing SVD-based factor-analysis partitions.
+
+\subsection{Empirical findings on the canonical pre-fix run}
+
+For the $(a_\psi,b_\psi)=(2,1)$ run:
+\begin{itemize}[leftmargin=1.5em]
+    \item Both inputs and all algorithms select $K=2$ at silhouette-optimal $K$ (with one exception: ward.D2 on $\bar D$ selects $K=4$).
+    \item The $\bar D$+ward partition at $K=4$ is a strict refinement of the in-model $K=2$ PSM partition: each in-model cluster splits cleanly into two, with $14/20/20/14$ sizes.
+    \item Adjusted Rand index between in-model $\hat c$ and post-hoc $\bar D$+ward $K=4$: $0.51$.
+\end{itemize}
+The agreement between (i) the in-model PSM and (ii) post-hoc $\bar D$ confirms that the visible cluster structure is genuine; the disagreement at finer resolutions confirms that the lock-in described in Section~\ref{sec:symptom} is what limits the in-model output, not a real lack of structure.
+This is the empirical justification for Fix~A.
+
+\section{Future direction: two-way coupling}\label{sec:future}
+
+The present V8 sacrifices full posterior coherence for ease of implementation. The natural next step replaces the one-way coupling with a fully joint posterior in which the clustering layer feeds back into the LSIRM updates. Two equivalent specifications:
+
+\paragraph{(i) Likelihood feedback.}
+Include $N_n(x_j;\delta+\Lambda\eta_j,\Psi)$ in the MH acceptance ratios for $a_i$ and $b_j$:
+\[
+\alpha(b_j,b_j^\ast)
+=
+\min\left\{1,\;
+\frac{p(Y_{\cdot j}\mid b_j^\ast)\,p(b_j^\ast)\prod_i N(\log\|a_i-b_j^\ast\|;\delta_i+\lambda_i^\top\eta_j,\psi_i)}
+{p(Y_{\cdot j}\mid b_j)\,p(b_j)\prod_i N(\log\|a_i-b_j\|;\delta_i+\lambda_i^\top\eta_j,\psi_i)}
+\right\}.
+\]
+
+\paragraph{(ii) Cluster-conditional prior on $b_j$.}
+$b_j\mid c_j=l\sim N_d(\mu_l^{\mathrm{LSIRM}},\Sigma_l^{\mathrm{LSIRM}})$, with corresponding hyperpriors. Items in the same cluster are then explicitly pulled together in the LSIRM latent space, so cluster signal enters the model upstream of the FA.
+
+Either change makes the FMC influence the LSIRM and is expected to alleviate the $\Lambda\to 0$ failure mode by tying $\eta_j$ to a structure that is forced into the LSIRM positions themselves rather than discovered from a noisy log-distance representation.
+
+\section{Implementation summary}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item \texttt{my\_LSIRM\_FMC\_v8.cpp}: C++ Gibbs/MH implementation. LSIRM block is byte-identical to V6.
+    \item \texttt{my\_LSIRM\_FMC\_cpp\_v8.R}: R wrapper, prior defaults, storage toggles ($\eta$ saved by default; $\Lambda,\delta,\psi$ posterior means only).
+    \item \texttt{MIDUS\_5layered\_result\_v8.R}: end-to-end run script for the MIDUS analysis. Uses the PCA initialization of Section~\ref{sec:init} and the hyperparameters of Section~\ref{sec:hyper-rationale}, including the tightened $\psi$ prior.
+    \item \texttt{factor\_analysis\_v8/04\_fmc\_factor\_clustering.R}: post-hoc clustering script implementing Section~\ref{sec:posthoc}.
+\end{itemize}
+
+\end{document}

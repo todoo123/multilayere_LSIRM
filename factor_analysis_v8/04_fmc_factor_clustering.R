@@ -55,7 +55,7 @@ suppressMessages({
 #   (i)  if `res` already exists in the global workspace, reuse it (no reload)
 #   (ii) otherwise load from the latest output dir's matching result.rds.
 ################################################################################
-project_root <- "/Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM"
+project_root <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM"
 out_root     <- file.path(project_root, "factor_analysis_v8", "output")
 plot_root    <- file.path(project_root, "data", "plot")
 
@@ -92,6 +92,7 @@ info <- res$info
 P    <- info$P_total
 r    <- info$r_fac
 n    <- info$n
+
 cat(sprintf("\nDimensions: n = %d  P = %d  r = %d\n", n, P, r))
 
 eta_arr <- res$fmc_eta                # P x r x T
@@ -100,6 +101,7 @@ stopifnot(!is.null(eta_arr),
           dim(eta_arr)[1] == P,
           dim(eta_arr)[2] == r)
 T_mc <- dim(eta_arr)[3]
+
 cat(sprintf("FMC FA MCMC samples available: T = %d  (eta: %d x %d x %d)\n",
             T_mc, P, r, T_mc))
 

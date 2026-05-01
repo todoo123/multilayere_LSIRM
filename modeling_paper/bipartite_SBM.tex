@@ -1,0 +1,1079 @@
+\documentclass[A4paper,11pt]{article}
+\usepackage{graphics,graphicx,epsfig,wrapfig}
+\usepackage{longtable}  
+\usepackage{amsmath,verbatim,amssymb,color,lscape}
+\usepackage{kotex}
+\usepackage{natbib}
+\usepackage{lastpage}
+\usepackage{multirow} 
+\usepackage{authblk}
+\usepackage{bm}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{indentfirst}
+\usepackage[ruled,vlined]{algorithm2e}
+\usepackage{algorithmic}
+\usepackage[normalem]{ulem}
+\usepackage[export]{adjustbox}
+\usepackage{tikz}   
+\usepackage{float}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{subcaption}  % 프리앰블에 추가
+\definecolor{codegreen}{rgb}{0,0.6,0} % 프로그래밍시 볼 수 있는 그 초록색입니다.
+
+% Define a custom style
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{white}, % 배경색 지정 (흰색 선호) 
+    commentstyle=\color{codegreen}, % 주석의 글자 색 지정
+    keywordstyle=\color{blue}, % 키워드의 글자 색 지정
+    stringstyle=\color{codegreen}, % 문자열의 글자 색
+    basicstyle=\ttfamily\footnotesize, % 글자 스타일 (작고 굵어짐)
+    breaklines=true, % 자동 line breaking
+    captionpos=b, % 코드 블럭의 제목 위치
+    numbers=left, % 코드 줄 넘버 표시 (왼쪽)
+    keepspaces=true }
+\lstset{style=mystyle}
+\usepackage{pgffor}         % \foreach 반복문
+
+%\usepackage{hyperref}
+\usepackage{verbatim}
+\newcommand{\hide}[1]{}  
+\newcommand{\msim}{\mathop{\rm \sim}}
+\newcommand{\ind}{\msim\limits^{\mbox{\tiny ind}}}
+\newcommand{\iid}{\msim\limits^{\mbox{\tiny iid}}}
+\makeatletter
+\newcommand{\s}{\vspace{.25cm}}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage[outerbars,color]{changebar}
+\ifx\pdfoutput\undefined
+\else\ifnum\pdfoutput>0
+  \usepackage{pdfcolmk}
+\fi\fi
+\cbcolor{black}
+
+\setlength{\changebarsep}{5mm}
+
+\usepackage[margin=1.0in]{geometry}
+\baselineskip=15.5pt
+
+\usepackage{tikz}
+\usetikzlibrary{bayesnet}
+\usetikzlibrary{fit,positioning}
+\newcommand{\obs}{latent}
+\newcommand{\lat}{obs}
+\newcommand{\con}{const}
+\newcommand{\independent}{\perp\mkern-9.5mu\perp}
+
+\setcounter{secnumdepth}{4}
+\renewcommand{\baselinestretch}{1.5}
+
+\newfont{\rmm}{cmr10 at 11pt}
+\rmm
+\newcommand{\widesim}[2][1.5]{
+  \mathrel{\overset{#2}{\scalebox{#1}[1]{$\sim$}}}
+}
+%\appendix
+
+\pagestyle{plain}
+
+\title{bipartite SBM}
+\author[]{윤현석}
+\date{\today}
+
+\begin{document}
+\maketitle
+\section{bipartite SBM}
+
+% =========================================================
+% Methodology section
+% =========================================================
+
+\subsection{Flat weighted bipartite SBM for strictly positive distance-type edges}
+
+본 절에서는 strictly positive edge weight를 가지는 bipartite network를 위한 flat weighted stochastic block model (SBM)을 제안한다. 관측 데이터는 $n \times p$ 행렬
+\[
+X = (X_{ij}) \in \mathbb{R}_{+}^{n\times p},
+\qquad X_{ij} > 0,
+\]
+로 주어지며, 각 원소 $X_{ij}$는 row node $i=1,\ldots,n$와 column node $j=1,\ldots,p$ 사이의 거리형(distance-type) edge weight를 의미한다. 본 연구의 데이터 구조에서는 edge weight의 절댓값이 작을수록 두 노드가 더 유사하다고 해석한다. 본 모형은 row-side partition과 column-side partition을 동시에 추정하는 co-clustering 모형이지만, 실질적인 관심의 초점은 column-side clustering에 있으므로 최종 해석은 주로 $\{w_j\}_{j=1}^p$를 중심으로 수행한다.
+
+\subsubsection{Model structure}
+
+row node $i$와 column node $j$의 잠재 군집 할당을 각각
+\[
+z_i \in \{1,\ldots,Q\},
+\qquad
+w_j \in \{1,\ldots,L\}
+\]
+로 둔다. 여기서 $Q$는 row cluster의 개수, $L$은 column cluster의 개수이다. 따라서 잠재 membership 벡터는
+\[
+\mathbf{z} = (z_1,\ldots,z_n) \in \{1,\ldots,Q\}^{n},
+\qquad
+\mathbf{w} = (w_1,\ldots,w_p) \in \{1,\ldots,L\}^{p}
+\]
+이다.
+
+각 block pair $(q,l)$에 대해, strictly positive edge weight를 모형화하기 위하여 Gamma likelihood를 가정한다:
+\[
+X_{ij} \mid (z_i=q,\; w_j=l,\; \kappa,\; \lambda_{ql})
+\sim \operatorname{Gamma}(\kappa,\lambda_{ql}),
+\qquad q=1,\ldots,Q,\quad l=1,\ldots,L,
+\]
+여기서 $\kappa>0$는 global shape parameter이고, $\lambda_{ql}>0$는 block-specific rate parameter이다. 이에 대응하는 density는
+\[
+f(X_{ij}\mid z_i=q,w_j=l,\kappa,\lambda_{ql})
+=
+\frac{\lambda_{ql}^{\kappa}}{\Gamma(\kappa)}
+X_{ij}^{\kappa-1}
+\exp(-\lambda_{ql}X_{ij}),
+\qquad X_{ij}>0,
+\]
+이다.
+
+이때 block $(q,l)$의 조건부 평균은
+\[
+\mu_{ql}
+=
+E(X_{ij}\mid z_i=q,w_j=l,\kappa,\lambda_{ql})
+=
+\frac{\kappa}{\lambda_{ql}}
+\]
+이므로,
+\[
+\lambda_{ql}\uparrow
+\quad\Longleftrightarrow\quad
+\mu_{ql}\downarrow
+\]
+이다. 즉, $\lambda_{ql}$가 클수록 해당 row cluster $q$와 column cluster $l$ 사이의 평균 거리가 작아지므로 두 cluster 간 유사성이 높은 것으로 해석된다.
+
+본 모형의 주요 모수는 다음과 같이 정리할 수 있다:
+\[
+\pi = (\pi_1,\ldots,\pi_Q) \in \Delta^{Q-1},
+\qquad
+\rho = (\rho_1,\ldots,\rho_L) \in \Delta^{L-1},
+\]
+\[
+\Lambda = (\lambda_{ql})_{q=1,\ldots,Q;\,l=1,\ldots,L}\in\mathbb{R}_{+}^{Q\times L},
+\qquad
+\kappa \in \mathbb{R}_{+},
+\]
+where $\Delta^{K-1}$ denotes the $(K-1)$-dimensional probability simplex.
+
+조건부 독립 가정 하에서 complete-data likelihood는
+\[
+p(X\mid \mathbf{z},\mathbf{w},\kappa,\Lambda)
+=
+\prod_{i=1}^{n}\prod_{j=1}^{p}
+f(X_{ij}\mid z_i,w_j,\kappa,\Lambda)
+=
+\prod_{i=1}^{n}\prod_{j=1}^{p}
+\frac{\lambda_{z_iw_j}^{\kappa}}{\Gamma(\kappa)}
+X_{ij}^{\kappa-1}
+\exp(-\lambda_{z_iw_j}X_{ij})
+\]
+로 쓸 수 있다.
+
+\subsubsection{Prior specification}
+
+cluster proportion에 대해서는 대칭 Dirichlet prior를 사용한다:
+\[
+\pi \sim \operatorname{Dirichlet}(1,\ldots,1),
+\qquad
+\rho \sim \operatorname{Dirichlet}(1,\ldots,1).
+\]
+그리고 latent membership는
+\[
+z_i\mid \pi \sim \operatorname{Categorical}(\pi),
+\qquad i=1,\ldots,n,
+\]
+\[
+w_j\mid \rho \sim \operatorname{Categorical}(\rho),
+\qquad j=1,\ldots,p,
+\]
+로 둔다.
+
+block-specific rate parameter에 대해서는 데이터 전체 평균
+\[
+\bar X = \frac{1}{np}\sum_{i=1}^{n}\sum_{j=1}^{p}X_{ij}
+\]
+를 이용하여 다음의 Gamma prior를 사용한다:
+\[
+\lambda_{ql}\mid \kappa
+\sim
+\operatorname{Gamma}(\kappa r,\; r\bar X),
+\qquad q=1,\ldots,Q,\quad l=1,\ldots,L,
+\]
+여기서 $r=0.1$은 prior strength이다. 이 설정은 각 block에 대해 약 $0.1$개의 pseudo-edge에 해당하는 약한 정규화 효과를 부여하며, prior mean은
+\[
+E(\lambda_{ql}\mid \kappa)=\frac{\kappa r}{r\bar X}=\frac{\kappa}{\bar X}
+\]
+이 된다. 따라서 prior는 각 block의 평균 거리 수준이 전체 평균 거리와 크게 다르지 않다는 약한 정보만 제공한다.
+
+global shape parameter는 양수 제약을 반영하기 위하여 log scale에서 정규 prior를 둔다:
+\[
+\log \kappa \sim \mathcal{N}(\mu_{\log\kappa},\sigma_{\log\kappa}^{2}),
+\qquad
+\mu_{\log\kappa}=0,\quad
+\sigma_{\log\kappa}^{2}=4.
+\]
+즉, $\kappa$의 prior median은 1이며, 충분히 넓은 범위를 허용하는 weakly informative prior이다.
+
+이상의 prior를 종합하면 joint distribution은
+\begin{align*}
+p(X,\mathbf{z},\mathbf{w},\pi,\rho,\Lambda,\kappa)
+&=
+p(X\mid \mathbf{z},\mathbf{w},\Lambda,\kappa)\,
+p(\mathbf{z}\mid\pi)\,
+p(\mathbf{w}\mid\rho)\,
+p(\pi)\,
+p(\rho)\,
+p(\Lambda\mid \kappa)\,
+p(\kappa) \\
+&=
+\left[
+\prod_{i=1}^{n}\prod_{j=1}^{p}
+f(X_{ij}\mid z_i,w_j,\kappa,\Lambda)
+\right]
+\left[
+\prod_{i=1}^{n}\pi_{z_i}
+\right]
+\left[
+\prod_{j=1}^{p}\rho_{w_j}
+\right] \\
+&\quad\times
+\operatorname{Dir}(\pi;1,\ldots,1)\,
+\operatorname{Dir}(\rho;1,\ldots,1)\,
+\prod_{q=1}^{Q}\prod_{l=1}^{L}
+p(\lambda_{ql}\mid \kappa)\,
+p(\kappa).
+\end{align*}
+
+\subsubsection{Posterior inference}
+
+사후분포는 다음과 같이 주어진다:
+\[
+p(\mathbf{z},\mathbf{w},\pi,\rho,\Lambda,\kappa \mid X)
+\propto
+p(X\mid \mathbf{z},\mathbf{w},\Lambda,\kappa)\,
+p(\mathbf{z}\mid\pi)\,
+p(\mathbf{w}\mid\rho)\,
+p(\pi)\,
+p(\rho)\,
+p(\Lambda\mid \kappa)\,
+p(\kappa).
+\]
+
+본 모형에서는 일부 모수의 완전 조건부 분포가 닫힌 형태를 가지므로 Gibbs sampling과 Metropolis--Hastings (MH) 업데이트를 결합한 MCMC 알고리즘을 사용한다. 구체적으로, $(\pi,\rho,\Lambda)$는 Gibbs 단계로 갱신하고, $(\mathbf{z},\mathbf{w})$는 categorical Gibbs 단계로 갱신하며, $\kappa$는 log scale random-walk MH로 갱신한다.
+
+실질적 관심이 column-side clustering에 있으므로, posterior summary에서는 저장된 MCMC 표본으로부터 column co-clustering probability
+\[
+\widehat{P}(w_j = w_{j'} \mid X)
+\]
+를 계산하고, 이를 기반으로 최종 column partition을 요약한다. row-side clustering은 보조적 구조로 함께 추정되지만, 해석의 초점은 $\mathbf{w}$와 $\Lambda$가 정의하는 block structure에 둔다.
+
+\subsubsection{Identifiability and label switching}
+
+본 모형은 latent label의 순열(permutation)에 대하여 불변이다. 즉, row cluster label과 column cluster label은 각각 독립적인 재명명(relabeling)에 대해 동일한 likelihood를 생성하므로, MCMC 표본에는 label switching 현상이 발생할 수 있다. 본 연구에서는 이를 사전적 제약으로 처리하지 않고, MCMC 종료 후 사후적 relabeling 절차를 적용한다.
+
+특히 본 연구의 주된 관심이 column-side partition에 있으므로, 저장된 각 반복에서 먼저 column label $\mathbf{w}$를 기준 참조 partition에 정렬한 다음, 이에 조건부하여 row label $\mathbf{z}$를 정렬한다. 이때 block-specific parameter matrix $\Lambda$ 역시 동일한 row/column permutation을 적용하여 함께 재배열한다. 최종 posterior summary와 block interpretation은 이러한 post-processing을 거친 표본을 기준으로 계산한다.
+
+\subsubsection{Model selection via ICL}
+
+cluster 수 $(Q,L)$는 integrated completed likelihood (ICL) criterion에 기반하여 선택한다. 후보 집합
+\[
+Q \in \mathcal{Q}=\{1,\ldots,Q_{\max}\},
+\qquad
+L \in \mathcal{L}=\{1,\ldots,L_{\max}\}
+\]
+을 설정하고, 각 $(Q,L)$에 대하여 모형을 적합한 뒤 다음의 ICL 값을 계산한다:
+\[
+\operatorname{ICL}(Q,L)
+=
+\log p(X,\hat{\mathbf{z}},\hat{\mathbf{w}} \mid \hat{\Theta}_{Q,L},Q,L)
+-
+\frac{\nu_{Q,L}}{2}\log(np),
+\]
+where
+\[
+\hat{\Theta}_{Q,L}=(\hat{\pi},\hat{\rho},\hat{\Lambda},\hat{\kappa}),
+\qquad
+\nu_{Q,L}=(Q-1)+(L-1)+QL+1.
+\]
+여기서 $\hat{\mathbf{z}},\hat{\mathbf{w}}$는 적합된 모형에서의 대표 partition이며, $\nu_{Q,L}$는 자유도에 해당한다. complete-data log-likelihood term은
+\begin{align*}
+\log p(X,\hat{\mathbf{z}},\hat{\mathbf{w}} \mid \hat{\Theta}_{Q,L},Q,L)
+&=
+\sum_{i=1}^{n}\log \hat{\pi}_{\hat z_i}
++
+\sum_{j=1}^{p}\log \hat{\rho}_{\hat w_j} \\
+&\quad+
+\sum_{i=1}^{n}\sum_{j=1}^{p}
+\log f(X_{ij}\mid \hat z_i,\hat w_j,\hat\kappa,\hat\Lambda).
+\end{align*}
+최종적으로
+\[
+(\hat Q,\hat L)
+=
+\arg\max_{(Q,L)\in\mathcal{Q}\times\mathcal{L}}
+\operatorname{ICL}(Q,L)
+\]
+을 선택한다. 본 연구에서는 column-side clustering이 주요 관심 대상이므로, 실제 탐색에서는 $L$에 대해 $Q$보다 더 촘촘한 grid를 두는 전략을 사용할 수 있다.
+
+% =========================================================
+% Appendix section
+% =========================================================
+
+\section{appendix}
+
+\subsection{model description}
+
+\subsubsection{prior distribution}
+
+사전 분포(prior distribution)는 다음과 같이 설정한다.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{c|l|l}
+\hline
+\textbf{번호} & \textbf{분포} & \textbf{인덱스} \\ \hline
+
+1 &
+$\displaystyle \pi \sim \operatorname{Dirichlet}(1,\ldots,1)$ &
+$\pi \in \Delta^{Q-1}$ \\ \hline
+
+2 &
+$\displaystyle \rho \sim \operatorname{Dirichlet}(1,\ldots,1)$ &
+$\rho \in \Delta^{L-1}$ \\ \hline
+
+3 &
+$\displaystyle z_i \mid \pi \overset{\text{ind}}{\sim} \operatorname{Categorical}(\pi)$ &
+$i=1,\ldots,n$ \\ \hline
+
+4 &
+$\displaystyle w_j \mid \rho \overset{\text{ind}}{\sim} \operatorname{Categorical}(\rho)$ &
+$j=1,\ldots,p$ \\ \hline
+
+5 &
+$\displaystyle \lambda_{ql}\mid \kappa \overset{\text{ind}}{\sim}
+\operatorname{Gamma}(\kappa r,\; r\bar X)$ &
+$q=1,\ldots,Q;\ l=1,\ldots,L$ \\ \hline
+
+6 &
+$\displaystyle \log \kappa \sim \mathcal{N}(0,4)$ &
+-- \\ \hline
+
+\end{tabular}
+\end{table}
+
+여기서 $n$은 row node의 수, $p$는 column node의 수, $Q$는 row cluster의 수, $L$은 column cluster의 수를 의미한다. 또한
+\[
+\bar X = \frac{1}{np}\sum_{i=1}^{n}\sum_{j=1}^{p}X_{ij}
+\]
+는 전체 edge weight의 평균이며, prior strength는
+\[
+r = 0.1
+\]
+로 고정한다. 이 설정은 각 block parameter에 대하여 매우 약한 수준의 pseudo-information만을 제공한다.
+
+\subsubsection{posterior distribution}
+
+complete-data posterior는 다음과 같은 kernel을 가진다:
+\begin{align*}
+p(\mathbf{z},\mathbf{w},\pi,\rho,\Lambda,\kappa \mid X)
+&\propto
+\left[
+\prod_{i=1}^{n}\prod_{j=1}^{p}
+\frac{\lambda_{z_iw_j}^{\kappa}}{\Gamma(\kappa)}
+X_{ij}^{\kappa-1}
+\exp(-\lambda_{z_iw_j}X_{ij})
+\right]
+\left[
+\prod_{i=1}^{n}\pi_{z_i}
+\right]
+\left[
+\prod_{j=1}^{p}\rho_{w_j}
+\right] \\
+&\quad\times
+\left[
+\prod_{q=1}^{Q}\prod_{l=1}^{L}
+\frac{(r\bar X)^{\kappa r}}{\Gamma(\kappa r)}
+\lambda_{ql}^{\kappa r-1}
+\exp(-r\bar X\,\lambda_{ql})
+\right]
+\operatorname{Dir}(\pi;1,\ldots,1)\,
+\operatorname{Dir}(\rho;1,\ldots,1)\,
+p(\kappa).
+\end{align*}
+
+표기 간소화를 위하여 다음의 sufficient statistics를 정의한다:
+\[
+n_q = \sum_{i=1}^{n}\mathbb{I}(z_i=q),
+\qquad
+m_l = \sum_{j=1}^{p}\mathbb{I}(w_j=l),
+\]
+\[
+N_{ql}
+=
+\sum_{i=1}^{n}\sum_{j=1}^{p}\mathbb{I}(z_i=q,\; w_j=l),
+\qquad
+S_{ql}
+=
+\sum_{i=1}^{n}\sum_{j=1}^{p}\mathbb{I}(z_i=q,\; w_j=l)X_{ij}.
+\]
+완전 관측된 $n\times p$ bipartite matrix의 경우에는
+\[
+N_{ql} = n_q m_l
+\]
+가 성립한다.
+
+\subsubsection{update rules}
+
+사후 추론은 Gibbs sampler와 Metropolis--Hastings 알고리즘을 결합하여 수행한다. 구체적으로, $(\pi,\rho,\Lambda)$는 켤레 Gibbs 단계로 갱신하고, $(\mathbf{z},\mathbf{w})$는 categorical full conditional로부터 갱신하며, $\kappa$는 log scale random-walk MH 단계로 갱신한다.
+
+\paragraph*{1. Update of $\pi$ (Gibbs step).}
+Dirichlet--Categorical conjugacy에 의해
+\[
+\pi \mid \mathbf{z}
+\sim
+\operatorname{Dirichlet}(1+n_1,\ldots,1+n_Q).
+\]
+
+\paragraph*{2. Update of $\rho$ (Gibbs step).}
+마찬가지로
+\[
+\rho \mid \mathbf{w}
+\sim
+\operatorname{Dirichlet}(1+m_1,\ldots,1+m_L).
+\]
+
+\paragraph*{3. Update of $\lambda_{ql}$ (Gibbs step).}
+Gamma prior와 Gamma likelihood의 conjugacy에 의해, 각 block pair $(q,l)$에 대해
+\[
+\lambda_{ql}\mid X,\mathbf{z},\mathbf{w},\kappa
+\sim
+\operatorname{Gamma}
+\left(
+\kappa r + \kappa N_{ql},\;
+r\bar X + S_{ql}
+\right).
+\]
+즉, posterior shape는 prior contribution $\kappa r$와 observed block edge 수 $N_{ql}$의 합으로 결정되며, posterior rate는 prior contribution $r\bar X$와 block 내 관측된 edge weight의 총합 $S_{ql}$의 합으로 결정된다.
+
+\paragraph*{4. Update of $z_i$ (categorical Gibbs step).}
+각 $i=1,\ldots,n$에 대해, $z_i$의 full conditional은
+\[
+P(z_i=q \mid X,\mathbf{z}_{-i},\mathbf{w},\pi,\rho,\Lambda,\kappa)
+\propto
+\pi_q
+\prod_{j=1}^{p}
+f(X_{ij}\mid z_i=q,w_j,\kappa,\Lambda),
+\qquad q=1,\ldots,Q.
+\]
+정규화에 필요하지 않은 상수항을 제거하면,
+\[
+P(z_i=q \mid \cdot)
+\propto
+\pi_q
+\prod_{j=1}^{p}
+\lambda_{q,w_j}^{\kappa}
+\exp(-\lambda_{q,w_j}X_{ij}).
+\]
+따라서 계산의 안정성을 위해 log scale에서
+\[
+\log \omega_{iq}
+=
+\log \pi_q
++
+\sum_{j=1}^{p}
+\left[
+\kappa \log \lambda_{q,w_j}
+-
+\lambda_{q,w_j}X_{ij}
+\right]
+\]
+를 계산한 뒤,
+\[
+P(z_i=q\mid \cdot)=\frac{\exp(\log\omega_{iq})}{\sum_{q'=1}^{Q}\exp(\log\omega_{iq'})}
+\]
+로 정규화하여 categorical draw를 수행한다.
+
+\paragraph*{5. Update of $w_j$ (categorical Gibbs step).}
+각 $j=1,\ldots,p$에 대해,
+\[
+P(w_j=l \mid X,\mathbf{z},\mathbf{w}_{-j},\pi,\rho,\Lambda,\kappa)
+\propto
+\rho_l
+\prod_{i=1}^{n}
+f(X_{ij}\mid z_i,w_j=l,\kappa,\Lambda),
+\qquad l=1,\ldots,L.
+\]
+상수항을 제거하면
+\[
+P(w_j=l \mid \cdot)
+\propto
+\rho_l
+\prod_{i=1}^{n}
+\lambda_{z_i,l}^{\kappa}
+\exp(-\lambda_{z_i,l}X_{ij}),
+\]
+즉
+\[
+\log \upsilon_{jl}
+=
+\log \rho_l
++
+\sum_{i=1}^{n}
+\left[
+\kappa \log \lambda_{z_i,l}
+-
+\lambda_{z_i,l}X_{ij}
+\right]
+\]
+를 계산하고,
+\[
+P(w_j=l\mid \cdot)=\frac{\exp(\log\upsilon_{jl})}{\sum_{l'=1}^{L}\exp(\log\upsilon_{jl'})}
+\]
+로 정규화하여 categorical draw를 수행한다.
+
+\paragraph*{6. Update of $\kappa$ (MH step on log scale).}
+$\kappa>0$ 제약을 반영하기 위하여
+\[
+\xi = \log \kappa
+\]
+로 변환한 뒤, random-walk proposal
+\[
+\xi^{*} \sim \mathcal{N}(\xi,\sigma_{\text{prop},\kappa}^{2})
+\]
+를 사용한다. 이때
+\[
+\kappa^{*} = \exp(\xi^{*})
+\]
+이며, $\kappa$의 full conditional kernel은
+\[
+\tilde p(\kappa\mid \cdot)
+\propto
+p(\kappa)
+\left[
+\prod_{q=1}^{Q}\prod_{l=1}^{L}
+p(\lambda_{ql}\mid \kappa)
+\right]
+\left[
+\prod_{i=1}^{n}\prod_{j=1}^{p}
+f(X_{ij}\mid z_i,w_j,\kappa,\Lambda)
+\right]
+\]
+로 주어진다. 따라서 acceptance probability는
+\[
+\alpha_{\kappa}
+=
+\min\left\{
+1,\;
+\frac{\tilde p(\kappa^{*}\mid \cdot)\,\kappa^{*}}
+{\tilde p(\kappa\mid \cdot)\,\kappa}
+\right\}.
+\]
+여기서 $\kappa^{*}/\kappa$ 항은 log scale proposal에 따른 Jacobian correction에 해당한다.
+
+\paragraph*{7. One full MCMC sweep.}
+한 번의 전체 MCMC iteration은 다음 순서로 수행된다:
+\[
+\pi
+\rightarrow
+\rho
+\rightarrow
+\Lambda
+\rightarrow
+\mathbf{z}
+\rightarrow
+\mathbf{w}
+\rightarrow
+\kappa.
+\]
+실제로는 $\mathbf{z}$와 $\mathbf{w}$를 개별 성분별(component-wise)로 순차 업데이트한다.
+
+\subsubsection{label switching post-processing}
+
+본 모형은 row label과 column label의 순열에 대해 불변이므로, 저장된 MCMC 표본에 대하여 사후적 relabeling을 수행한다. 본 연구에서는 column-side clustering이 주요 해석 대상이므로, 먼저 각 저장 표본의 column membership $\mathbf{w}^{(t)}$를 참조 partition에 정렬한 뒤, 이에 맞추어 row membership $\mathbf{z}^{(t)}$를 정렬한다. 그 다음 block parameter matrix $\Lambda^{(t)}$에도 동일한 row/column permutation을 적용한다. 최종 posterior mean, credible interval, co-clustering probability, 그리고 block summary는 이러한 정렬을 마친 표본을 기준으로 계산한다.
+
+\subsubsection{ICL-based selection of $(Q,L)$}
+
+후보 모형 $(Q,L)$별로 MCMC를 수행한 뒤, complete-data log-likelihood에 BIC형 penalty를 부여한 ICL criterion을 계산한다:
+\[
+\operatorname{ICL}(Q,L)
+=
+\log p(X,\hat{\mathbf{z}},\hat{\mathbf{w}}\mid \hat{\Theta}_{Q,L},Q,L)
+-
+\frac{\nu_{Q,L}}{2}\log(np),
+\]
+where
+\[
+\nu_{Q,L}=(Q-1)+(L-1)+QL+1.
+\]
+여기서 마지막 $+1$은 global shape parameter $\kappa$에 해당한다. 최종 cluster 수는
+\[
+(\hat Q,\hat L)
+=
+\arg\max_{(Q,L)\in\mathcal{Q}\times\mathcal{L}}
+\operatorname{ICL}(Q,L)
+\]
+로 선택한다. 본 연구의 목적상 column-side clustering이 더 중요하므로, 실제 탐색에서는 $L$에 대해 보다 넓거나 촘촘한 후보 집합을 둘 수 있다.
+
+\subsubsection{tuning parameters}
+
+MCMC iteration 수, burn-in 길이, thinning 간격, 그리고 MH proposal variance $\sigma_{\text{prop},\kappa}^{2}$는 모형 자체의 일부가 아니라 알고리즘 tuning quantity이므로 본 모형 기술에서는 고정하지 않는다. 이러한 값들은 실제 데이터의 크기와 mixing behavior를 고려하여 사용자가 결정한다.
+
+
+
+\subsection{Post-LSIRM bipartite SBM using posterior distance samples}
+
+본 절에서는 multilayered LSIRM으로부터 얻어진 item--respondent distance의 MCMC sample을
+그대로 입력으로 사용하는 post-LSIRM bipartite SBM 절차를 제시한다.
+multilayered LSIRM의 $s$번째 MCMC sample에서 응답자 $i$와 문항 $j$ 사이의 거리를
+\[
+D^{(s)}_{ij}
+=
+\left\| a_i^{(s)} - b_j^{(s)} \right\|,
+\qquad
+i=1,\ldots,n,\quad j=1,\ldots,p,\quad s=1,\ldots,m,
+\]
+라고 하자. 여기서 $n$은 respondent node의 수, $p$는 layer 구분 없이 결합한 전체 item node의 수,
+$m$은 저장된 LSIRM MCMC sample의 수이다. 따라서 LSIRM posterior distance sample은
+\[
+\mathcal{D}
+=
+\left\{D^{(s)}\right\}_{s=1}^m,
+\qquad
+D^{(s)} \in \mathbb{R}_{+}^{n \times p}.
+\]
+각 원소 $D^{(s)}_{ij}$는 strictly positive distance-type edge weight로 해석되며, 값이 작을수록
+respondent $i$와 item $j$가 latent space 상에서 더 가깝다는 것을 의미한다.
+
+\subsubsection{Conditional SBM given each LSIRM distance sample}
+
+본 연구에서는 LSIRM posterior uncertainty를 보존하기 위하여 하나의 posterior mean distance matrix를
+사용하지 않고, 각 LSIRM MCMC sample $D^{(s)}$에 대해 별도의 bipartite SBM MCMC chain을 수행한다.
+즉, $s$번째 LSIRM sample에 대해
+\[
+X^{(s)} = D^{(s)}
+\]
+로 두고, 다음의 bipartite SBM을 조건부로 적합한다.
+
+row node와 column node의 cluster membership을 각각
+\[
+z_i^{(s)} \in \{1,\ldots,Q\},
+\qquad
+w_j^{(s)} \in \{1,\ldots,L\}
+\]
+로 둔다. 여기서 $Q$는 respondent-side cluster의 수이고, $L$은 item-side cluster의 수이다.
+본 연구의 주요 관심은 item-side clustering이므로 최종 해석은 주로
+\[
+w^{(s)} = \left(w_1^{(s)},\ldots,w_p^{(s)}\right)
+\]
+를 중심으로 수행한다.
+
+각 block pair $(q,l)$에 대해 distance edge는 Gamma likelihood를 따른다고 가정한다.
+\[
+X^{(s)}_{ij}
+\mid
+z_i^{(s)}=q,\,
+w_j^{(s)}=l,\,
+\kappa^{(s)},\,
+\lambda_{ql}^{(s)}
+\sim
+\mathrm{Gamma}\left(\kappa^{(s)}, \lambda_{ql}^{(s)}\right),
+\]
+where $\kappa^{(s)} > 0$ is a global shape parameter and
+$\lambda_{ql}^{(s)} > 0$ is a block-specific rate parameter. The corresponding density is
+\[
+f\left(X^{(s)}_{ij} \mid z_i^{(s)}=q,w_j^{(s)}=l,\kappa^{(s)},\lambda_{ql}^{(s)}\right)
+=
+\frac{\left(\lambda_{ql}^{(s)}\right)^{\kappa^{(s)}}}{\Gamma(\kappa^{(s)})}
+\left(X^{(s)}_{ij}\right)^{\kappa^{(s)}-1}
+\exp\left\{-\lambda_{ql}^{(s)}X^{(s)}_{ij}\right\}.
+\]
+Since
+\[
+\mathbb{E}\left(X^{(s)}_{ij} \mid z_i^{(s)}=q,w_j^{(s)}=l\right)
+=
+\frac{\kappa^{(s)}}{\lambda_{ql}^{(s)}},
+\]
+larger $\lambda_{ql}^{(s)}$ implies smaller average distance between respondent cluster $q$ and item cluster $l$.
+
+\subsubsection{Prior specification}
+
+For each LSIRM distance sample $s$, the prior distributions are specified as
+\[
+\pi^{(s)} \sim \mathrm{Dirichlet}(1,\ldots,1),
+\qquad
+\rho^{(s)} \sim \mathrm{Dirichlet}(1,\ldots,1),
+\]
+\[
+z_i^{(s)} \mid \pi^{(s)} \sim \mathrm{Categorical}(\pi^{(s)}),
+\qquad
+i=1,\ldots,n,
+\]
+\[
+w_j^{(s)} \mid \rho^{(s)} \sim \mathrm{Categorical}(\rho^{(s)}),
+\qquad
+j=1,\ldots,p.
+\]
+For each block-specific rate parameter,
+\[
+\lambda_{ql}^{(s)} \mid \kappa^{(s)}
+\sim
+\mathrm{Gamma}\left(\kappa^{(s)} r,\, r\bar X^{(s)}\right),
+\qquad
+q=1,\ldots,Q,\quad l=1,\ldots,L,
+\]
+where
+\[
+\bar X^{(s)}
+=
+\frac{1}{np}
+\sum_{i=1}^n
+\sum_{j=1}^p
+X^{(s)}_{ij}.
+\]
+The prior strength is fixed at
+\[
+r = 0.1.
+\]
+Finally, the global shape parameter is assigned a weakly informative log-normal prior:
+\[
+\log \kappa^{(s)} \sim N(0,4).
+\]
+
+\subsubsection{Posterior distribution}
+
+For each $s=1,\ldots,m$, the complete-data posterior is
+\[
+p\left(
+z^{(s)},w^{(s)},\pi^{(s)},\rho^{(s)},\Lambda^{(s)},\kappa^{(s)}
+\mid
+X^{(s)}
+\right)
+\propto
+p\left(X^{(s)} \mid z^{(s)},w^{(s)},\Lambda^{(s)},\kappa^{(s)}\right)
+p\left(z^{(s)} \mid \pi^{(s)}\right)
+p\left(w^{(s)} \mid \rho^{(s)}\right)
+p\left(\pi^{(s)}\right)
+p\left(\rho^{(s)}\right)
+p\left(\Lambda^{(s)} \mid \kappa^{(s)}\right)
+p\left(\kappa^{(s)}\right).
+\]
+
+Define the sufficient statistics
+\[
+n_q^{(s)}
+=
+\sum_{i=1}^n I\left(z_i^{(s)}=q\right),
+\qquad
+m_l^{(s)}
+=
+\sum_{j=1}^p I\left(w_j^{(s)}=l\right),
+\]
+\[
+N_{ql}^{(s)}
+=
+\sum_{i=1}^n
+\sum_{j=1}^p
+I\left(z_i^{(s)}=q,w_j^{(s)}=l\right),
+\]
+\[
+S_{ql}^{(s)}
+=
+\sum_{i=1}^n
+\sum_{j=1}^p
+I\left(z_i^{(s)}=q,w_j^{(s)}=l\right)
+X^{(s)}_{ij}.
+\]
+
+\subsubsection{MCMC update rules for each LSIRM sample}
+
+For each LSIRM distance sample $s$, one full MCMC sweep of the bipartite SBM is given by
+\[
+\pi^{(s)}
+\rightarrow
+\rho^{(s)}
+\rightarrow
+\Lambda^{(s)}
+\rightarrow
+z^{(s)}
+\rightarrow
+w^{(s)}
+\rightarrow
+\kappa^{(s)}.
+\]
+
+\paragraph{1. Update of $\pi^{(s)}$.}
+By Dirichlet--Categorical conjugacy,
+\[
+\pi^{(s)} \mid z^{(s)}
+\sim
+\mathrm{Dirichlet}
+\left(
+1+n_1^{(s)},\ldots,1+n_Q^{(s)}
+\right).
+\]
+
+\paragraph{2. Update of $\rho^{(s)}$.}
+Similarly,
+\[
+\rho^{(s)} \mid w^{(s)}
+\sim
+\mathrm{Dirichlet}
+\left(
+1+m_1^{(s)},\ldots,1+m_L^{(s)}
+\right).
+\]
+
+\paragraph{3. Update of $\lambda_{ql}^{(s)}$.}
+For each block pair $(q,l)$,
+\[
+\lambda_{ql}^{(s)}
+\mid
+X^{(s)},z^{(s)},w^{(s)},\kappa^{(s)}
+\sim
+\mathrm{Gamma}
+\left(
+\kappa^{(s)}r+\kappa^{(s)}N_{ql}^{(s)},
+\,
+r\bar X^{(s)}+S_{ql}^{(s)}
+\right).
+\]
+
+\paragraph{4. Update of $z_i^{(s)}$.}
+For each respondent node $i=1,\ldots,n$,
+\[
+P\left(z_i^{(s)}=q \mid \cdot \right)
+\propto
+\pi_q^{(s)}
+\prod_{j=1}^p
+f\left(
+X^{(s)}_{ij}
+\mid
+z_i^{(s)}=q,\,
+w_j^{(s)},\,
+\kappa^{(s)},\,
+\Lambda^{(s)}
+\right).
+\]
+Removing constants that do not depend on $q$, compute
+\[
+\log \omega_{iq}^{(s)}
+=
+\log \pi_q^{(s)}
++
+\sum_{j=1}^p
+\left[
+\kappa^{(s)}
+\log \lambda_{q,w_j^{(s)}}^{(s)}
+-
+\lambda_{q,w_j^{(s)}}^{(s)}
+X^{(s)}_{ij}
+\right].
+\]
+Then normalize:
+\[
+P\left(z_i^{(s)}=q \mid \cdot \right)
+=
+\frac{\exp\left(\log \omega_{iq}^{(s)}\right)}
+{\sum_{q'=1}^Q \exp\left(\log \omega_{iq'}^{(s)}\right)}.
+\]
+
+\paragraph{5. Update of $w_j^{(s)}$.}
+For each item node $j=1,\ldots,p$,
+\[
+P\left(w_j^{(s)}=l \mid \cdot \right)
+\propto
+\rho_l^{(s)}
+\prod_{i=1}^n
+f\left(
+X^{(s)}_{ij}
+\mid
+z_i^{(s)},\,
+w_j^{(s)}=l,\,
+\kappa^{(s)},\,
+\Lambda^{(s)}
+\right).
+\]
+Equivalently,
+\[
+\log \upsilon_{jl}^{(s)}
+=
+\log \rho_l^{(s)}
++
+\sum_{i=1}^n
+\left[
+\kappa^{(s)}
+\log \lambda_{z_i^{(s)},l}^{(s)}
+-
+\lambda_{z_i^{(s)},l}^{(s)}
+X^{(s)}_{ij}
+\right].
+\]
+Then normalize:
+\[
+P\left(w_j^{(s)}=l \mid \cdot \right)
+=
+\frac{\exp\left(\log \upsilon_{jl}^{(s)}\right)}
+{\sum_{l'=1}^L \exp\left(\log \upsilon_{jl'}^{(s)}\right)}.
+\]
+
+\paragraph{6. Update of $\kappa^{(s)}$.}
+Let
+\[
+\xi^{(s)}=\log \kappa^{(s)}.
+\]
+Use a random-walk Metropolis--Hastings proposal
+\[
+\xi^{(s)\ast}
+\sim
+N\left(\xi^{(s)},\sigma^2_{\mathrm{prop},\kappa}\right),
+\qquad
+\kappa^{(s)\ast}=\exp\left(\xi^{(s)\ast}\right).
+\]
+The full conditional kernel of $\kappa^{(s)}$ is
+\[
+\widetilde p\left(\kappa^{(s)} \mid \cdot \right)
+\propto
+p\left(\kappa^{(s)}\right)
+\prod_{q=1}^Q
+\prod_{l=1}^L
+p\left(\lambda_{ql}^{(s)} \mid \kappa^{(s)}\right)
+\prod_{i=1}^n
+\prod_{j=1}^p
+f\left(
+X^{(s)}_{ij}
+\mid
+z_i^{(s)},w_j^{(s)},\kappa^{(s)},\Lambda^{(s)}
+\right).
+\]
+The proposal is accepted with probability
+\[
+\alpha_\kappa
+=
+\min
+\left[
+1,\,
+\frac{
+\widetilde p\left(\kappa^{(s)\ast}\mid\cdot\right)\kappa^{(s)\ast}
+}{
+\widetilde p\left(\kappa^{(s)}\mid\cdot\right)\kappa^{(s)}
+}
+\right],
+\]
+where the factor $\kappa^{(s)\ast}/\kappa^{(s)}$ is the Jacobian correction induced by the log-scale proposal.
+
+\subsubsection{Pseudo-code}
+
+\begin{algorithm}[H]
+\caption{Post-LSIRM bipartite SBM using posterior distance samples}
+\begin{algorithmic}[1]
+\Require LSIRM posterior distance samples $\mathcal{D}=\{D^{(s)}\}_{s=1}^m$,
+candidate cluster numbers $Q \in \mathcal{Q}$ and $L \in \mathcal{L}$,
+SBM iteration number $T$, burn-in $B$, thinning interval $H$.
+\For{$(Q,L) \in \mathcal{Q} \times \mathcal{L}$}
+    \For{$s=1,\ldots,m$}
+        \State Set $X^{(s)} \leftarrow D^{(s)}$.
+        \State Compute $\bar X^{(s)} = (np)^{-1}\sum_{i=1}^n\sum_{j=1}^p X^{(s)}_{ij}$.
+        \State Initialize $z^{(s,0)}$, $w^{(s,0)}$, $\pi^{(s,0)}$, $\rho^{(s,0)}$,
+        $\Lambda^{(s,0)}$, and $\kappa^{(s,0)}$.
+        \For{$t=1,\ldots,T$}
+            \State Sample $\pi^{(s,t)} \mid z^{(s,t-1)}$ from its Dirichlet full conditional.
+            \State Sample $\rho^{(s,t)} \mid w^{(s,t-1)}$ from its Dirichlet full conditional.
+            \State Sample each $\lambda_{ql}^{(s,t)}$ from its Gamma full conditional.
+            \For{$i=1,\ldots,n$}
+                \State Sample $z_i^{(s,t)}$ from its categorical full conditional.
+            \EndFor
+            \For{$j=1,\ldots,p$}
+                \State Sample $w_j^{(s,t)}$ from its categorical full conditional.
+            \EndFor
+            \State Update $\kappa^{(s,t)}$ by log-scale random-walk MH.
+            \If{$t>B$ and $(t-B)$ is divisible by $H$}
+                \State Store $\left(z^{(s,t)},w^{(s,t)},\pi^{(s,t)},\rho^{(s,t)},\Lambda^{(s,t)},\kappa^{(s,t)}\right)$.
+            \EndIf
+        \EndFor
+    \EndFor
+    \State Align stored labels by post-processing:
+    first align item labels $w$, then respondent labels $z$, and permute $\Lambda$ accordingly.
+    \State Compute posterior summaries and ICL$(Q,L)$.
+\EndFor
+\State Select
+\[
+(\widehat Q,\widehat L)
+=
+\arg\max_{(Q,L)\in\mathcal{Q}\times\mathcal{L}}
+\mathrm{ICL}(Q,L).
+\]
+\State Report item-side posterior co-clustering probability
+\[
+\widehat P(w_j=w_{j'} \mid \mathcal{D})
+=
+\frac{1}{M_{\mathrm{save}}}
+\sum_{\mathrm{saved}\, (s,t)}
+I\left(w_j^{(s,t)}=w_{j'}^{(s,t)}\right),
+\]
+where $M_{\mathrm{save}}$ is the total number of saved post-LSIRM SBM samples.
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{ICL criterion}
+
+For each candidate $(Q,L)$, define a representative partition
+$(\widehat z,\widehat w)$ from the relabeled posterior samples.
+The ICL criterion is computed as
+\[
+\mathrm{ICL}(Q,L)
+=
+\log p(\mathcal{D},\widehat z,\widehat w \mid \widehat\Theta_{Q,L},Q,L)
+-
+\frac{\nu_{Q,L}}{2}\log(mnp),
+\]
+where
+\[
+\widehat\Theta_{Q,L}
+=
+(\widehat\pi,\widehat\rho,\widehat\Lambda,\widehat\kappa),
+\qquad
+\nu_{Q,L}
+=
+(Q-1)+(L-1)+QL+1.
+\]
+Since $\mathcal{D}$ contains $m$ LSIRM posterior distance matrices, the completed log-likelihood is aggregated over
+all LSIRM distance samples:
+\[
+\log p(\mathcal{D},\widehat z,\widehat w \mid \widehat\Theta_{Q,L},Q,L)
+=
+\sum_{s=1}^m
+\left[
+\sum_{i=1}^n \log \widehat\pi_{\widehat z_i^{(s)}}
++
+\sum_{j=1}^p \log \widehat\rho_{\widehat w_j^{(s)}}
++
+\sum_{i=1}^n
+\sum_{j=1}^p
+\log f\left(
+D^{(s)}_{ij}
+\mid
+\widehat z_i^{(s)},\widehat w_j^{(s)},\widehat\kappa,\widehat\Lambda
+\right)
+\right].
+\]
+Finally,
+\[
+(\widehat Q,\widehat L)
+=
+\arg\max_{(Q,L)\in\mathcal{Q}\times\mathcal{L}}
+\mathrm{ICL}(Q,L).
+\]
+
+\subsubsection{Remark}
+
+이 절차는 multilayered LSIRM의 posterior distance sample을 단순히 평균내지 않고,
+각 posterior draw를 하나의 가능한 distance network realization으로 취급한다.
+따라서 최종 item clustering은 LSIRM latent position의 posterior uncertainty와
+bipartite SBM clustering uncertainty를 동시에 반영한다.
+\end{document}

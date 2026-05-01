@@ -1,0 +1,848 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\title{Joint Multilayered LSIRM with Probabilistic-PCA Mixture Clustering\\
+NIW Predictive Allocation and Split--Merge Moves\\
+(Model V10)}
+\date{May 1, 2026}
+
+\begin{document}
+\maketitle
+
+\section{Overview and motivation}
+
+Model V10 extends Model V9 by modifying the clustering layer of the
+PPCA-mixture block.  The PPCA measurement equation introduced in V9 is
+retained:
+\[
+    x_j \mid \delta,\Lambda,\eta_j,\sigma_\varepsilon^2
+    \sim N_n(\delta+\Lambda\eta_j,\sigma_\varepsilon^2 I_n),
+\]
+where $x_j$ is the row-centered LSIRM-induced log-distance profile of item
+$j$.  The V9 change from per-respondent residual variances
+$\psi_1,\dots,\psi_n$ to a single scalar $\sigma_\varepsilon^2$ is kept,
+because it prevents the FA layer from absorbing the entire respondent-wise
+residual structure and thereby helps maintain a non-degenerate loading
+matrix $\Lambda$.
+
+The new change in V10 is not in the PPCA measurement equation, but in the
+mixture clustering step for the item factor scores $\eta_j$.  V9 used a
+standard conditional Gaussian-mixture update
+\[
+    P(c_j=l\mid\cdot)\propto \rho_l\,\phi_r(\eta_j;\mu_l,\Sigma_l),
+\]
+with independent priors $\mu_l\sim N_r(m_0,V_0)$ and
+$\Sigma_l\sim IW(\nu_0,S_0)$.  This update is local and can be sticky: once
+an overfitted component becomes empty, the sampled value of
+$(\mu_l,\Sigma_l)$ is often poorly located, and the component may never be
+reoccupied.  In addition, single-site Gibbs updates move only one item at a
+time and can have difficulty splitting a large cluster into two coherent
+subclusters.
+
+V10 addresses this with two changes:
+\begin{enumerate}[leftmargin=2em]
+    \item Replace the independent $(\mu_l,\Sigma_l)$ prior by a conjugate
+    Normal--Inverse-Wishart (NIW) prior, and update $c_j$ using the NIW
+    posterior predictive density, integrating out $(\mu_l,\Sigma_l)$ and
+    $\rho$ for the purpose of cluster allocation.
+    \item Add split--merge Metropolis--Hastings moves on the partition
+    $c=(c_1,\dots,c_P)$, using the same NIW-collapsed target.  These moves
+    propose major changes to the partition by splitting one occupied
+    component into two or merging two occupied components into one.
+\end{enumerate}
+
+The purpose is to reduce label stickiness and improve exploration of
+partitions with $K_+>2$, while keeping the V9 PPCA identification
+improvement.
+
+\section{Notation}
+
+\subsection*{Carried over from V9}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $n,L,P_\ell,P,d,r,K^\star$: number of respondents, layers, items,
+    LSIRM dimension, factor dimension, and maximum number of mixture
+    components.
+    \item $a_i^{(\ell)},b_j^{(\ell)}$: LSIRM respondent and item positions.
+    \item $x_{ij}=\log\|a_i^{(\ell(j))}-b_j^{(\ell(j))}\|$: LSIRM-induced
+    log-distance profile, row-centered at each MCMC iteration.
+    \item $x_j=(x_{1j},\dots,x_{nj})^\top\in\mathbb R^n$: item $j$'s
+    row-centered profile.
+    \item $\eta_j\in\mathbb R^r$: PPCA factor score for item $j$.
+    \item $c_j\in\{1,\dots,K^\star\}$: cluster label of item $j$.
+    \item $\Lambda\in\mathbb R^{n\times r}$: loading matrix; row $i$ is
+    $\lambda_i^\top$.
+    \item $\delta=(\delta_1,\dots,\delta_n)^\top$: respondent baseline.
+    \item $\sigma_\varepsilon^2$: shared PPCA residual variance.
+    \item $\rho\in\Delta^{K^\star-1}$: finite mixture weights.
+    \item $\mu_l\in\mathbb R^r$, $\Sigma_l\in\mathbb R^{r\times r}_{\succ0}$:
+    component-specific mean and covariance of the $\eta$ mixture.
+\end{itemize}
+
+\subsection*{New or modified in V10}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $\kappa_0>0$: NIW prior precision for the component mean.
+    Replaces the separate Gaussian prior covariance $V_0$ used in V9.
+    \item For a cluster $l$, define
+    \[
+        \mathcal J_l=\{j:c_j=l\},\qquad n_l=|\mathcal J_l|.
+    \]
+    \item For leave-one-out calculations,
+    \[
+        \mathcal J_{l,-j}=\{m:m\neq j,\ c_m=l\},\qquad
+        n_{l,-j}=|\mathcal J_{l,-j}|.
+    \]
+    \item $m_l,\kappa_l,\nu_l,S_l$: NIW posterior parameters for component
+    $l$.
+    \item $m_{l,-j},\kappa_{l,-j},\nu_{l,-j},S_{l,-j}$: leave-one-out NIW
+    posterior parameters used for updating $c_j$.
+\end{itemize}
+
+\subsection*{Removed or no longer central}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $V_0$ is removed from the mixture prior and replaced by
+    $\kappa_0$ through
+    $\mu_l\mid\Sigma_l\sim N_r(m_0,\Sigma_l/\kappa_0)$.
+    \item $\rho$ is no longer used directly in the single-site update of
+    $c_j$.  It is integrated out, yielding the factor $n_{l,-j}+e_0$.
+    A draw of $\rho$ may still be sampled after label updates for monitoring
+    and storage.
+\end{itemize}
+
+\section{LSIRM block}
+
+The LSIRM block is unchanged from V9.  The LSIRM parameters are updated
+without including the PPCA-mixture likelihood in the Metropolis--Hastings
+acceptance ratios.  Thus, the coupling remains one-way:
+\[
+    \text{LSIRM positions}\quad\longrightarrow\quad
+    X=(x_{ij})\quad\longrightarrow\quad
+    \text{PPCA-mixture clustering}.
+\]
+At each MCMC iteration, the current LSIRM positions generate
+\[
+    x_{ij}=\log\max\{\|a_i^{(\ell(j))}-b_j^{(\ell(j))}\|,\epsilon\},
+\]
+and row-centering is applied before the PPCA-mixture block is updated.
+
+\section{PPCA-mixture clustering block}
+
+Conditional on the current LSIRM state, the V10 measurement equation is
+\begin{equation}
+    x_j\mid\delta,\Lambda,\eta_j,\sigma_\varepsilon^2
+    \sim
+    N_n(\delta+\Lambda\eta_j,\sigma_\varepsilon^2 I_n),
+    \qquad j=1,\dots,P.
+    \label{eq:v10-measurement}
+\end{equation}
+
+The factor scores are assigned a finite Gaussian mixture prior:
+\begin{align}
+    \eta_j\mid c_j=l,\mu_l,\Sigma_l
+    &\sim N_r(\mu_l,\Sigma_l),\label{eq:v10-eta-mixture}\\
+    c_j\mid\rho
+    &\sim \mathrm{Categorical}(\rho_1,\dots,\rho_{K^\star}),\\
+    \rho
+    &\sim \mathrm{Dirichlet}(e_0,\dots,e_0).
+\end{align}
+
+The component parameters now follow an NIW prior:
+\begin{align}
+    \Sigma_l &\sim IW(\nu_0,S_0),\label{eq:niw-sigma-prior}\\
+    \mu_l\mid\Sigma_l &\sim
+    N_r\left(m_0,\frac{1}{\kappa_0}\Sigma_l\right),
+    \qquad l=1,\dots,K^\star.\label{eq:niw-mu-prior}
+\end{align}
+
+\section{Priors}
+
+The non-mixture priors remain as in V9:
+\begin{align}
+    \delta_i\mid\sigma_\delta^2 &\sim N(0,\sigma_\delta^2), &
+    \sigma_\delta^2 &\sim IG(a_\delta,b_\delta),\\
+    \lambda_i &\sim N_r(0,\tau_\lambda^2 I_r),\\
+    \sigma_\varepsilon^2 &\sim IG(a_\varepsilon,b_\varepsilon).
+\end{align}
+
+The mixture prior is changed from independent $N$ and $IW$ priors to the
+conjugate NIW prior in \eqref{eq:niw-sigma-prior}--\eqref{eq:niw-mu-prior}.
+A practical default set is:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Parameter & Default & Role \\
+\midrule
+$e_0$ & $0.1$ & Sparse overfitted finite mixture prior. \\
+$m_0$ & $0_r$ & Prior center of component means. \\
+$\kappa_0$ & $0.001$ & Weak prior precision for $\mu_l$ (matches $V_0\!\approx\!9I_r$ in V9). \\
+$\nu_0$ & $r+10$ & Inverse-Wishart degrees of freedom. \\
+$S_0$ & $0.01 I_r$ & Prior within-cluster covariance scale (see \S\ref{sec:s0-elicitation}). \\
+$\tau_\lambda^2$ & $0.25$ & Loading prior variance. \\
+$(a_\delta,b_\delta)$ & $(2,1)$ & Prior for respondent baselines. \\
+$(a_\varepsilon,b_\varepsilon)$ & $(5,0.1)$ & Prior for shared PPCA residual variance. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The choice of $\kappa_0$ should be small if $m_0=0$ is meant to be weakly
+informative.  The previous V9 prior $\mu_l\sim N_r(m_0,V_0)$ can be matched
+approximately by setting $\kappa_0$ so that the marginal magnitude of
+$\mu_l$ matches $V_0$:
+\[
+    E[\Sigma_l/\kappa_0]
+    =\frac{S_0}{(\nu_0-r-1)\kappa_0}
+    \;\stackrel{!}{=}\;V_0.
+\]
+With $\nu_0=r+10$, $S_0=0.01I_r$ and $V_0=9I_r$, this gives
+$\kappa_0=0.01/(9\cdot 9)\approx 1.2\times 10^{-4}$; a default of
+$\kappa_0=10^{-3}$ keeps $\mu_l$ weakly informative while remaining within
+an order of magnitude of the matched value.
+
+\subsection{Eliciting $S_0$: matching the within-cluster scale of $\eta$}
+\label{sec:s0-elicitation}
+
+The default $S_0$ value above is the most consequential of the NIW
+hyperparameters.  In the Lamb-style finite-mixture family, a too-loose
+$S_0$ is the dominant failure mode: it makes the model believe components
+are wider than they actually are, inflates the NIW marginal likelihood for
+"loose" clusters, and suppresses splits even when the factor scores
+clearly support multiple components.  The diagnostic and remedy are:
+
+\begin{enumerate}[leftmargin=2em]
+    \item \textbf{Run a short pilot chain.}  After warm-up, save the
+    posterior draws of $\eta_j$ (or compute the posterior mean
+    $\bar\eta_j$).  Compute the empirical within-cluster sd along each
+    factor dimension using the pilot's modal $c_j$:
+    \[
+        \widehat{\mathrm{sd}}_q
+        =\sqrt{\tfrac{1}{P-K_+}\sum_l\sum_{j\in\mathcal J_l}
+        (\eta_{jq}-\bar\eta_{lq})^2},
+        \qquad q=1,\dots,r.
+    \]
+    \item \textbf{Compare to the prior implied scale.}  Under
+    $\Sigma_l\sim IW(\nu_0,S_0)$ with $S_0=s_0 I_r$,
+    \[
+        E[\Sigma_l]=\frac{s_0}{\nu_0-r-1}\,I_r,
+        \qquad
+        \text{prior implied per-dim sd}\approx\sqrt{\tfrac{s_0}{\nu_0-r-1}}.
+    \]
+    \item \textbf{Tighten if the prior dominates.}  A factor of $5$--$10$
+    over the empirical sd is a flag: the prior expects clusters to be
+    that much wider than the data suggests, so split moves will be
+    suppressed.  Reset $s_0$ so that the prior implied per-dim sd is on
+    the same order as $\widehat{\mathrm{sd}}_q$.
+\end{enumerate}
+
+\paragraph{Concrete example.}  In a four-layer simulation
+($n=150$, $P=40$, $K_{\rm true}=4$ diamond clusters), a pilot chain at
+$r=2$, $S_0=0.05I_r$, $\nu_0=r+10=12$ gave empirical
+$\widehat{\mathrm{sd}}_q\approx 0.01$--$0.02$; the prior implied per-dim
+sd was $\sqrt{0.05/9}\approx 0.075$, i.e.\ a $4$--$7\times$ overestimate.
+Splits were rare (split acceptance $\approx 10\%$) and the chain stalled
+at $K_+=2$--$3$ with $\mathrm{ARI}\approx 0.46$.  Refitting with
+$S_0=0.01I_r$ (prior implied per-dim sd $\approx 0.033$) gave
+$K_+=5$, split acceptance $15\%$, and $\mathrm{ARI}=0.89$.  The default
+$S_0=0.01I_r$ in the table above reflects this calibration; users on
+data with a different $\eta$ scale should re-run this elicitation rather
+than treat $0.01I_r$ as universal.
+
+\section{Joint hierarchical model}
+
+The full joint posterior is proportional to
+\begin{align*}
+&p(\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{clust}}\mid Y)\\
+&\quad\propto
+p(Y\mid\Theta_{\mathrm{LSIRM}})\\
+&\qquad\times
+\prod_{j=1}^P
+N_n\{x_j(\Theta_{\mathrm{LSIRM}});\delta+\Lambda\eta_j,
+\sigma_\varepsilon^2 I_n\}
+N_r(\eta_j;\mu_{c_j},\Sigma_{c_j})\rho_{c_j}\\
+&\qquad\times
+p(\Theta_{\mathrm{LSIRM}})
+\,p(\delta\mid\sigma_\delta^2)p(\sigma_\delta^2)
+\,p(\Lambda)p(\sigma_\varepsilon^2)
+\,p(\rho)
+\prod_{l=1}^{K^\star}p(\mu_l,\Sigma_l),
+\end{align*}
+where
+\[
+    p(\mu_l,\Sigma_l)
+    =p(\mu_l\mid\Sigma_l)p(\Sigma_l).
+\]
+This enforces the NIW prior.  The clustering parameter set is
+\[
+\Theta_{\mathrm{clust}}
+=\{\eta_j,c_j,\rho,\delta,\Lambda,\sigma_\varepsilon^2,
+\mu_l,\Sigma_l,\sigma_\delta^2\}.
+\]
+
+\section{NIW posterior quantities}
+
+For a generic index set $A\subseteq\{1,\dots,P\}$, let
+\[
+    n_A=|A|,
+    \qquad
+    \bar\eta_A=\frac{1}{n_A}\sum_{j\in A}\eta_j
+    \quad(n_A>0),
+\]
+and
+\[
+    Q_A=\sum_{j\in A}(\eta_j-\bar\eta_A)(\eta_j-\bar\eta_A)^\top
+    \quad(n_A>0).
+\]
+For $n_A=0$, define $Q_A=0$ and use the prior parameters directly.
+
+The NIW posterior parameters for cluster $A$ are
+\begin{align}
+    \kappa_A &= \kappa_0+n_A,\\
+    \nu_A &= \nu_0+n_A,\\
+    m_A &=
+    \begin{cases}
+    \dfrac{\kappa_0m_0+n_A\bar\eta_A}{\kappa_0+n_A}, & n_A>0,\\[1.25em]
+    m_0, & n_A=0,
+    \end{cases}\\
+    S_A &=
+    \begin{cases}
+    S_0+Q_A+
+    \dfrac{\kappa_0 n_A}{\kappa_0+n_A}
+    (\bar\eta_A-m_0)(\bar\eta_A-m_0)^\top, & n_A>0,\\[1.25em]
+    S_0, & n_A=0.
+    \end{cases}
+\end{align}
+
+For cluster $l$, write these quantities as
+\[
+    (\kappa_l,\nu_l,m_l,S_l)
+    = (\kappa_{\mathcal J_l},\nu_{\mathcal J_l},m_{\mathcal J_l},S_{\mathcal J_l}).
+\]
+For leave-one-out allocation of item $j$, write
+\[
+    (\kappa_{l,-j},\nu_{l,-j},m_{l,-j},S_{l,-j})
+    = (\kappa_{\mathcal J_{l,-j}},\nu_{\mathcal J_{l,-j}},
+       m_{\mathcal J_{l,-j}},S_{\mathcal J_{l,-j}}).
+\]
+
+\section{NIW posterior predictive density}
+
+The leave-one-out posterior predictive distribution of $\eta_j$ under
+component $l$ is multivariate Student-$t$:
+\begin{equation}
+    \eta_j\mid \eta_{\mathcal J_{l,-j}}
+    \sim
+    t_{d_{l,-j}}
+    \left(
+    m_{l,-j},
+    V^{\mathrm{pred}}_{l,-j}
+    \right),
+    \label{eq:niw-predictive}
+\end{equation}
+where
+\begin{align}
+    d_{l,-j} &= \nu_{l,-j}-r+1,\\
+    V^{\mathrm{pred}}_{l,-j}
+    &=
+    \frac{\kappa_{l,-j}+1}
+    {\kappa_{l,-j}(\nu_{l,-j}-r+1)}S_{l,-j}.
+\end{align}
+
+Thus the collapsed single-site allocation update is
+\begin{equation}
+    P(c_j=l\mid c_{-j},\eta)
+    \propto
+    (n_{l,-j}+e_0)
+    t_{d_{l,-j}}
+    \left(
+    \eta_j;
+    m_{l,-j},
+    V^{\mathrm{pred}}_{l,-j}
+    \right),
+    \qquad l=1,\dots,K^\star.
+    \label{eq:collapsed-c-update}
+\end{equation}
+
+For an empty component, $n_{l,-j}=0$, so
+\[
+    (\kappa_{l,-j},\nu_{l,-j},m_{l,-j},S_{l,-j})
+    =(\kappa_0,\nu_0,m_0,S_0),
+\]
+and the allocation probability is based on the prior predictive density
+multiplied by $e_0$.  This is the mechanism by which empty components can be
+reoccupied.
+
+\section{Collapsed partition target for split--merge moves}
+
+Let $c=(c_1,\dots,c_P)$ be the current label vector and
+$\mathcal J_l=\{j:c_j=l\}$.  Integrating out $\rho$ and
+$(\mu_l,\Sigma_l)_{l=1}^{K^\star}$ gives the collapsed target
+\begin{equation}
+    \pi(c\mid\eta)
+    \propto
+    \prod_{l=1}^{K^\star}
+    \frac{\Gamma(n_l+e_0)}{\Gamma(e_0)}
+    \;m(\eta_{\mathcal J_l}),
+    \label{eq:collapsed-target}
+\end{equation}
+where
+\[
+    m(\eta_{\mathcal J_l})
+    =
+    \int
+    \prod_{j\in\mathcal J_l}N_r(\eta_j;\mu_l,\Sigma_l)
+    p(\mu_l,\Sigma_l)\,d\mu_l\,d\Sigma_l
+\]
+is the NIW marginal likelihood of the items in cluster $l$.
+
+For $A\subseteq\{1,\dots,P\}$, the log NIW marginal likelihood is
+\begin{align}
+    \log m(\eta_A)
+    &=-\frac{n_A r}{2}\log\pi
+    +\frac{r}{2}\{\log\kappa_0-\log\kappa_A\}
+    +\frac{\nu_0}{2}\log|S_0|
+    -\frac{\nu_A}{2}\log|S_A| \notag\\
+    &\qquad
+    +\log\Gamma_r\left(\frac{\nu_A}{2}\right)
+    -\log\Gamma_r\left(\frac{\nu_0}{2}\right),
+    \label{eq:niw-marginal}
+\end{align}
+The factor $\pi^{-n_A r/2}$ (rather than $(2\pi)^{-n_A r/2}$) follows from
+the cancellation between the Gaussian likelihood normalizing constant and
+the inverse-Wishart normalizing constant; see Murphy (2007), eq.~(232).
+where
+\[
+    \log\Gamma_r(a)
+    =\frac{r(r-1)}{4}\log\pi
+    +\sum_{q=1}^r\log\Gamma\left(a+\frac{1-q}{2}\right).
+\]
+
+Up to constants independent of $c$, the log collapsed partition target is
+\begin{equation}
+    \log\pi(c\mid\eta)
+    =
+    \sum_{l=1}^{K^\star}
+    \left[
+    \log\Gamma(n_l+e_0)-\log\Gamma(e_0)
+    +\log m(\eta_{\mathcal J_l})
+    \right]
+    +\mathrm{constant}.
+    \label{eq:log-collapsed-target}
+\end{equation}
+
+\section{Posterior updates}
+
+LSIRM updates are unchanged.  The PPCA-mixture updates are modified as
+follows.
+
+\paragraph{(1) $\eta_j$.}
+Given the current component parameters, the conditional posterior remains
+Gaussian:
+\begin{equation}
+    \eta_j\mid\cdot\sim N_r(m_{\eta_j},V_{\eta_j}),
+\end{equation}
+where
+\begin{align}
+    V_{\eta_j}
+    &=
+    \left(\sigma_\varepsilon^{-2}\Lambda^\top\Lambda+
+    \Sigma_{c_j}^{-1}\right)^{-1},\\
+    m_{\eta_j}
+    &=
+    V_{\eta_j}
+    \left\{
+    \sigma_\varepsilon^{-2}\Lambda^\top(x_j-\delta)
+    +\Sigma_{c_j}^{-1}\mu_{c_j}
+    \right\}.
+    \label{eq:eta-update-v10}
+\end{align}
+
+\paragraph{(2) $c_j$: NIW-collapsed single-site update.}
+Remove item $j$ from its current cluster and compute the leave-one-out NIW
+posterior parameters for every component $l$.  Then sample
+\begin{equation}
+    P(c_j=l\mid c_{-j},\eta)
+    \propto
+    (n_{l,-j}+e_0)
+    t_{\nu_{l,-j}-r+1}
+    \left(
+    \eta_j;
+    m_{l,-j},
+    \frac{\kappa_{l,-j}+1}
+    {\kappa_{l,-j}(\nu_{l,-j}-r+1)}S_{l,-j}
+    \right).
+    \label{eq:c-update-v10}
+\end{equation}
+This replaces the V9 update
+$P(c_j=l\mid\cdot)\propto \rho_l\phi_r(\eta_j;\mu_l,\Sigma_l)$.
+
+\paragraph{(3) Split--merge move for $c$.}
+After a full sweep of single-site NIW-collapsed updates, optionally perform
+$M_{\mathrm{SM}}$ split--merge proposals targeting the collapsed density
+\eqref{eq:log-collapsed-target}.  Details are given in
+Section~\ref{sec:split-merge}.
+
+\paragraph{(4) $\Sigma_l$ and $\mu_l$: NIW posterior draw.}
+Given the final labels after the single-site and split--merge updates,
+compute $(\kappa_l,\nu_l,m_l,S_l)$ for each component.  Then sample
+\begin{align}
+    \Sigma_l\mid\eta,c
+    &\sim IW(\nu_l,S_l),\\
+    \mu_l\mid\Sigma_l,
+    \eta,c
+    &\sim N_r\left(m_l,\frac{1}{\kappa_l}\Sigma_l\right).
+    \label{eq:mu-sigma-update-v10}
+\end{align}
+For empty components, this reduces to a draw from the NIW prior.
+
+\paragraph{(5) $\rho$ for storage or monitoring.}
+Although $\rho$ is integrated out in the label update, it may be sampled
+after the labels are updated:
+\begin{equation}
+    \rho\mid c
+    \sim
+    \mathrm{Dirichlet}(e_0+n_1,\dots,e_0+n_{K^\star}).
+    \label{eq:rho-storage-v10}
+\end{equation}
+This draw is not needed for $c_j$ updates, but is useful for posterior
+summaries and compatibility with existing output structure.
+
+\paragraph{(6) $\delta_i$.}
+The respondent baseline update is unchanged from V9:
+\begin{equation}
+    \delta_i\mid\cdot\sim N(m_{\delta_i},V_{\delta_i}),
+\end{equation}
+where
+\begin{align}
+    V_{\delta_i}
+    &=\left(P/\sigma_\varepsilon^2+1/\sigma_\delta^2\right)^{-1},\\
+    m_{\delta_i}
+    &=V_{\delta_i}\sigma_\varepsilon^{-2}
+    \sum_{j=1}^P(x_{ij}-\lambda_i^\top\eta_j).
+\end{align}
+
+\paragraph{(7) $\lambda_i$.}
+The loading row update is unchanged from V9:
+\begin{equation}
+    \lambda_i\mid\cdot\sim N_r(m_{\lambda_i},V_{\lambda_i}),
+\end{equation}
+where
+\begin{align}
+    V_{\lambda_i}
+    &=\left(\tau_\lambda^{-2}I_r+
+    \sigma_\varepsilon^{-2}\sum_{j=1}^P\eta_j\eta_j^\top\right)^{-1},\\
+    m_{\lambda_i}
+    &=V_{\lambda_i}\sigma_\varepsilon^{-2}
+    \sum_{j=1}^P\eta_j(x_{ij}-\delta_i).
+\end{align}
+
+\paragraph{(8) $\sigma_\varepsilon^2$.}
+The shared residual variance update is unchanged from V9:
+\begin{equation}
+    \sigma_\varepsilon^2\mid\cdot
+    \sim
+    IG\left(
+    a_\varepsilon+\frac{nP}{2},
+    b_\varepsilon+\frac{1}{2}
+    \sum_{i=1}^n\sum_{j=1}^P
+    (x_{ij}-\delta_i-\lambda_i^\top\eta_j)^2
+    \right).
+\end{equation}
+
+\paragraph{(9) $\sigma_\delta^2$.}
+\begin{equation}
+    \sigma_\delta^2\mid\cdot
+    \sim
+    IG\left(a_\delta+\frac n2,
+    b_\delta+\frac{1}{2}\sum_{i=1}^n\delta_i^2\right).
+\end{equation}
+
+\section{Split--merge move}
+\label{sec:split-merge}
+
+The split--merge move is a Metropolis--Hastings update on the partition
+$c$, conditional on the current factor scores $\eta$.  It uses the collapsed
+target \eqref{eq:log-collapsed-target}, where $\rho$ and
+$(\mu_l,\Sigma_l)$ have been integrated out.
+
+\subsection{Anchor selection}
+
+Select two distinct item indices $u$ and $v$ uniformly at random from
+$\{1,\dots,P\}$.  If $c_u=c_v$, attempt a split move.  If $c_u\neq c_v$,
+attempt a merge move.  The anchor selection probability is symmetric and
+cancels in the Metropolis--Hastings ratio.
+
+\subsection{Split proposal}
+
+Suppose $c_u=c_v=a$.  Let
+\[
+    A=\{j:c_j=a\}
+\]
+be the cluster to be split.  Choose an empty component label
+$b\in\{l:n_l=0\}$ uniformly.  If no empty component exists, skip the split
+proposal.
+
+Initialize two temporary clusters by forcing the anchors to be separated:
+\[
+    c_u'=a,
+    \qquad
+    c_v'=b.
+\]
+For each item $j\in A\setminus\{u,v\}$, assign $j$ to either $a$ or $b$ by
+a restricted NIW-collapsed Gibbs scan:
+\begin{align}
+    q_j(a)&\propto
+    (n_{a,-j}^{\mathrm{temp}}+e_0)
+    p(\eta_j\mid\eta_{a,-j}^{\mathrm{temp}}),\\
+    q_j(b)&\propto
+    (n_{b,-j}^{\mathrm{temp}}+e_0)
+    p(\eta_j\mid\eta_{b,-j}^{\mathrm{temp}}),
+\end{align}
+where the predictive density is the NIW Student-$t$ density in
+\eqref{eq:niw-predictive}, computed using the temporary cluster contents.
+Let $p_j^{\mathrm{fwd}}$ denote the normalized probability of the assignment
+actually selected for item $j$.  Then
+\begin{equation}
+    \log q(c'\mid c)
+    =
+    -\log E(c)+
+    \sum_{j\in A\setminus\{u,v\}}
+    \log p_j^{\mathrm{fwd}},
+\end{equation}
+where $E(c)=|\{l:n_l=0\}|$ is the number of empty labels before the split.
+The reverse proposal is a deterministic merge, so
+\[
+    \log q(c\mid c')=0.
+\]
+The split is accepted with probability
+\begin{equation}
+    \alpha_{\mathrm{split}}
+    =
+    \min\left\{1,
+    \exp\left[
+    \log\pi(c'\mid\eta)-\log\pi(c\mid\eta)
+    -\log q(c'\mid c)
+    \right]
+    \right\}.
+\end{equation}
+
+\subsection{Merge proposal}
+
+Suppose $c_u=a$, $c_v=b$, and $a\neq b$.  Let
+\[
+    A=\{j:c_j=a\},
+    \qquad
+    B=\{j:c_j=b\}.
+\]
+The proposal merges $B$ into $A$:
+\[
+    c_j'=a,
+    \qquad j\in A\cup B.
+\]
+Thus
+\[
+    \log q(c'\mid c)=0.
+\]
+The reverse proposal is a split of $A\cup B$ back into $A$ and $B$, using
+anchors $u$ and $v$.  Its proposal probability is computed by running the
+same restricted NIW-collapsed scan that would reproduce the original
+assignment.  Let $p_j^{\mathrm{rev}}$ denote the normalized probability of
+assigning item $j$ to its original side during this reverse split.  Then
+\begin{equation}
+    \log q(c\mid c')
+    =
+    -\log E(c')+
+    \sum_{j\in (A\cup B)\setminus\{u,v\}}
+    \log p_j^{\mathrm{rev}},
+\end{equation}
+where $E(c')$ is the number of empty labels after the merge.  The merge is
+accepted with probability
+\begin{equation}
+    \alpha_{\mathrm{merge}}
+    =
+    \min\left\{1,
+    \exp\left[
+    \log\pi(c'\mid\eta)-\log\pi(c\mid\eta)
+    +\log q(c\mid c')
+    \right]
+    \right\}.
+\end{equation}
+
+\section{One full MCMC sweep}
+
+\begin{algorithm}[H]
+\caption{One sweep of joint LSIRM + PPCA-mixture with NIW predictive and split--merge moves}
+\begin{algorithmic}[1]
+\State Update LSIRM non-position block.
+\State Update $\{a_i^{(\ell)}\}$ via MH using the original LSIRM acceptance ratio.
+\State Update $\{b_j^{(\ell)}\}$ via MH using the original LSIRM acceptance ratio.
+\State Form $x_{ij}=\log\max\{\|a_i^{(\ell(j))}-b_j^{(\ell(j))}\|,\epsilon\}$ and row-center.
+\If{iter $\geq T_{\mathrm{warm}}$}
+    \State Update $\{\eta_j\}_{j=1}^P$ using \eqref{eq:eta-update-v10}.
+    \State Update $\{c_j\}_{j=1}^P$ using the NIW-collapsed predictive update \eqref{eq:c-update-v10}.
+    \For{$m=1,\dots,M_{\mathrm{SM}}$}
+        \State Propose and accept/reject one split--merge move using \eqref{eq:log-collapsed-target}.
+    \EndFor
+    \State Update $\{\Sigma_l,\mu_l\}_{l=1}^{K^\star}$ using the NIW posterior draw \eqref{eq:mu-sigma-update-v10}.
+    \State Optionally sample $\rho\mid c$ using \eqref{eq:rho-storage-v10} for storage.
+    \For{$i=1,\dots,n$}
+        \State Update $\delta_i$.
+        \State Update $\lambda_i$.
+        \State Accumulate $\mathrm{rss}\mathrel{+}=\sum_{j=1}^P(x_{ij}-\delta_i-\lambda_i^\top\eta_j)^2$.
+    \EndFor
+    \State Update $\sigma_\varepsilon^2$ using the accumulated residual sum of squares.
+    \State Update $\sigma_\delta^2$.
+    \State Update online co-cluster matrix $C_{jk}\leftarrow C_{jk}+\mathbb 1\{c_j=c_k\}$.
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\section{Expected effect of the V10 changes}
+
+The V10 changes target a different failure mode from the V8-to-V9 change.
+V9 prevents the loading matrix from collapsing by replacing
+respondent-specific noise variances with a single PPCA residual variance.
+V10 improves exploration of the clustering posterior once the factor scores
+contain signal.
+
+The NIW predictive update helps because it allocates item $j$ using
+\[
+    p(\eta_j\mid\eta_{\mathcal J_{l,-j}})
+\]
+rather than using a single sampled value of $(\mu_l,\Sigma_l)$.  Empty
+components are assigned prior predictive mass and therefore can be
+reoccupied.
+
+The split--merge move helps because it proposes large changes to the
+partition.  Single-site Gibbs must pass through low-probability intermediate
+states to split a large cluster.  A split move can propose the two-cluster
+configuration directly, and a merge move can remove spurious over-splitting.
+
+Together, these changes are expected to reduce stickiness at $K_+=1$ or
+$K_+=2$ and improve posterior exploration of $K_+\in\{3,4,\dots\}$.
+
+\section{Cluster inference}
+
+Cluster inference remains label-switching invariant.  The main posterior
+summaries are:
+\begin{itemize}[leftmargin=1.5em]
+    \item Posterior similarity matrix
+    $C_{jk}=\Pr(c_j=c_k\mid Y)$, computed online.
+    \item Trace of occupied components
+    $K_+^{(t)}=|\{l:n_l^{(t)}>0\}|$.
+    \item A point partition obtained from the posterior similarity matrix,
+    for example by hierarchical clustering on $1-C$ or by minimizing the
+    posterior expected Binder loss.
+\end{itemize}
+
+\paragraph{Quality assessment.}  The point partition above should be
+evaluated using \emph{$\eta$-space silhouette}: compute
+$\mathrm{sil}_j$ for the chosen partition using Euclidean distance on the
+posterior-mean factor scores $\hat\eta_j\in\mathbb R^r$.  Reporting
+silhouette computed on $1-C$ instead is circular and tends to overstate
+how well-separated clusters are.  See the verification checklist for
+threshold conventions.
+
+\section{Implementation notes}
+
+The implementation requires the following changes to the V9 code.
+
+\begin{enumerate}[leftmargin=2em]
+    \item Replace the hyperparameter $V_0$ by $\kappa_0$ in
+    \texttt{fmc\_hyper}.  Keep $m_0,\nu_0,S_0$.
+    \item Add helper functions for NIW posterior statistics,
+    multivariate Student-$t$ log density, NIW marginal log likelihood, and
+    collapsed partition log target.
+    \item Replace the current $c_j$ update based on
+    $\rho_l\phi_r(\eta_j;\mu_l,\Sigma_l)$ by the NIW predictive update
+    \eqref{eq:c-update-v10}.
+    \item Replace the separate $\mu_l$ and $\Sigma_l$ updates by the NIW
+    posterior draw \eqref{eq:mu-sigma-update-v10}.
+    \item Move the $\rho$ update after the label updates, or keep it only as
+    a monitoring draw.
+    \item Add an optional argument such as \texttt{n\_split\_merge} or
+    \texttt{sm\_prob} to control how often split--merge moves are attempted.
+    \item Store split--merge acceptance counts separately for split and merge
+    proposals.
+\end{enumerate}
+
+\section{Verification checklist}
+
+After refitting V10, compare the following diagnostics with V9:
+\begin{enumerate}[leftmargin=2em]
+    \item $\|\Lambda\|_F$ trace and posterior mean: should remain non-degenerate.
+    \item Reconstruction fraction of row-centered $X$ explained by
+    $\Lambda\eta_j$: should remain meaningfully above zero.
+    \item $K_+$ trace: should show more movement than V9, especially away
+    from persistent $K_+=1$ or $K_+=2$.
+    \item Split and merge acceptance rates: extremely low split acceptance
+    suggests that the current factor scores support only coarse clusters or
+    that the restricted Gibbs proposal is too weak.
+    \item Co-cluster matrix: should show stable block structure if the
+    posterior supports multi-cluster solutions.
+    \item Empty-component reactivation: components should occasionally become
+    occupied through the NIW prior predictive term, especially early in the
+    chain.
+    \item $S_0$ elicitation: the empirical within-cluster sd of $\eta_j$
+    (computed using the modal labels) should be on the same order as
+    $\sqrt{s_0/(\nu_0-r-1)}$.  If the prior implied sd is more than
+    $\sim 5\times$ the empirical sd and split acceptance is low (e.g.\
+    below $10\%$), tighten $S_0$ following \S\ref{sec:s0-elicitation}.
+    \item Silhouette in factor-score space: compute the silhouette of the
+    posterior partition using \emph{Euclidean distance between $\hat\eta_j$
+    posterior means} (i.e.\ items live in $\mathbb R^r$, not in the
+    co-cluster matrix).  Using $1-C$ as a dissimilarity, where $C$ is the
+    posterior co-cluster matrix, is circular: $C$ is itself a smoothed
+    function of how clustering on $\eta$ behaved across iterations, so
+    the resulting "silhouette" mostly measures co-clustering consistency
+    rather than separation in representation space.  Report (a) the
+    overall mean silhouette, (b) the per-cluster silhouette mean, and
+    (c) the fraction of items with negative silhouette.  Clusters with
+    mean silhouette below $0.25$ should be flagged as weak; items with
+    individually negative silhouette are candidates for re-assignment or
+    indicate that the partition resolution is finer than the data
+    supports.
+    \item Co-clustering quality (two complementary measures):
+    \begin{itemize}[leftmargin=1em]
+        \item \textbf{Within-pair confidence ratio}
+        \[
+            r_{\rm wp}=\frac{\Pr(C_{jk}>0.8)}
+                  {\text{frac.\ within-cluster pairs in final partition}}.
+        \]
+        Compares the fraction of pairs that the posterior puts together
+        with high confidence to the fraction that the imposed partition
+        puts together.  Values $r_{\rm wp}>0.7$ indicate that the
+        partition is genuinely supported by the posterior; $r_{\rm wp}<0.3$
+        indicates that the partition is largely a hierarchical-clustering
+        artefact on a fuzzy $C$.
+        \item \textbf{Posterior expected adjusted Rand}
+        $\mathrm{PEAR}=E_{s,t}[\mathrm{ARI}(c^{(s)},c^{(t)})]$
+        (Fritsch \& Ickstadt 2009): the average ARI between sampled
+        partitions across MCMC iterations.  PEAR is label-switching-
+        invariant: it asks whether the posterior is concentrated on one
+        partition shape (high PEAR) or genuinely diffuse over partition
+        space (low PEAR).  Threshold conventions: PEAR $>0.6$ = strong;
+        $0.3$--$0.6$ = moderate; $<0.3$ = weak.
+
+        \emph{When the two measures disagree.}  If $r_{\rm wp}$ is low but
+        PEAR is high, individual pair co-cluster values are moderately
+        ambiguous (e.g.\ $C_{jk}\!\approx\!0.4$--$0.6$) but the partition
+        \emph{shape} is consistent across iterations.  This is meaningful
+        and the partition can still be reported.  If both are low, the
+        posterior is genuinely uncertain about the partition; report a
+        $C$ heatmap and possibly only the most-stable subset of clusters
+        that survives across iterations, rather than a single point
+        partition.
+    \end{itemize}
+\end{enumerate}
+
+\end{document}

@@ -1,0 +1,394 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\title{Joint Multilayered LSIRM with Probabilistic-PCA Mixture Clustering\\
+(Model V9)}
+\date{April 29, 2026}
+
+\begin{document}
+\maketitle
+
+\section{Overview and motivation}
+
+Model V9 is a small but consequential refinement of V8.
+The structural change is confined to the noise term of the factor analysis
+(FA) layer that consumes the LSIRM-induced item profiles:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+& V8 (FA) & V9 (PPCA) \\
+\midrule
+Noise model & $\varepsilon_{ij}\sim N(0,\psi_i)$ &
+              $\varepsilon_{ij}\sim N(0,\sigma_\varepsilon^2)$ \\
+Free parameters & $\psi_1,\dots,\psi_n$ ($n$ scalars) & $\sigma_\varepsilon^2$ (1 scalar) \\
+Posterior fixed points & $\Lambda{\to}0$ stable & $\Lambda{\to}0$ unstable \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The motivation is empirical. In V8 fits to MIDUS, the chain consistently
+collapsed to either $K_+=1$ or $K_+=2$ regardless of $e_0\in\{0.05,0.1,1\}$,
+while a deterministic SVD on the same data clearly identified $K\in\{4,7,8\}$
+sub-structure. Diagnostics traced this to the per-respondent $\psi_i$:
+its flexibility allowed the posterior to absorb the entire residual signal
+selectively per respondent, driving $\Lambda{\to}0$ and rendering
+$\eta$ data-free.
+Replacing $\psi$ with a single shared variance $\sigma_\varepsilon^2$
+(\emph{Probabilistic PCA}, Tipping \& Bishop, 1999) removes the escape
+valve: a scalar variance cannot distribute residual mass per respondent,
+so the rank-$r$ structure $\Lambda\eta_j$ must carry cross-respondent
+variation in order for the likelihood to fit.
+
+All other blocks --- the 5-layer LSIRM, the Gaussian-mixture prior on $\eta$,
+the per-respondent intercept $\delta_i$, the PCA initialization,
+the row-centering, the one-way coupling --- are unchanged.
+
+\section{Notation}
+
+\subsection*{Carried over from V8}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $n,L,P_\ell,P,d,r,K^\star$: same as V8.
+    \item $z_i,a_i^{(\ell)},b_j^{(\ell)},\sigma_1^2$: hierarchical respondent positions.
+    \item $\alpha_i^{(\ell)},\beta_j^{(\ell)},\gamma_\ell,\kappa$: layer-specific LSIRM parameters.
+    \item $\eta_j\in\mathbb{R}^r$, $c_j\in\{1,\dots,K^\star\}$: factor scores and cluster labels of items.
+    \item $\Lambda\in\mathbb{R}^{n\times r}$: shared loading matrix; row $\lambda_i^\top$ is respondent~$i$'s loading.
+    \item $\delta=(\delta_1,\dots,\delta_n)^\top$: per-respondent baseline.
+    \item $\rho\in\Delta^{K^\star-1}$: mixture weights.
+    \item $\mu_l\in\mathbb{R}^r,\Sigma_l\in\mathbb{R}^{r\times r}_{\succ 0}$: mixture component parameters.
+    \item $\sigma_\delta^2$: variance of the respondent baselines.
+\end{itemize}
+
+\subsection*{New in V9}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $\sigma_\varepsilon^2 > 0$: \textbf{shared} residual variance of the FA layer.
+        Replaces the per-respondent vector $\psi=(\psi_1,\dots,\psi_n)^\top$ of V8.
+\end{itemize}
+
+\subsection*{Removed in V9}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item $\Psi=\mathrm{diag}(\psi_1,\dots,\psi_n)$ and the prior $\psi_i\sim IG(a_\psi,b_\psi)$.
+\end{itemize}
+
+\section{LSIRM block}
+
+Identical to V6/V8. We do not repeat it here; see model\_v6.tex for the full specification.
+The relevant outputs for V9 are the latent positions $\{a_i^{(\ell)}, b_j^{(\ell)}\}$
+which feed into the FA layer through the row-centered log-distance matrix
+$x_{ij}=\log\|a_i^{(\ell(j))}-b_j^{(\ell(j))}\|$, with row-centering applied
+at the start of every iteration.
+
+\section{PPCA-mixture clustering block}
+
+Conditional on the LSIRM state, the V9 clustering layer specifies
+\begin{align}
+x_j \mid \delta,\Lambda,\eta_j,\sigma_\varepsilon^2
+&\sim N_n\bigl(\delta+\Lambda\eta_j,\;\sigma_\varepsilon^2 I_n\bigr),\label{eq:v9-likelihood}\\
+\eta_j \mid c_j=l,\mu_l,\Sigma_l &\sim N_r(\mu_l,\Sigma_l),\\
+c_j \mid \rho &\sim \mathrm{Categorical}(\rho),\\
+\rho &\sim \mathrm{Dirichlet}(e_0,\dots,e_0).
+\end{align}
+
+\paragraph{Comparison to V8.}
+Equation~\eqref{eq:v9-likelihood} replaces V8's
+$x_j \sim N_n(\delta+\Lambda\eta_j,\Psi)$
+where $\Psi=\mathrm{diag}(\psi_1,\dots,\psi_n)$.
+The substitution
+\[
+\Psi \;\longmapsto\; \sigma_\varepsilon^2 I_n
+\]
+collapses $n$ free variances to one shared scalar.
+This is exactly Probabilistic PCA on the rows of $X$ centered at $\delta$,
+with a Gaussian-mixture prior on the latent factor scores $\eta_j$.
+
+\subsection{Priors}
+
+\begin{align}
+\delta_i\mid\sigma_\delta^2 &\sim N(0,\sigma_\delta^2), &
+\sigma_\delta^2 &\sim IG(a_\delta,b_\delta),\\
+\lambda_i &\sim N_r(0,\tau_\lambda^2 I_r),\\
+\sigma_\varepsilon^2 &\sim IG(a_\varepsilon,b_\varepsilon),\quad\text{(replaces }\psi_i\sim IG(a_\psi,b_\psi)\text{)}\\
+\mu_l &\sim N_r(m_0,V_0), &
+\Sigma_l &\sim IW(\nu_0,S_0).
+\end{align}
+
+\subsection{Hyperparameter choices}
+
+V9 inherits all V8 mixture-related defaults and replaces only the
+residual prior. The full default set used in MIDUS fits ($n=221$,
+$P=68$, $r=5$, $K^\star=10$, $e_0=0.1$):
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Parameter & Value & Rationale \\
+\midrule
+$e_0$           & $0.1$       & Overfitted Dirichlet ($e_0<d_l/2,\;d_l=20$ for $r=5$). \\
+$m_0$           & $0_r$       & Center prior on cluster centers. \\
+$V_0$           & $9I_r$      & Loose prior on $\mu_l$. \\
+$\nu_0$         & $r+10=15$   & Informative IW prior. \\
+$S_0$           & $0.05\,I_r$ & Tight within-cluster covariance. \\
+$\tau_\lambda^2$ & $0.25$     & Carried over from V8. \\
+$(a_\delta,b_\delta)$ & $(2,1)$ & $E[\sigma_\delta^2]=1$.\\
+\midrule
+$\bm{(a_\varepsilon,b_\varepsilon)}$ & $\bm{(5,0.1)}$ &
+\textbf{New in V9.} $E[\sigma_\varepsilon^2]=b_\varepsilon/(a_\varepsilon-1)=0.025$,
+mode $=0.017$, $\mathrm{sd}\approx 0.014$.
+Concentrated near a value about an order of magnitude smaller than the
+typical input scale of $\widetilde x_j$ (sd~$\sim 0.1$--$0.5$). Forces
+the structured term $\Lambda\eta_j$ to absorb cross-respondent variance. \\
+\bottomrule
+\end{tabular}
+\caption{Hyperparameter defaults for the PPCA mixture block in V9.}
+\end{table}
+
+\section{Joint hierarchical model}
+
+The joint posterior kernel is
+\begin{align*}
+p(\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{clust}}\mid Y)
+&\propto
+p(Y\mid\Theta_{\mathrm{LSIRM}})\\
+&\quad\times
+\prod_{j=1}^P
+N_n\!\bigl(x_j(\Theta_{\mathrm{LSIRM}});\delta+\Lambda\eta_j,\sigma_\varepsilon^2 I_n\bigr)
+N_r(\eta_j;\mu_{c_j},\Sigma_{c_j})\rho_{c_j}\\
+&\quad\times
+p(\Theta_{\mathrm{LSIRM}})\,p(\rho)\,
+p(\delta\mid\sigma_\delta^2)\,p(\sigma_\delta^2)\,p(\Lambda)\,p(\sigma_\varepsilon^2)
+\prod_{l=1}^{K^\star}p(\mu_l)p(\Sigma_l),
+\end{align*}
+where
+\[
+\Theta_{\mathrm{clust}}=\{\eta_j,c_j,\rho,\delta,\Lambda,\sigma_\varepsilon^2,\mu_l,\Sigma_l,\sigma_\delta^2\}.
+\]
+The one-way coupling is unchanged from V8: the LSIRM Metropolis--Hastings
+acceptance ratios for $a_i,b_j$ omit the FA factor $N_n(x_j;\cdot,\sigma_\varepsilon^2 I_n)$.
+
+\section{Why PPCA fixes the V8 collapse}
+
+\subsection{The V8 failure mode in one line}
+
+In V8, the conditional posterior of $\psi_i$ given the rest is
+\[
+\psi_i \mid \cdot \;\sim\; IG\!\Bigl(a_\psi+\tfrac{P}{2},\;\;b_\psi+\tfrac{1}{2}\sum_{j=1}^P(x_{ij}-\delta_i-\lambda_i^\top\eta_j)^2\Bigr).
+\]
+With $P=68$ data points per respondent, the data dominates the prior, so
+$\hat\psi_i$ tracks the empirical residual SS for respondent $i$.
+This makes the decomposition
+\[
+x_{ij}\;\approx\;\delta_i + \varepsilon_{ij},\qquad \varepsilon_{ij}\sim N(0,\hat\psi_i)
+\]
+likelihood-equivalent to any non-trivial $\Lambda\eta_j$ that explains the
+same per-respondent variance.
+The Gibbs chain finds the simpler explanation, drives $\Lambda\to 0$, and
+the mixture loses the data input to $\eta$.
+
+\subsection{Why V9 cannot do this}
+
+In V9, the conditional posterior of $\sigma_\varepsilon^2$ is
+\[
+\sigma_\varepsilon^2 \mid \cdot \;\sim\; IG\!\Bigl(a_\varepsilon+\tfrac{nP}{2},\;\;b_\varepsilon+\tfrac{1}{2}\sum_{i=1}^n\sum_{j=1}^P(x_{ij}-\delta_i-\lambda_i^\top\eta_j)^2\Bigr).
+\]
+A single scalar must absorb the residual variance \emph{across all $(i,j)$}.
+The "$\Lambda=0$" decomposition would require
+\[
+\sigma_\varepsilon^2 \;\approx\; \frac{1}{nP}\sum_{i,j}(x_{ij}-\delta_i)^2,
+\]
+which is a single average; respondents whose intercept does not fully
+explain their column then drive up the global $\sigma_\varepsilon^2$
+and the prior $IG(a_\varepsilon,b_\varepsilon)$ resists.
+The likelihood-optimal solution is to explain as much variance as possible
+through the structured term $\Lambda\eta_j$, which is exactly what
+classical PCA does.
+This is a manifestation of Tipping \& Bishop's result that the maximum
+likelihood estimator of PPCA is essentially PCA.
+
+\subsection{Bonus property: $\eta$ recovers data signal}
+
+The conditional posterior of $\eta_j$ in V9 is
+\[
+\eta_j\mid\cdot\sim N_r(m_{\eta_j},V_{\eta_j}),
+\quad
+V_{\eta_j}=\bigl(\sigma_\varepsilon^{-2}\Lambda^\top\Lambda+\Sigma_{c_j}^{-1}\bigr)^{-1}.
+\]
+With $\Lambda$ now non-zero (driven by the previous argument), the
+$\sigma_\varepsilon^{-2}\Lambda^\top\Lambda$ term carries information from
+the data. Cluster allocation
+\[
+P(c_j=l\mid\cdot)\propto\rho_l\,\phi_r(\eta_j;\mu_l,\Sigma_l)
+\]
+becomes informative, and the overfitted Dirichlet emptying mechanism can
+operate on real signal rather than on the prior-driven residual mixing
+that produced the V8 lock-in.
+
+\section{Posterior updates}
+
+LSIRM updates are unchanged.
+Throughout, $\mathcal{J}_l=\{j:c_j=l\}$, $n_l=|\mathcal{J}_l|$.
+
+\paragraph{(1) $\rho$.}
+$\rho\mid c\sim\mathrm{Dirichlet}(e_0+n_1,\dots,e_0+n_{K^\star})$.
+
+\paragraph{(2) $\eta_j$.}
+$\eta_j\mid\cdot\sim N_r(m_{\eta_j},V_{\eta_j})$ with
+\begin{equation}
+V_{\eta_j}=\bigl(\sigma_\varepsilon^{-2}\Lambda^\top\Lambda+\Sigma_{c_j}^{-1}\bigr)^{-1},
+\quad
+m_{\eta_j}=V_{\eta_j}\bigl(\sigma_\varepsilon^{-2}\Lambda^\top(x_j-\delta)+\Sigma_{c_j}^{-1}\mu_{c_j}\bigr).
+\label{eq:eta-update-v9}
+\end{equation}
+
+\paragraph{(3) $c_j$.}
+$P(c_j=l\mid\cdot)\propto\rho_l\,\phi_r(\eta_j;\mu_l,\Sigma_l)$, $l=1,\dots,K^\star$.
+
+\paragraph{(4) $\mu_l$.}
+$\mu_l\mid\cdot\sim N_r(m_{\mu_l},V_{\mu_l})$ with
+$V_{\mu_l}=(V_0^{-1}+n_l\Sigma_l^{-1})^{-1}$ and
+$m_{\mu_l}=V_{\mu_l}\bigl(V_0^{-1}m_0+\Sigma_l^{-1}\sum_{j\in\mathcal{J}_l}\eta_j\bigr)$.
+
+\paragraph{(5) $\Sigma_l$.}
+$\Sigma_l\mid\cdot\sim IW\bigl(\nu_0+n_l,\;S_0+\sum_{j\in\mathcal{J}_l}(\eta_j-\mu_l)(\eta_j-\mu_l)^\top\bigr)$.
+
+\paragraph{(6) $\delta_i$.}
+$\delta_i\mid\cdot\sim N(m_{\delta_i},V_{\delta_i})$ with
+\begin{equation}
+V_{\delta_i}=\bigl(P/\sigma_\varepsilon^2+1/\sigma_\delta^2\bigr)^{-1},
+\quad
+m_{\delta_i}=V_{\delta_i}\,\sigma_\varepsilon^{-2}\sum_{j=1}^P(x_{ij}-\lambda_i^\top\eta_j).
+\label{eq:delta-update-v9}
+\end{equation}
+
+\paragraph{(7) $\lambda_i$.}
+$\lambda_i\mid\cdot\sim N_r(m_{\lambda_i},V_{\lambda_i})$ with
+\begin{equation}
+V_{\lambda_i}=\bigl(\tau_\lambda^{-2}I_r+\sigma_\varepsilon^{-2}\textstyle\sum_j\eta_j\eta_j^\top\bigr)^{-1},
+\quad
+m_{\lambda_i}=V_{\lambda_i}\,\sigma_\varepsilon^{-2}\textstyle\sum_j\eta_j(x_{ij}-\delta_i).
+\label{eq:lambda-update-v9}
+\end{equation}
+
+\paragraph{(8) $\sigma_\varepsilon^2$.} \emph{New scalar update; replaces V8's $\psi_i$ scan.}
+\begin{equation}
+\sigma_\varepsilon^2\mid\cdot\sim
+IG\!\left(a_\varepsilon+\frac{nP}{2},\;\;b_\varepsilon+\frac{1}{2}\sum_{i=1}^n\sum_{j=1}^P\bigl(x_{ij}-\delta_i-\lambda_i^\top\eta_j\bigr)^2\right).
+\label{eq:sigma-eps-update-v9}
+\end{equation}
+
+\paragraph{(9) $\sigma_\delta^2$.}
+$\sigma_\delta^2\mid\cdot\sim IG\bigl(a_\delta+n/2,\;b_\delta+\tfrac12\sum_i\delta_i^2\bigr)$.
+
+\paragraph{Comparison.} Updates~(2), (6), (7) substitute $\psi_i$ with the
+shared $\sigma_\varepsilon^2$. Update~(8) is a single Gibbs draw on the
+total residual SS, replacing V8's $n$-loop of per-respondent IG draws.
+The overall computational cost of the FMC sweep \emph{decreases} slightly
+in V9 because (a) we draw one IG sample instead of $n$, and (b) the
+per-respondent loop accumulates a single scalar $\mathrm{rss}$
+rather than maintaining $\psi^{-1}$ as an $n$-vector.
+
+\section{One full MCMC sweep}
+
+\begin{algorithm}[H]
+\caption{One sweep of joint LSIRM~+~PPCA-mixture (V9, one-way coupling)}
+\begin{algorithmic}[1]
+\State Update LSIRM non-position block ($\alpha,\beta,\gamma,\kappa,\sigma_0^2$, threshold parameters, $\sigma_1^2$, $z_i$).
+\State Update $\{a_i^{(\ell)}\}$ via MH (V6 acceptance, no FMC term).
+\State Update $\{b_j^{(\ell)}\}$ via MH (V6 acceptance, no FMC term).
+\State Form $x_{ij}=\log\|a_i^{(\ell(j))}-b_j^{(\ell(j))}\|$ and row-center.
+\If{iter $\geq T_{\mathrm{warm}}$}
+    \State Update $\rho$.
+    \State Update $\{\eta_j\}_{j=1}^P$ using $\sigma_\varepsilon^{-2}\Lambda^\top\Lambda$ \hfill\eqref{eq:eta-update-v9}
+    \State Update $\{c_j\}_{j=1}^P$.
+    \State Update $\{\mu_l,\Sigma_l\}_{l=1}^{K^\star}$.
+    \For{$i = 1,\dots,n$}
+        \State Update $\delta_i$ using $\sigma_\varepsilon^2$ \hfill\eqref{eq:delta-update-v9}
+        \State Update $\lambda_i$ using $\sigma_\varepsilon^2$ \hfill\eqref{eq:lambda-update-v9}
+        \State Accumulate $\mathrm{rss}\mathrel{+}=\sum_j(x_{ij}-\delta_i-\lambda_i^\top\eta_j)^2$.
+    \EndFor
+    \State Update $\sigma_\varepsilon^2$ using $\mathrm{rss}$ \hfill\eqref{eq:sigma-eps-update-v9}
+    \State Update $\sigma_\delta^2$.
+    \State Update online co-cluster matrix $C_{jk}\leftarrow C_{jk}+\mathbb{1}\{c_j=c_k\}$.
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\section{Cluster inference}
+
+Identical to V8.
+The label-switching-invariant outputs are:
+\begin{itemize}[leftmargin=1.5em]
+    \item Posterior similarity matrix $C_{jk}=\Pr(c_j=c_k\mid Y)$ (computed online).
+    \item Trace of occupied components $K_+^{(t)}$.
+    \item Final partition: $\hat c=\mathrm{cutree}\bigl(\mathrm{hclust}(1-C,\text{average}),\hat K\bigr)$ where $\hat K=\max(2,\mathrm{round}(\mathrm{median}_t K_+^{(t)}))$.
+\end{itemize}
+
+\section{Implementation}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item \texttt{my\_LSIRM\_FMC\_v9.cpp}: drop-in replacement for v8 cpp.
+        Function \texttt{run\_lsirm\_fmc\_v9\_cpp}. Differences from v8:
+        \begin{itemize}[leftmargin=1em]
+            \item Removed: \texttt{vec psi}, \texttt{a\_psi,b\_psi},
+                  per-respondent $\psi_i$ Gibbs step, \texttt{save\_psi\_full} toggle,
+                  \texttt{store\_psi}, \texttt{psi\_postmean}, \texttt{fmc\_psi}, \texttt{fmc\_psi\_postmean}.
+            \item Added: \texttt{double sigma\_eps\_sq}, \texttt{a\_eps,b\_eps},
+                  scalar $\sigma_\varepsilon^2$ Gibbs step,
+                  \texttt{store\_sigma\_eps\_sq} (full $n_{\mathrm{save}}$-trace, always saved),
+                  \texttt{fmc\_sigma\_eps\_sq}, \texttt{fmc\_sigma\_eps\_sq\_postmean}.
+            \item Modified: $\eta_j$, $\delta_i$, $\lambda_i$ Gibbs use
+                  $\sigma_\varepsilon^2$ in place of $\psi_i$.
+                  Pre-loop \texttt{LtPL = inv\_sigma\_eps\_sq * Lambda.t() * Lambda}
+                  (no \texttt{diagmat} needed).
+        \end{itemize}
+    \item \texttt{my\_LSIRM\_FMC\_cpp\_v9.R}: thin wrapper.
+        Default \texttt{fmc\_hyper} now contains
+        \texttt{a\_eps = 5, b\_eps = 0.1} (replacing \texttt{a\_psi, b\_psi}).
+        \texttt{fmc\_init} expects \texttt{sigma\_eps\_sq} (positive scalar)
+        instead of \texttt{psi} (length-$n$ vector).
+    \item \texttt{MIDUS\_5layered\_result\_v9.R}: end-to-end run script.
+        Output directory uses prefix \texttt{v9\_fmc\_*}; backwards-compatible
+        with v8 trace-plot code, plus a new \texttt{trace\_sigma\_eps\_sq.pdf}
+        and \texttt{*\_sigma\_eps\_sq\_summary.csv}.
+\end{itemize}
+
+\section{Verification checklist (after refit)}
+
+The same diagnostics that pinpointed the V8 collapse should be examined
+on the V9 fit. A successful V9 chain shows:
+
+\begin{enumerate}[leftmargin=2em]
+    \item \textbf{Loading norm.} $\|\Lambda_{\mathrm{PM}}\|_F$ rises substantially toward the prior expectation $\sqrt{n r\tau_\lambda^2}\approx 16.6$ (target $\geq 5$, vs.\ V8 observed $1.20$).
+    \item \textbf{Reconstruction.} $\Lambda\eta_j$ explains a non-trivial fraction of $\widetilde x_j$ variance (target $> 50\%$, vs.\ V8 observed $\sim 2\%$).
+    \item \textbf{Cluster separation.} For at least one pair of active components, $\|\mu_l-\mu_m\|>\sqrt{\mathrm{tr}\,\Sigma_l}$.
+    \item \textbf{$K_+$ trace.} Non-degenerate variation, $\mathrm{sd}(K_+)>0$. Median $K_+$ ideally falls in $[3,8]$.
+    \item \textbf{$\sigma_\varepsilon^2$ posterior.} Concentrated near a value comparable to the residual after row-centering and intercept; should not equal the prior mean (which would indicate the data is not informative).
+\end{enumerate}
+
+If any of (1)--(4) fails despite (5) being well-behaved, the failure is no
+longer due to the variance-flexibility issue addressed by V9 and would
+indicate a deeper signal-recovery problem (e.g.\ that the unit-disk constraint
+on the LSIRM positions is itself the bottleneck).
+
+\section{Future directions}
+
+V9 retains the one-way coupling. The two-way extension sketched in
+model\_v8.tex (cluster-conditional prior on $b_j$, equivalently feedback
+of the FA likelihood into the LSIRM acceptance ratios) is orthogonal to the
+V9 change and can be combined: a future V10 could couple the LSIRM and
+PPCA-mixture blocks fully while retaining the homoscedastic-noise
+identification that V9 provides.
+
+\end{document}

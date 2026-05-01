@@ -157,7 +157,13 @@ common_fmc_hyper <- list(
   nu0           = r_fac + 10,            # was r+2; informative IW prior (peaks Sigma_l near S0)
   S0            = 0.05 * diag(r_fac),    # was 0.5*I; tighter cluster covariance => more clusters
   tau_lambda_sq = 0.25,                  # KEEP small: loosening Lambda back to 1 reverts collapse
-  a_psi         = 2, b_psi = 1,
+  # psi prior tightened from (a=2, b=1) [mean=1, heavy tail] to (a=5, b=0.2)
+  # [mean ~ 0.05, concentrated]. Rationale: with the loose default, psi soaks
+  # up nearly all residual variance, driving Lambda toward 0 and collapsing
+  # the mixture (active mu_l indistinguishable, K_+ locks at 2 even for
+  # e0 in {0.05, 0.1, 1}). A tight, small-mean psi prior forces residual
+  # variance into the Lambda*eta block, separating cluster centres.
+  a_psi         = 5, b_psi = 0.2,
   a_delta       = 2, b_delta = 1
 )
 
