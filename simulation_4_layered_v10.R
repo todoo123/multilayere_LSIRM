@@ -33,10 +33,10 @@ set.seed(20260501)
 # 1) Simulation settings  (identical to simulation_4_layered_v9.R)
 # =========================================================
 n  <- 150
-P1 <- 10  # binary
-P2 <- 10  # continuous (robust Student-t)
-P3 <- 10  # count (NB)
-P4 <- 10  # ordinal (GRM, K1=5 categories)
+P1 <- 30  # binary
+P2 <- 30  # continuous (robust Student-t)
+P3 <- 30  # count (NB)
+P4 <- 30  # ordinal (GRM, K1=5 categories)
 P_total <- P1 + P2 + P3 + P4
 
 d        <- 2L
@@ -97,8 +97,8 @@ B3_meta <- assign_meta(P3, K_true)
 B4_meta <- assign_meta(P4, K_true)
 true_item_cluster <- c(B1_meta, B2_meta, B3_meta, B4_meta)
 
-centers_resp <- centers_meta * 1.5
-sd_cluster_resp <- 0.80
+centers_resp <- centers_meta * 0.7   # was 1.5; scaled to match prior sd=1 (per-coord var ~ 0.49+0.25=0.74)
+sd_cluster_resp <- 0.5               # was 0.80
 
 # =========================================================
 # 3) Sampling helpers
@@ -358,12 +358,12 @@ common_lsirm_hyper <- list(
 )
 
 common_lsirm_prop_sd <- list(
-  alpha1 = 0.5, alpha2 = 0.4, alpha3 = 0.5, alpha4 = 0.5, alpha5 = 0.5,
-  log_gamma1 = 0.10, log_gamma2 = 0.05, log_gamma3 = 0.05,
+  alpha1 = 1.15, alpha2 = 0.48, alpha3 = 1.15, alpha4 = 0.92, alpha5 = 0.5,
+  log_gamma1 = 0.07, log_gamma2 = 0.018, log_gamma3 = 0.05,
   log_gamma4 = 0.05, log_gamma5 = 0.05,
-  a = 0.30,
-  beta1 = 0.40, beta2 = 0.10, beta3 = 0.20, beta4 = 0.30, beta5 = 0.30,
-  b1 = 0.30, b2 = 0.20, b3 = 0.20, b4 = 0.20, b5 = 0.20,
+  a = 0.26,
+  beta1 = 0.44, beta2 = 0.13, beta3 = 0.37, beta4 = 0.30, beta5 = 0.30,
+  b1 = 0.33, b2 = 0.13, b3 = 0.30, b4 = 0.26, b5 = 0.20,
   log_kappa = 0.20
 )
 
@@ -422,7 +422,10 @@ result <- lsirm_fmc_v10_cpp(
   n_split_merge = n_split_merge,
   row_center    = row_center_flag,
   verbose       = TRUE,
-  fix_gamma     = TRUE
+  fix_gamma     = FALSE,
+  procrustes_target = list(a  = A_true,
+                           b1 = B1_true, b2 = B2_true,
+                           b3 = B3_true, b4 = B4_true)
 )
 
 samps <- result

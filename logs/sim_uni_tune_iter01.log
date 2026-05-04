@@ -1,0 +1,118 @@
+Loading required package: permute
+
+========== simulation_FMC_LSIR_v10  (n_rep = 1) ==========
+  output dir : /Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/simulation_FMC_LSIRM_v10
+  n=150, P=30/30/30/30 (total 120), K_true=4, K*=10, r_fac=2
+  MCMC: n_iter=5000, burnin=2000, thin=5  (per fit; 2 fits per rep)
+
+---- replication 1 / 1 ----
+  [rep 1] fitting multilayer ...
+Running joint LSIRM+PPCA-FMC v10 [n=150, P_total=120 (30/30/30/30/0), r_fac=2, K_star=10, e0=0.1, kappa0=0.001, M_SM=5, row_center=FALSE]
+Performing Procrustes matching (external target supplied; LSIRM positions only -- FMC parameters
+  are invariant under orthogonal+translation alignment)...
+  iterative-mean pass 1/3, target shift RMSE = (initial)
+  iterative-mean pass 2/3, target shift RMSE = 0.0071
+  iterative-mean pass 3/3, target shift RMSE = 0.0000
+  external re-anchor: post-mean RMSE 1.334 -> 0.339
+[v10 split-merge] split: 577 / 4786 (0.121), merge: 509 / 17714 (0.029)
+  [rep 1] fitting unilayer (dichotomized) ...
+Running joint LSIRM+PPCA-FMC v10 [n=150, P_total=120 (120/0/0/0/0), r_fac=2, K_star=10, e0=0.1, kappa0=0.001, M_SM=5, row_center=FALSE]
+Performing Procrustes matching (external target supplied; LSIRM positions only -- FMC parameters
+  are invariant under orthogonal+translation alignment)...
+  iterative-mean pass 1/3, target shift RMSE = (initial)
+  iterative-mean pass 2/3, target shift RMSE = 0.0202
+  iterative-mean pass 3/3, target shift RMSE = 0.0000
+  external re-anchor: post-mean RMSE 1.582 -> 0.959
+[v10 split-merge] split: 924 / 7349 (0.126), merge: 876 / 15151 (0.058)
+  [rep 1] DICE: multi=0.754  uni=0.416   ARI: multi=0.674  uni=0.209
+
+Total wall time: 1.89 min
+
+========== summary (mean across reps) ==========
+        model             param n_param_mean n_param_sd n_covered_mean
+1    unilayer             alpha          150         NA            120
+2  multilayer            alpha1          150         NA            146
+3  multilayer            alpha2          150         NA            142
+4  multilayer            alpha3          150         NA            141
+5  multilayer            alpha4          150         NA            145
+6    unilayer              beta           90         NA             52
+7    unilayer      beta_seg_bin           30         NA             21
+8    unilayer beta_seg_cnt_dich           30         NA             27
+9    unilayer beta_seg_con_dich           30         NA              4
+10 multilayer             beta1           30         NA             28
+11 multilayer             beta2           30         NA             29
+12 multilayer             beta3           30         NA             26
+13 multilayer     beta4_grm_thr          120         NA            107
+14   unilayer          dist_all        18000         NA          14096
+15 multilayer          dist_bin         4500         NA           4322
+16 multilayer          dist_cnt         4500         NA           4254
+17 multilayer          dist_con         4500         NA           4302
+18 multilayer          dist_ord         4500         NA           4256
+19 multilayer            gamma1            1         NA              1
+20   unilayer            gamma1            1         NA              0
+21 multilayer            gamma2            1         NA              1
+22 multilayer            gamma3            1         NA              1
+23 multilayer            gamma4            1         NA              1
+24 multilayer         sigma0_sq            1         NA              0
+   n_covered_sd  pct_mean pct_sd mean_width_mean mean_width_sd sum_width_mean
+1            NA  80.00000     NA       1.2732895            NA   1.909934e+02
+2            NA  97.33333     NA       2.0554918            NA   3.083238e+02
+3            NA  94.66667     NA       1.1582282            NA   1.737342e+02
+4            NA  94.00000     NA       1.7945708            NA   2.691856e+02
+5            NA  96.66667     NA       1.6513120            NA   2.476968e+02
+6            NA  57.77778     NA       1.5139490            NA   1.362554e+02
+7            NA  70.00000     NA       1.5862927            NA   4.758878e+01
+8            NA  90.00000     NA       1.3018988            NA   3.905696e+01
+9            NA  13.33333     NA       1.6536556            NA   4.960967e+01
+10           NA  93.33333     NA       1.6707481            NA   5.012244e+01
+11           NA  96.66667     NA       1.0272445            NA   3.081733e+01
+12           NA  86.66667     NA       1.2815582            NA   3.844675e+01
+13           NA  89.16667     NA       1.7397224            NA   2.087667e+02
+14           NA  78.31111     NA       2.3470583            NA   4.224705e+04
+15           NA  96.04444     NA       2.2481387            NA   1.011662e+04
+16           NA  94.53333     NA       1.7931353            NA   8.069109e+03
+17           NA  95.60000     NA       1.6408804            NA   7.383962e+03
+18           NA  94.57778     NA       2.1446532            NA   9.650940e+03
+19           NA 100.00000     NA       0.2835901            NA   2.835901e-01
+20           NA   0.00000     NA       0.1687436            NA   1.687436e-01
+21           NA 100.00000     NA       0.1363607            NA   1.363607e-01
+22           NA 100.00000     NA       0.2578712            NA   2.578712e-01
+23           NA 100.00000     NA       0.2591026            NA   2.591026e-01
+24           NA   0.00000     NA       0.1096770            NA   1.096770e-01
+   sum_width_sd
+1            NA
+2            NA
+3            NA
+4            NA
+5            NA
+6            NA
+7            NA
+8            NA
+9            NA
+10           NA
+11           NA
+12           NA
+13           NA
+14           NA
+15           NA
+16           NA
+17           NA
+18           NA
+19           NA
+20           NA
+21           NA
+22           NA
+23           NA
+24           NA
+
+========== cluster recovery summary ==========
+       model dice_mean dice_sd  ari_mean ari_sd K_median_mean split_rate_mean
+1 multilayer 0.7542107      NA 0.6743187     NA             5       0.1205600
+2   unilayer 0.4162679      NA 0.2088976     NA             4       0.1257314
+
+Artifacts written to: /Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/simulation_FMC_LSIRM_v10
+  - coverage_per_rep_v10.csv
+  - coverage_summary_v10.csv
+  - cluster_dice_v10.csv
+  - cluster_dice_summary_v10.csv
+  - sim_settings_v10.rds

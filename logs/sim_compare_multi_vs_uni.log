@@ -1,0 +1,10 @@
+Loading required package: permute
+
+========== simulation_FMC_LSIR_v10  (n_rep = 10) ==========
+  output dir : /Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/simulation_FMC_LSIRM_v10
+  n=150, P=30/30/30/30 (total 120), K_true=4, K*=10, r_fac=2
+  MCMC: n_iter=30000, burnin=10000, thin=10  (per fit; 2 fits per rep)
+
+---- replication 1 / 10 ----
+  [rep 1] fitting multilayer ...
+Running joint LSIRM+PPCA-FMC v10 [n=150, P_total=120 (30/30/30/30/0), r_fac=2, K_star=10, e0=0.1, kappa0=0.001, M_SM=5, row_center=FALSE]

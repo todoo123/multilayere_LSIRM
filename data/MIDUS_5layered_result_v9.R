@@ -161,14 +161,15 @@ common_fmc_hyper <- list(
   m0            = rep(0, r_fac),
   V0            = 9 * diag(r_fac),       # mu_l mobility (loose prior on cluster centres)
   nu0           = r_fac + 10,            # informative IW prior (peaks Sigma_l near S0)
-  # v9 second pass: S0 loosened from 0.05*I to 0.5*I.
-  # Rationale: with v8's tight 0.05*I, the cluster Gaussians were forced
-  # to be very narrow, which (combined with a small tau_lambda_sq) capped
-  # the magnitude of the structured term Lambda*eta. PPCA already protects
-  # against the Lambda->0 collapse, so we no longer need the tight S0.
-  # 0.5*I gives within-cluster sd ~ sqrt(0.5/(nu0-r-1)) ~ 0.27 per dim,
-  # comparable to the per-iteration eta spread observed in v9 run 1.
-  S0            = 0.5 * diag(r_fac),
+  # 0502 third pass: S0 0.5*I -> 0.01*I.
+  # Rationale: v10 (NIW + collapsed Gibbs + split-merge) MIDUS sweep
+  # identified S0=0.01 as the best operating point (silhouette 0.151,
+  # PEAR 0.220). The empirical eta within-cluster sd observed in those
+  # runs was ~0.002 per dim -- much smaller than 0.5 implies
+  # (sqrt(0.5/9) ~ 0.27 sd). 0.5 was overly loose for MIDUS; matching
+  # v10's S0 here isolates the marginal contribution of the NIW +
+  # split-merge step (this v9 run vs v10 best at matched S0).
+  S0            = 0.01 * diag(r_fac),
   # v9 second pass: tau_lambda_sq loosened from 0.25 to 4.0.
   # Rationale: the small 0.25 was a v8-era fix to suppress Lambda swings;
   # under PPCA's homoscedastic noise the small tau_lambda_sq becomes a
@@ -310,7 +311,8 @@ cat(sprintf("[FMC init] kmeans cluster sizes: %s\n",
 ################################################################################
 # 4. Single chain run
 ################################################################################
-run_label     <- sprintf("v9_fmc_r%d_K%d_e%g", r_fac, K_star, e0)
+run_label     <- sprintf("v9_fmc_r%d_K%d_e%g_S0_%g",
+                         r_fac, K_star, e0, common_fmc_hyper$S0[1, 1])
 case_plot_dir <- file.path(plot_root, paste0(cs$name, "_", run_label))
 if (!dir.exists(case_plot_dir)) dir.create(case_plot_dir, recursive = TRUE)
 prefix     <- paste0(cs$name, "_", run_label)

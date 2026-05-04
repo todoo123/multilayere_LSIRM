@@ -86,7 +86,7 @@ lsirm_all <- combine_lsirm(lsirm_all_w2, lsirm_all_r1, label = "P1-P3-P4")
 setwd(data_dir)
 source(file.path(data_dir, "my_LSIRM_FMC_cpp_v10.R"))   # joint LSIRM + PPCA-FMC v10
 if (file.exists(file.path(data_dir, "utils.R")))
-  source(file.path(data_dir, "utils.R"))
+source(file.path(data_dir, "utils.R"))
 
 has_valid <- function(x) {
   if (is.null(x)) return(FALSE)
@@ -97,13 +97,13 @@ has_valid <- function(x) {
 }
 
 mode_label <- function(v)
-  as.integer(names(sort(table(v), decreasing = TRUE))[1])
+as.integer(names(sort(table(v), decreasing = TRUE))[1])
 
 cluster_pal <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3",
                  "#FF7F00", "#FFFF33", "#A65628", "#F781BF",
                  "#999999", "#66C2A5")
 expand_pal <- function(K, pal)
-  if (K > length(pal)) colorRampPalette(pal)(K) else pal[1:K]
+if (K > length(pal)) colorRampPalette(pal)(K) else pal[1:K]
 
 plot_trace_vec <- function(samples_mat, name = "param", mfrow = c(2, 2)) {
   samples_mat <- as.matrix(samples_mat)
@@ -131,23 +131,23 @@ common_lsirm_hyper <- list(
   a_sigma = 1, b_sigma = 1,
   a_tau1 = 1, b_tau1 = 1, a_tau2 = 1, b_tau2 = 1, a_tau3 = 1, b_tau3 = 1,
   a_sigma0 = 1, b_sigma0 = 1,
-  mu_log_gamma1 = 0, sd_log_gamma1 = 0.5,
-  mu_log_gamma2 = 0, sd_log_gamma2 = 0.5,
-  mu_log_gamma3 = 0, sd_log_gamma3 = 0.5,
-  mu_log_gamma4 = 0, sd_log_gamma4 = 0.5,
-  mu_log_gamma5 = 0, sd_log_gamma5 = 0.5,
+  mu_log_gamma1 = 0, sd_log_gamma1 = 0.4,
+  mu_log_gamma2 = 0, sd_log_gamma2 = 0.4,
+  mu_log_gamma3 = 0, sd_log_gamma3 = 0.4,
+  mu_log_gamma4 = 0, sd_log_gamma4 = 0.4,
+  mu_log_gamma5 = 0, sd_log_gamma5 = 0.4,
   mu_log_kappa = 0, sd_log_kappa = 0.1,
   mu_beta4 = 0, sd_beta4 = 2,
   mu_beta5 = 0, sd_beta5 = 2
 )
 
 common_lsirm_prop_sd <- list(
-  alpha1 = 0.6, alpha2 = 0.4, alpha3 = 0.5, alpha4 = 0.5, alpha5 = 0.6,
-  log_gamma1 = 0.10, log_gamma2 = 0.05, log_gamma3 = 0.05,
+  alpha1 = 0.78, alpha2 = 0.4, alpha3 = 0.5, alpha4 = 0.60, alpha5 = 0.6,
+  log_gamma1 = 0.10, log_gamma2 = 0.15, log_gamma3 = 0.15,
   log_gamma4 = 0.05, log_gamma5 = 0.20,
-  a = 0.30,
-  beta1 = 0.50, beta2 = 0.1, beta3 = 0.20, beta4 = 0.30, beta5 = 0.30,
-  b1 = 0.35, b2 = 0.20, b3 = 0.20, b4 = 0.10, b5 = 0.50,
+  a = 0.5,
+  beta1 = 0.50, beta2 = 0.4, beta3 = 0.20, beta4 = 0.50, beta5 = 0.30,
+  b1 = 0.5, b2 = 0.4, b3 = 0.5, b4 = 0.4, b5 = 0.50,
   log_kappa = 0.30
 )
 
@@ -166,9 +166,23 @@ common_lsirm_prop_sd <- list(
 #     dimensions. For real data with unknown structure, r_fac = 5 is a safer
 #     default; reduce only if eta posterior PC variance ratio shows a clear
 #     low-rank structure.
+# r=5 / e0=0.05 (Option A): isolate the e0 effect.
+# Previous sweep:
+#   r=5 / e0=0.10 / S0=0.01:  silhouette 0.151, PEAR 0.220, within-pair r 0.094 (best so far)
+#   r=2 / e0=0.05 / S0=0.005: silhouette 0.066, PEAR 0.099, broke inflam cluster
+# Diagnosis from r=2 run: r_fac was the dominant variable; e0 effect was
+# masked. This run keeps r=5 (which preserves the PC2-carried inflammation
+# signal) and reduces e0 from 0.10 to 0.05 to test whether stronger
+# Rousseau-Mengersen emptying gives sharper PSM without losing the
+# stable cluster. d_l = r + r(r+1)/2 = 20 for r=5, so e0 < 10 satisfies
+# the asymptotic emptying condition; 0.05 is well within the safe range.
 r_fac  <- 5L
 K_star <- 10L
-e0     <- 0.1
+# Experiment 0503: e0 0.10 -> 0.05 (Rousseau-Mengersen emptying), S0 0.01 ->
+# 0.005 (interpretation-preferred tighter within-cluster prior). Goal: sharpen
+# PSM so post-hoc P1/P3/P4 (Binder / Dahl-style / VI) align with P0 without
+# K-constraint hacks. Revert both to (0.1, 0.01) if cluster quality degrades.
+e0     <- 0.05
 
 # Number of Jain-Neal split-merge proposals per Gibbs sweep.
 # 5 worked well in the four-layer simulation (split rate 14.9% on the
@@ -183,20 +197,19 @@ common_fmc_hyper <- list(
   # S0_scale = 0.01, nu0 = r + 10 = 15), matching v9's V0 = 9*I_r in
   # marginal magnitude.
   kappa0        = 1e-3,
-  nu0           = r_fac + 10,                 # informative IW prior
-  # S0 = 5e-3 I_r (sweet spot between 0.01 and 0.001 runs).
-  # Comparison so far on MIDUS:
-  #   S0=0.01  -> K_+=3 (median), Pr(co>0.8)=3.9%, Pr(co [0.3,0.7])=50%,
-  #               silhouette 0.40, within-co 0.55-0.65 (clean partition,
-  #               soft individual co-clustering).
-  #   S0=0.001 -> K_+=6 (median), Pr(co>0.8)=0.5%, Pr(co [0.3,0.7])=27%,
-  #               silhouette 0.22, within-co 0.36-0.51 (over-fragmented;
-  #               tighter inter-cluster separation but weaker intra-cluster
-  #               agreement and a singleton emerges).
-  # 5e-3 keeps the prior in roughly the right magnitude (per-dim sd ~ 0.024,
-  # ratio ~ 9-14x with empirical 0.0017-0.0026) without over-fragmenting.
-  # Re-check the elicitation diagnostic after the run.
-  S0            = 5e-3 * diag(r_fac),
+  nu0           = r_fac + 25,                 # Option-beta (0504): r+10 -> r+25; sharper Student-t predictive (nu_l = nu0 + n_l) for decisive PSM
+  # S0 = 0.01 I_r: locked-in MIDUS default after the 2026-05-02 sweep.
+  # Final selection after evaluating r in {2, 5} x S0 in {0.001, 0.005, 0.01}:
+  #   r=5 / S0=0.01 gave the highest silhouette (0.151), the highest PEAR
+  #   (0.220), the highest Pr(co > 0.8) (3.9%), and -- crucially -- the
+  #   most stable expression of the "inflammation + executive function"
+  #   cluster (silhouette +0.30 for the 9-item subgroup).
+  # The S0 elicitation diagnostic for this setting flags ratio = 14-20x
+  # (prior implied per-dim sd 0.033 vs empirical 0.002), which is loose
+  # by the formal threshold; tightening to 0.005 / 0.001 actually degraded
+  # cluster quality, so the MIDUS data simply does not support a tighter
+  # within-cluster prior at r=5.
+  S0            = 0.005 * diag(r_fac),    # Reverted from Option-alpha (S0=0.001 over-shrunk and broke clusters); now Option-beta uses S0=0.005 + nu0=r+25
   tau_lambda_sq = 4.0,                         # carried from v9 second pass
   a_eps         = 5, b_eps = 0.1,              # PPCA shared noise variance
   a_delta       = 2, b_delta = 1
@@ -204,7 +217,7 @@ common_fmc_hyper <- list(
 
 # v10 keeps v9 second-pass MCMC settings (long chain due to LSIRM heavy
 # tails). Increase burnin if K_+ trace shows transition behavior.
-common_mcmc <- list(d = 2, n_iter = 120000, burnin = 40000, thin = 10)
+common_mcmc <- list(d = 2, n_iter = 80000, burnin = 20000, thin = 10)   # Experiment 0503: shortened for e0=0.05 / S0=0.005 sweep
 nu2 <- 4
 
 plot_root <- file.path(data_dir, "plot")
@@ -289,6 +302,7 @@ n_init       <- nrow(cs$Y_con)
 
 eta_init_pca <- init_eta_via_pca(cs$Y_bin, cs$Y_con, cs$Y_cnt,
                                  cs$Y_ord1, cs$Y_ord2, r_fac)
+set.seed(0502)  # reproducibility for FMC k-means init AND MCMC chain
 km <- kmeans(eta_init_pca, centers = K_star, nstart = 25, iter.max = 50)
 c_init_km <- km$cluster
 
@@ -313,9 +327,10 @@ cat(sprintf("[FMC init] kmeans cluster sizes: %s\n",
 ################################################################################
 # 4. Single chain run
 ################################################################################
-run_label     <- sprintf("v10_fmc_r%d_K%d_e%g_S0_%g_M%d",
+run_label     <- sprintf("v10_fmc_r%d_K%d_e%g_S0_%g_nu%d_M%d",
                          r_fac, K_star, e0,
-                         common_fmc_hyper$S0[1, 1], n_split_merge)
+                         common_fmc_hyper$S0[1, 1],
+                         common_fmc_hyper$nu0, n_split_merge)
 case_plot_dir <- file.path(plot_root, paste0(cs$name, "_", run_label))
 if (!dir.exists(case_plot_dir)) dir.create(case_plot_dir, recursive = TRUE)
 prefix     <- paste0(cs$name, "_", run_label)
@@ -387,6 +402,16 @@ cat(sprintf("  merge: %d / %d  (rate %.3f)\n",
 cat(sprintf("  net K_+ change (split_acc - merge_acc) = %d\n",
             sm$split_accepts - sm$merge_accepts))
 
+# Tuning mode: skip all post-MCMC processing if env var is set.
+# Run as `MIDUS_TUNE_ONLY=1 Rscript MIDUS_5layered_result_v10.R` for fast
+# iterations of proposal-SD tuning.
+if (Sys.getenv("MIDUS_TUNE_ONLY", "0") == "1") {
+  saveRDS(result$accept,
+          file.path(data_dir, "midus_tune_acc.rds"))
+  cat("\n[MIDUS_TUNE_ONLY] saved acceptance rds, exiting.\n")
+  quit(save = "no", status = 0)
+}
+case_plot_dir
 ##############################################################################
 # 4-C. LSIRM traceplots (identical structure to v9)
 ##############################################################################
@@ -580,24 +605,6 @@ legend("topright", legend = paste0("l=", 1:K_star),
        col = expand_pal(K_star, cluster_pal), lty = 1, bty = "n", cex = 0.75)
 dev.off()
 
-pdf(file.path(case_plot_dir, paste0(fmc_prefix, "_membership_heatmap_c.pdf")),
-    width = 10, height = 7)
-par(mar = c(7, 4, 3, 1))
-ord_w <- order(item_names_full)
-image(seq_len(n_save), seq_len(P_total),
-      result$fmc_c[, ord_w, drop = FALSE],
-      col = expand_pal(K_star, cluster_pal),
-      xlab = "MCMC iteration (saved)", ylab = "",
-      main = "Item cluster membership trace  (c_j over iterations; subject to label switching)",
-      axes = FALSE)
-axis(1)
-axis(2, at = seq_len(P_total), labels = item_names_full[ord_w],
-     las = 2, cex.axis = 0.55)
-box()
-legend("topright", legend = paste0("l=", 1:K_star),
-       fill = expand_pal(K_star, cluster_pal), bty = "n", cex = 0.75)
-dev.off()
-
 ##############################################################################
 # 4-E. Posterior summaries — co-cluster + final partition + biplot
 ##############################################################################
@@ -610,19 +617,166 @@ median_K_plus <- max(2, round(median(result$fmc_K_plus)))
 hc_co <- hclust(as.dist(1 - co_cluster), method = "average")
 final_partition <- cutree(hc_co, k = min(median_K_plus, P_total - 1))
 
+# Reorder items so co-clustered items are visually adjacent in all
+# downstream item-axis plots (membership heatmap + co-cluster matrix).
+ord_hc <- hc_co$order
+
+pdf(file.path(case_plot_dir, paste0(fmc_prefix, "_membership_heatmap_c.pdf")),
+    width = 10, height = 7)
+par(mar = c(7, 4, 3, 1))
+image(seq_len(n_save), seq_len(P_total),
+      result$fmc_c[, ord_hc, drop = FALSE],
+      col = expand_pal(K_star, cluster_pal),
+      xlab = "MCMC iteration (saved)", ylab = "",
+      main = "Item cluster membership trace  (c_j over iterations; ordered by hclust on 1-PSM; subject to label switching)",
+      axes = FALSE)
+axis(1)
+axis(2, at = seq_len(P_total), labels = item_names_full[ord_hc],
+     las = 2, cex.axis = 0.55)
+box()
+legend("topright", legend = paste0("l=", 1:K_star),
+       fill = expand_pal(K_star, cluster_pal), bty = "n", cex = 0.75)
+dev.off()
+
+##############################################################################
+# 4-E-bis. Alternative partitions via Binder / VI loss minimization
+#
+# We keep `final_partition` (P0 above) as the default for downstream
+# silhouette / PEAR / biplot, but compute three principled alternatives
+# for comparison:
+#   P1: minBinder (a=b=1), unconstrained partition lattice
+#       (mcclust.ext::minbinder.ext, method="all", include.lg + greedy)
+#   P3: minBinder (a=b=1), draws-only — search restricted to the MCMC
+#       posterior support so K_max=10 is automatically enforced and the
+#       loss minimizer uses the same partition space the sampler visited.
+#   P4: minVI, unconstrained (mcclust.ext::minVI, method="all" + greedy).
+#
+# Why P0 is still the default downstream:
+#   On weakly concentrated PSMs (Pr(co>0.8) <~ 0.05, PEAR <~ 0.3) Binder
+#   over-fragments (singleton-friendly: isolating ambiguous items removes
+#   their wrong-merge cost) and VI typically collapses to K=1. Wade &
+#   Ghahramani (2018, BA) §4. The median-K_+ avg-link cut acts as a K
+#   regularizer that often gives a more interpretable point estimate when
+#   the posterior is diffuse.
+#
+# Output artifacts (in addition to console summary):
+#   - <prefix>_alt_partitions.csv          one row per item, columns P0..P4
+#   - <prefix>_alt_partition_summary.csv   one row per partition with
+#                                          K, Binder loss, VI.lb,
+#                                          eta-silhouette mean, ARI vs P0
+##############################################################################
+if (requireNamespace("mcclust", quietly = TRUE) &&
+    requireNamespace("mcclust.ext", quietly = TRUE)) {
+
+  loss_binder <- function(c_, psm) mcclust::binder(c_, psm)
+  loss_vi     <- function(c_, psm) mcclust.ext::VI.lb(matrix(c_, nrow = 1), psm)[1]
+  k_unique    <- function(c_) length(unique(c_))
+
+  # P1: minBinder, unconstrained (avg + comp + draws + laugreen + greedy)
+  bin_uncon <- mcclust.ext::minbinder.ext(
+    co_cluster, cls.draw = result$fmc_c,
+    method = "all", include.lg = TRUE, include.greedy = TRUE,
+    suppress.comment = TRUE
+  )
+  P1 <- as.integer(bin_uncon$cl[which.min(bin_uncon$value), ])
+  P1_winner <- rownames(bin_uncon$cl)[which.min(bin_uncon$value)]
+
+  # P3: minBinder, draws-only (search restricted to MCMC-visited partitions)
+  bin_draws <- mcclust::minbinder(
+    co_cluster, cls.draw = result$fmc_c, method = "draws"
+  )
+  # mcclust::minbinder with method="draws" returns cl as a vector (one row).
+  P3 <- as.integer(if (is.matrix(bin_draws$cl)) bin_draws$cl[1, ] else bin_draws$cl)
+
+  # P4: minVI, unconstrained (avg + comp + draws + greedy)
+  vi_uncon <- mcclust.ext::minVI(
+    co_cluster, cls.draw = result$fmc_c,
+    method = "all", include.greedy = TRUE, suppress.comment = TRUE
+  )
+  P4 <- as.integer(vi_uncon$cl[which.min(vi_uncon$value), ])
+  P4_winner <- rownames(vi_uncon$cl)[which.min(vi_uncon$value)]
+
+  # Re-evaluate every partition under both losses with consistent convention
+  # (mcclust::binder = sum_{j<k} |I{c_j=c_k} - C_jk|; max = choose(P,2)).
+  alt_list <- list(
+    P0_prev_avgcut = list(c = as.integer(final_partition), winner = "median-K_+ avg-link"),
+    P1_minBinder_unconstrained = list(c = P1, winner = P1_winner),
+    P3_minBinder_drawsOnly     = list(c = P3, winner = "draws"),
+    P4_minVI_unconstrained     = list(c = P4, winner = P4_winner)
+  )
+
+  d_eta_for_sil <- dist(result$fmc_eta_postmean)
+  sil_one <- function(c_) {
+    if (k_unique(c_) < 2) return(NA_real_)
+    s <- cluster::silhouette(c_, d_eta_for_sil)
+    mean(s[, "sil_width"])
+  }
+
+  alt_summary <- data.frame(
+    partition = names(alt_list),
+    winner    = vapply(alt_list, `[[`, "", "winner"),
+    K         = vapply(alt_list, function(x) k_unique(x$c), 0L),
+    binder    = vapply(alt_list, function(x) loss_binder(x$c, co_cluster), 0),
+    vi_lb     = vapply(alt_list, function(x) loss_vi(x$c, co_cluster),     0),
+    eta_sil   = vapply(alt_list, function(x) sil_one(x$c),                 0)
+  )
+  # ARI vs P0 (defined inline rather than via helper since helper is in 4-H-bis)
+  ari_vs_P0 <- function(c_) {
+    a <- alt_list$P0_prev_avgcut$c
+    tab <- table(a, c_); n_ <- sum(tab); if (n_ < 2) return(NA_real_)
+    sc <- sum(choose(rowSums(tab), 2)); sk <- sum(choose(colSums(tab), 2))
+    st <- sum(choose(tab, 2))
+    exp_idx <- sc * sk / choose(n_, 2)
+    max_idx <- (sc + sk) / 2
+    if (max_idx == exp_idx) return(1)
+    (st - exp_idx) / (max_idx - exp_idx)
+  }
+  alt_summary$ari_vs_P0 <- vapply(alt_list, function(x) ari_vs_P0(x$c), 0)
+  alt_summary$binder    <- round(alt_summary$binder, 3)
+  alt_summary$vi_lb     <- round(alt_summary$vi_lb, 4)
+  alt_summary$eta_sil   <- round(alt_summary$eta_sil, 3)
+  alt_summary$ari_vs_P0 <- round(alt_summary$ari_vs_P0, 3)
+
+  cat("\n-- v10 alternative partitions (P0 still used downstream) --\n")
+  cat(sprintf("  Binder convention: sum_{j<k} |I{c_j=c_k} - C_jk|, range [0, %d]\n",
+              choose(P_total, 2)))
+  print(alt_summary, row.names = FALSE)
+
+  alt_per_item <- data.frame(
+    item                       = item_names_full,
+    P0_prev_avgcut             = alt_list$P0_prev_avgcut$c,
+    P1_minBinder_unconstrained = alt_list$P1_minBinder_unconstrained$c,
+    P3_minBinder_drawsOnly     = alt_list$P3_minBinder_drawsOnly$c,
+    P4_minVI_unconstrained     = alt_list$P4_minVI_unconstrained$c
+  )
+  write.csv(alt_per_item,
+            file.path(case_plot_dir,
+                      paste0(fmc_prefix, "_alt_partitions.csv")),
+            row.names = FALSE)
+  write.csv(alt_summary,
+            file.path(case_plot_dir,
+                      paste0(fmc_prefix, "_alt_partition_summary.csv")),
+            row.names = FALSE)
+
+} else {
+  cat("\n[alt partitions skipped] mcclust and/or mcclust.ext not installed.\n")
+  cat("  install via:\n")
+  cat("    install.packages('mcclust')\n")
+  cat("    remotes::install_github('sarawade/mcclust.ext')\n")
+}
+
 pdf(file.path(case_plot_dir, paste0(fmc_prefix, "_co_cluster.pdf")),
     width = 9, height = 8)
-ord_c <- order(item_cluster_mode)
 par(mar = c(7, 7, 3, 1))
 image(seq_along(item_names_full), seq_along(item_names_full),
-      co_cluster[ord_c, ord_c],
+      co_cluster[ord_hc, ord_hc],
       col  = colorRampPalette(c("white", "steelblue"))(50),
       xlab = "", ylab = "", axes = FALSE,
-      main = sprintf("FMC item co-clustering  (r=%d, K*=%d, e0=%g)",
+      main = sprintf("FMC item co-clustering  (r=%d, K*=%d, e0=%g; ordered by hclust on 1-PSM)",
                      r_fac, K_star, e0))
-axis(1, at = seq_along(item_names_full), labels = item_names_full[ord_c],
+axis(1, at = seq_along(item_names_full), labels = item_names_full[ord_hc],
      las = 2, cex.axis = 0.6)
-axis(2, at = seq_along(item_names_full), labels = item_names_full[ord_c],
+axis(2, at = seq_along(item_names_full), labels = item_names_full[ord_hc],
      las = 2, cex.axis = 0.6)
 box()
 dev.off()
@@ -1019,3 +1173,16 @@ print(table(final_partition))
 cat(sprintf("\n  Mode-cluster table (subject to label switching):\n"))
 print(table(item_cluster_mode))
 cat(sprintf("\n-> v10 plots & artifacts saved to: %s\n", case_plot_dir))
+
+
+
+result$accept$log_gamma1
+result$accept$log_gamma2
+result$accept$log_gamma3
+result$accept$log_gamma4
+result$accept$a
+result$accept$b1
+result$accept$b2
+result$accept$b3
+result$accept$b4
+result$accept$beta4_thr

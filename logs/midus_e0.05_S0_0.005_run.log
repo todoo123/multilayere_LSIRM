@@ -1,0 +1,1108 @@
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+
+====== Wave 2 preprocess ======
+
+=== Survey (04652 / M2P1) selected ===
+dim: 4963 7 
+
+
+=== Biomarker (29282 / M2P4) selected ===
+dim: 1255 54 
+
+
+=== Cognitive (25281 / M2P3) selected ===
+dim: 4512 16 
+
+
+=== Biomarker 변환 후 class 확인 ===
+'data.frame':	1255 obs. of  54 variables:
+ $ M2ID    : num  10002 10005 10019 10040 10047 ...
+ $ B4Q1D   : int  1 1 1 1 3 1 1 3 2 3 ...
+ $ B4Q1H   : int  2 1 2 1 1 1 1 1 1 2 ...
+ $ B4Q1K   : int  1 1 1 1 2 1 1 1 2 3 ...
+ $ B4Q1N   : int  2 1 1 1 2 1 1 2 3 3 ...
+ $ B4Q1P   : int  1 1 1 1 2 1 1 1 1 2 ...
+ $ B4Q1T   : int  2 1 4 1 1 1 1 1 1 2 ...
+ $ B4Q1Z   : int  1 1 1 2 1 2 1 1 1 3 ...
+ $ B4Q1FF  : int  2 1 1 1 1 2 1 1 2 2 ...
+ $ B4Q1II  : int  1 1 2 1 1 1 1 1 1 3 ...
+ $ B4Q1CCC : int  1 1 1 2 1 2 1 1 2 3 ...
+ $ B4Q1GGG : int  2 1 2 1 1 1 2 1 2 4 ...
+ $ B4Q1B   : int  1 1 1 1 1 1 1 1 2 3 ...
+ $ B4Q1F   : int  1 2 1 1 1 1 2 1 1 2 ...
+ $ B4Q1M   : int  1 1 1 1 1 2 2 1 3 1 ...
+ $ B4Q1Q   : int  3 1 1 1 1 1 1 1 1 3 ...
+ $ B4Q1S   : int  1 1 1 1 2 1 1 1 4 4 ...
+ $ B4Q1X   : int  1 1 1 1 1 1 1 1 1 3 ...
+ $ B4Q1BB  : int  1 2 1 1 1 1 1 1 1 3 ...
+ $ B4Q1DD  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ B4Q1KK  : int  3 1 1 1 1 1 2 1 1 1 ...
+ $ B4Q1NN  : int  1 1 1 1 1 1 1 1 1 2 ...
+ $ B4Q1PP  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ B4Q1RR  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ B4Q1TT  : int  2 1 1 1 1 2 1 1 2 3 ...
+ $ B4Q1VV  : int  1 1 1 1 1 1 1 1 4 2 ...
+ $ B4Q1ZZ  : int  1 1 1 1 2 1 1 1 1 3 ...
+ $ B4Q1BBB : int  3 1 1 1 1 1 2 1 1 1 ...
+ $ B4Q1JJJ : int  2 1 1 1 1 2 3 2 1 1 ...
+ $ B4Q3A   : int  0 0 1 0 0 0 0 0 1 1 ...
+ $ B4Q3B   : int  0 0 0 0 0 0 0 0 1 0 ...
+ $ B4Q3C   : int  1 0 0 0 0 0 0 0 1 1 ...
+ $ B4Q3D   : int  0 0 0 0 0 0 1 0 1 1 ...
+ $ B4Q3E   : int  0 0 1 0 0 1 0 0 1 1 ...
+ $ B4Q3F   : int  0 0 0 0 0 0 0 0 1 1 ...
+ $ B4Q3G   : int  1 0 0 0 0 0 1 0 0 1 ...
+ $ B4Q3H   : int  1 0 0 1 0 0 0 0 1 1 ...
+ $ B4Q3I   : int  0 0 0 0 0 0 0 0 0 1 ...
+ $ B4Q3J   : int  0 0 0 0 1 0 0 0 1 1 ...
+ $ B4Q3K   : int  0 0 0 0 0 1 1 1 1 1 ...
+ $ B4Q3L   : int  1 0 0 1 1 0 0 1 1 1 ...
+ $ B4Q3M   : int  1 0 0 0 1 0 1 0 0 1 ...
+ $ B4Q3N   : int  1 0 1 0 0 0 0 0 1 1 ...
+ $ B4Q3O   : int  0 0 0 0 1 0 0 0 0 1 ...
+ $ B4Q3P   : int  1 0 0 0 1 0 0 0 1 1 ...
+ $ B4Q3Q   : int  1 0 0 0 0 0 0 0 1 0 ...
+ $ B4Q3R   : int  1 0 1 0 1 0 0 0 1 1 ...
+ $ B4Q3S   : int  0 0 1 0 0 0 0 0 0 1 ...
+ $ B4Q3T   : int  1 0 1 0 0 0 1 0 1 1 ...
+ $ B4BSCL14: num  26.13 8.32 12.33 10.91 13.96 ...
+ $ B4BNE12 : num  19.4 18.6 13.9 21.9 18 ...
+ $ B4BIL6  : num  2.57 3.65 3.35 0.87 3.39 1.16 5.42 1.43 3.62 6.95 ...
+ $ B4BFGN  : num  362 451 267 293 395 346 736 240 489 435 ...
+ $ B4BCRP  : num  0.41 2.64 1.02 0.35 6.09 0.84 31.6 0.29 8.54 5.79 ...
+
+=== Cognitive 변환 후 summary (new count vars) ===
+
+[wl_immediate_omit]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   7.000   8.000   8.318  10.000  15.000      19 
+
+[wl_immediate_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.2566  0.0000 14.0000      19 
+
+[wl_immediate_intrusion]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.4661  1.0000  7.0000      19 
+
+[wl_delayed_omit]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+   1.00    9.00   11.00   10.64   12.00   15.00     236 
+
+[wl_delayed_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.1006  0.0000 16.0000     236 
+
+[wl_delayed_intrusion]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.9048  1.0000 26.0000     236 
+
+[catflu_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.3284  0.0000  8.0000      14 
+
+[catflu_intrusion]
+    Min.  1st Qu.   Median     Mean  3rd Qu.     Max.     NA's 
+ 0.00000  0.00000  0.00000  0.05158  0.00000 16.00000       14 
+
+[numseries_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   2.000   3.000   2.824   4.000   5.000      45 
+
+[backcount_error]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.8725  1.0000 90.0000      33 
+
+[sgst_normal_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.2947  0.0000 20.0000     212 
+
+[sgst_reverse_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.6926  1.0000 20.0000     208 
+
+[sgst_mixed_nonswitch_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   1.006   1.000  23.000     207 
+
+[sgst_mixed_switch_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.3401  0.0000  6.0000     207 
+
+[sgst_mixed_all_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   1.346   1.000  29.000     207 
+
+=== Screening 결과 ===
+전체: 4963 
+screen_case
+   0    1 <NA> 
+3764  687  512 
+
+=== df_p4_pheno ===
+dim: 1255 54 
+
+=== df_p3_pheno ===
+dim: 4512 16 
+
+=== 분석용 데이터셋 크기 ===
+df_analysis_p4  (P1×P4):       1054 명 × 65 변수
+df_analysis_p3  (P1×P3):       4206 명 × 27 변수
+df_analysis_all (P1×P3×P4):    1016 명 × 80 변수
+
+=== P1-P4: screen_case==1 → 154명 ===
+  변수별 NA (제거 전):
+   B4Q3A    B4Q3B    B4Q3C    B4Q3D    B4Q3E    B4Q3F    B4Q3G    B4Q3H 
+       2        2        3        3        3        4        2        3 
+   B4Q3I    B4Q3J    B4Q3K    B4Q3L    B4Q3M    B4Q3N    B4Q3O    B4Q3P 
+       3        3        3        3        3        2        2        2 
+   B4Q3Q    B4Q3R    B4Q3S    B4Q3T    B4Q1N   B4Q1FF   B4Q1RR B4BSCL14 
+       3        2        2        2        1        1        1       10 
+ B4BNE12   B4BIL6   B4BFGN   B4BCRP 
+       4        1        2        2 
+  NA 없는 complete case: 135 / 154명
+  → NA 제거 후: 135명 (제거 19명)
+  Y_bin: 135×20 | Y_cnt: 135×0 | Y_ord1: 135×28 (K1=5) | Y_ord2: 135×0 (K2=–) | Y_con: 135×5
+
+=== P1-P3: screen_case==1 → 560명 ===
+  변수별 NA (제거 전):
+             wl_immediate_omit        wl_immediate_repetition 
+                             5                              5 
+        wl_immediate_intrusion                wl_delayed_omit 
+                             5                             21 
+         wl_delayed_repetition           wl_delayed_intrusion 
+                            21                             21 
+             catflu_repetition               catflu_intrusion 
+                             2                              2 
+           numseries_incorrect                backcount_error 
+                             8                              6 
+         sgst_normal_incorrect         sgst_reverse_incorrect 
+                            27                             27 
+sgst_mixed_nonswitch_incorrect    sgst_mixed_switch_incorrect 
+                            27                             27 
+      sgst_mixed_all_incorrect 
+                            27 
+  NA 없는 complete case: 517 / 560명
+  → NA 제거 후: 517명 (제거 43명)
+  Y_bin: 517×0 | Y_cnt: 517×15 | Y_ord1: 517×0 (K1=–) | Y_ord2: 517×0 (K2=–) | Y_con: 517×0
+
+=== P1-P3-P4: screen_case==1 → 148명 ===
+  변수별 NA (제거 전):
+                         B4Q3A                          B4Q3B 
+                             2                              2 
+                         B4Q3C                          B4Q3D 
+                             3                              3 
+                         B4Q3E                          B4Q3F 
+                             3                              4 
+                         B4Q3G                          B4Q3H 
+                             2                              3 
+                         B4Q3I                          B4Q3J 
+                             3                              3 
+                         B4Q3K                          B4Q3L 
+                             3                              3 
+                         B4Q3M                          B4Q3N 
+                             3                              2 
+                         B4Q3O                          B4Q3P 
+                             2                              2 
+                         B4Q3Q                          B4Q3R 
+                             3                              2 
+                         B4Q3S                          B4Q3T 
+                             2                              2 
+             wl_immediate_omit        wl_immediate_repetition 
+                             1                              1 
+        wl_immediate_intrusion                wl_delayed_omit 
+                             1                              2 
+         wl_delayed_repetition           wl_delayed_intrusion 
+                             2                              2 
+           numseries_incorrect          sgst_normal_incorrect 
+                             1                              5 
+        sgst_reverse_incorrect sgst_mixed_nonswitch_incorrect 
+                             5                              5 
+   sgst_mixed_switch_incorrect       sgst_mixed_all_incorrect 
+                             5                              5 
+                         B4Q1N                         B4Q1FF 
+                             1                              1 
+                        B4Q1RR                       B4BSCL14 
+                             1                             10 
+                       B4BNE12                         B4BIL6 
+                             4                              1 
+                        B4BFGN                         B4BCRP 
+                             2                              2 
+  NA 없는 complete case: 125 / 148명
+  → NA 제거 후: 125명 (제거 23명)
+  Y_bin: 125×20 | Y_cnt: 125×15 | Y_ord1: 125×28 (K1=5) | Y_ord2: 125×0 (K2=–) | Y_con: 125×5
+
+====== Refresher 1 preprocess ======
+
+=== Survey (36532) selected ===
+dim: 3577 7 
+
+
+=== Biomarker (36901) selected ===
+dim: 863 54 
+
+
+=== Cognitive (37081) selected ===
+dim: 2763 16 
+
+
+=== Biomarker 변환 후 class 확인 ===
+'data.frame':	863 obs. of  54 variables:
+ $ MRID     : num  30024 30052 30059 30092 30104 ...
+ $ RA4Q1D   : int  2 1 1 1 1 1 1 1 1 2 ...
+ $ RA4Q1H   : int  1 2 3 2 2 1 1 2 1 3 ...
+ $ RA4Q1K   : int  1 3 2 2 2 1 1 1 1 2 ...
+ $ RA4Q1N   : int  2 2 2 1 1 2 1 1 1 2 ...
+ $ RA4Q1P   : int  3 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1T   : int  2 1 2 2 3 1 1 1 1 3 ...
+ $ RA4Q1Z   : int  2 2 2 1 1 3 1 2 1 1 ...
+ $ RA4Q1FF  : int  3 1 2 2 1 1 1 1 1 2 ...
+ $ RA4Q1II  : int  1 1 1 1 1 2 1 1 1 4 ...
+ $ RA4Q1CCC : int  2 1 1 2 1 1 1 1 1 1 ...
+ $ RA4Q1GGG : int  2 1 1 4 2 1 1 1 1 2 ...
+ $ RA4Q1B   : int  1 1 1 1 1 1 2 2 1 3 ...
+ $ RA4Q1F   : int  1 1 2 1 1 1 1 1 1 1 ...
+ $ RA4Q1M   : int  1 1 1 2 1 1 1 1 1 3 ...
+ $ RA4Q1Q   : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1S   : int  1 1 3 1 1 1 3 1 1 4 ...
+ $ RA4Q1X   : int  1 1 1 1 1 1 2 1 1 1 ...
+ $ RA4Q1BB  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1DD  : int  1 1 1 1 1 2 1 1 1 1 ...
+ $ RA4Q1KK  : int  4 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1NN  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1PP  : int  1 1 1 1 1 2 1 1 1 1 ...
+ $ RA4Q1RR  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1TT  : int  1 1 1 3 2 1 2 1 1 1 ...
+ $ RA4Q1VV  : int  1 1 1 1 1 1 1 1 1 3 ...
+ $ RA4Q1ZZ  : int  1 1 1 1 1 3 1 1 1 1 ...
+ $ RA4Q1BBB : int  1 1 1 3 1 2 1 1 1 2 ...
+ $ RA4Q1JJJ : int  2 1 1 2 3 2 2 1 1 3 ...
+ $ RA4Q3A   : int  0 0 0 1 0 0 1 0 0 1 ...
+ $ RA4Q3B   : int  0 0 0 0 0 0 1 0 0 0 ...
+ $ RA4Q3C   : int  0 0 0 0 0 0 0 0 0 1 ...
+ $ RA4Q3D   : int  1 0 0 0 0 0 0 0 0 1 ...
+ $ RA4Q3E   : int  0 0 0 1 0 0 1 1 0 1 ...
+ $ RA4Q3F   : int  1 0 0 0 1 0 0 0 0 1 ...
+ $ RA4Q3G   : int  1 0 1 1 0 0 1 0 0 1 ...
+ $ RA4Q3H   : int  1 1 0 1 0 0 1 0 0 1 ...
+ $ RA4Q3I   : int  0 0 0 0 0 0 0 0 0 1 ...
+ $ RA4Q3J   : int  0 0 0 0 0 0 0 0 0 1 ...
+ $ RA4Q3K   : int  1 1 1 1 1 1 0 0 0 1 ...
+ $ RA4Q3L   : int  1 0 0 1 1 0 0 0 0 0 ...
+ $ RA4Q3M   : int  1 0 0 1 0 0 1 1 0 1 ...
+ $ RA4Q3N   : int  0 0 0 1 0 0 1 0 0 1 ...
+ $ RA4Q3O   : int  1 0 0 1 0 0 0 0 0 1 ...
+ $ RA4Q3P   : int  1 0 0 1 0 0 0 0 0 0 ...
+ $ RA4Q3Q   : int  0 0 0 1 0 0 0 0 0 0 ...
+ $ RA4Q3R   : int  0 0 0 1 0 0 0 0 0 1 ...
+ $ RA4Q3S   : int  0 0 0 1 0 0 1 0 0 1 ...
+ $ RA4Q3T   : int  0 0 0 1 0 0 0 0 0 1 ...
+ $ RA4BSCLAV: num  23.2 25.9 12.9 20.3 31.4 ...
+ $ RA4BNE12 : num  28.9 14.4 26.7 21.3 43.6 ...
+ $ RA4BIL6  : num  3.84 1.35 2.29 8.89 4.33 ...
+ $ RA4BFGN  : num  259 365 366 330 241 440 343 326 324 419 ...
+ $ RA4BCRP  : num  1.29 1.27 3.83 6.03 1.15 4.79 0.9 0.55 1.84 7.42 ...
+
+=== Cognitive 변환 후 summary (new count vars) ===
+
+[wl_immediate_omit]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   7.000   8.000   7.869   9.000  15.000       9 
+
+[wl_immediate_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.3199  0.0000 10.0000       9 
+
+[wl_immediate_intrusion]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.5251  1.0000  9.0000       9 
+
+[wl_delayed_omit]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+   0.00    9.00   11.00   10.26   12.00   15.00     153 
+
+[wl_delayed_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.1115  0.0000 12.0000     153 
+
+[wl_delayed_intrusion]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   1.000   1.051   1.000  15.000     153 
+
+[catflu_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   0.459   1.000   8.000      18 
+
+[catflu_intrusion]
+    Min.  1st Qu.   Median     Mean  3rd Qu.     Max.     NA's 
+ 0.00000  0.00000  0.00000  0.06703  0.00000 16.00000       18 
+
+[numseries_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   1.000   3.000   2.535   4.000   5.000      72 
+
+[backcount_error]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.9771  1.0000 90.0000      51 
+
+[sgst_normal_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.7556  0.0000 20.0000       1 
+
+[sgst_reverse_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   1.403   1.000  20.000       1 
+
+[sgst_mixed_nonswitch_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   1.966   1.000  23.000       1 
+
+[sgst_mixed_switch_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.6217  1.0000  6.0000       1 
+
+[sgst_mixed_all_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   1.000   2.588   2.000  29.000       1 
+
+=== Screening 결과 ===
+전체: 3577 
+screen_case
+   0    1 <NA> 
+2617  606  354 
+
+=== df_p4_pheno ===
+dim: 863 54 
+
+=== df_p3_pheno ===
+dim: 2763 16 
+
+=== 분석용 데이터셋 크기 ===
+df_analysis_p4  (Survey×Bio):       746 명 × 65 변수
+df_analysis_p3  (Survey×Cog):       2550 명 × 27 변수
+df_analysis_all (Survey×Cog×Bio):   713 명 × 80 변수
+
+=== Survey-Bio: screen_case==1 → 123명 ===
+  변수별 NA (제거 전):
+   RA4Q1D    RA4Q1Z RA4BSCLAV  RA4BNE12   RA4BIL6   RA4BFGN   RA4BCRP 
+        1         1         6         3         2         2         2 
+  NA 없는 complete case: 110 / 123명
+  → NA 제거 후: 110명 (제거 13명)
+  Y_bin: 110×20 | Y_cnt: 110×0 | Y_ord1: 110×28 (K1=5) | Y_ord2: 110×0 (K2=–) | Y_con: 110×5
+
+=== Survey-Cog: screen_case==1 → 424명 ===
+  변수별 NA (제거 전):
+      wl_immediate_omit wl_immediate_repetition  wl_immediate_intrusion 
+                      2                       2                       2 
+        wl_delayed_omit   wl_delayed_repetition    wl_delayed_intrusion 
+                     25                      25                      25 
+      catflu_repetition        catflu_intrusion     numseries_incorrect 
+                      2                       2                      14 
+        backcount_error 
+                      9 
+  NA 없는 complete case: 393 / 424명
+  → NA 제거 후: 393명 (제거 31명)
+  Y_bin: 393×0 | Y_cnt: 393×15 | Y_ord1: 393×0 (K1=–) | Y_ord2: 393×0 (K2=–) | Y_con: 393×0
+
+=== Survey-Cog-Bio: screen_case==1 → 113명 ===
+  변수별 NA (제거 전):
+      wl_delayed_omit wl_delayed_repetition  wl_delayed_intrusion 
+                    7                     7                     7 
+  numseries_incorrect       backcount_error                RA4Q1D 
+                    1                     1                     1 
+               RA4Q1Z             RA4BSCLAV              RA4BNE12 
+                    1                     6                     3 
+              RA4BIL6               RA4BFGN               RA4BCRP 
+                    2                     2                     2 
+  NA 없는 complete case: 96 / 113명
+  → NA 제거 후: 96명 (제거 17명)
+  Y_bin: 96×20 | Y_cnt: 96×15 | Y_ord1: 96×28 (K1=5) | Y_ord2: 96×0 (K2=–) | Y_con: 96×5
+Loading required package: permute
+
+Attaching package: ‘igraph’
+
+The following object is masked from ‘package:vegan’:
+
+    diversity
+
+The following object is masked from ‘package:permute’:
+
+    permute
+
+The following objects are masked from ‘package:purrr’:
+
+    compose, simplify
+
+The following objects are masked from ‘package:dplyr’:
+
+    as_data_frame, groups, union
+
+The following objects are masked from ‘package:stats’:
+
+    decompose, spectrum
+
+The following object is masked from ‘package:base’:
+
+    union
+
+
+‘network’ 1.19.0 (2024-12-08), part of the Statnet Project
+* ‘news(package="network")’ for changes since last version
+* ‘citation("network")’ for citation information
+* ‘https://statnet.org’ for help, support, and other information
+
+
+Attaching package: ‘network’
+
+The following objects are masked from ‘package:igraph’:
+
+    %c%, %s%, add.edges, add.vertices, delete.edges, delete.vertices,
+    get.edge.attribute, get.edges, get.vertex.attribute, is.bipartite,
+    is.directed, list.edge.attributes, list.vertex.attributes,
+    set.edge.attribute, set.vertex.attribute
+
+
+Attaching package: ‘MASS’
+
+The following object is masked from ‘package:dplyr’:
+
+    select
+
+Warning message:
+package ‘ggplot2’ was built under R version 4.4.3 
+[FMC init] PCA-eta scale: sd per dim = 4.072, 3.546, 2.841, 2.735, 2.655
+[FMC init] kmeans cluster sizes: 3 10 5 8 10 8 4 8 4 8
+
+========== Case 1: All (bin+con+cnt+ord) [v10_fmc_r5_K10_e0.05_S0_0.005_M5] ==========
+  Y_bin: 221×20 | Y_con: 221×5 | Y_cnt: 221×15 | Y_ord1: 221×28 | Y_ord2: 221×0
+Running joint LSIRM+PPCA-FMC v10 [n=221, P_total=68 (20/5/15/28/0), r_fac=5, K_star=10, e0=0.05, kappa0=0.001, M_SM=5, row_center=TRUE]
+[v10 joint] n=221 P1=20 P2=5 P3=15 P4=28 P5=0 P_total=68 K1=5 K2=0 nu2=4 r_fac=5 K_star=10 M_SM=5
+[v10] Iter: 500 / 80000
+[v10] Iter: 1000 / 80000
+[v10] Iter: 1500 / 80000
+[v10] Iter: 2000 / 80000
+[v10] Iter: 2500 / 80000
+[v10] Iter: 3000 / 80000
+[v10] Iter: 3500 / 80000
+[v10] Iter: 4000 / 80000
+[v10] Iter: 4500 / 80000
+[v10] Iter: 5000 / 80000
+[v10] Iter: 5500 / 80000
+[v10] Iter: 6000 / 80000
+[v10] Iter: 6500 / 80000
+[v10] Iter: 7000 / 80000
+[v10] Iter: 7500 / 80000
+[v10] Iter: 8000 / 80000
+[v10] Iter: 8500 / 80000
+[v10] Iter: 9000 / 80000
+[v10] Iter: 9500 / 80000
+[v10] Iter: 10000 / 80000
+[v10] Iter: 10500 / 80000
+[v10] Iter: 11000 / 80000
+[v10] Iter: 11500 / 80000
+[v10] Iter: 12000 / 80000
+[v10] Iter: 12500 / 80000
+[v10] Iter: 13000 / 80000
+[v10] Iter: 13500 / 80000
+[v10] Iter: 14000 / 80000
+[v10] Iter: 14500 / 80000
+[v10] Iter: 15000 / 80000
+[v10] Iter: 15500 / 80000
+[v10] Iter: 16000 / 80000
+[v10] Iter: 16500 / 80000
+[v10] Iter: 17000 / 80000
+[v10] Iter: 17500 / 80000
+[v10] Iter: 18000 / 80000
+[v10] Iter: 18500 / 80000
+[v10] Iter: 19000 / 80000
+[v10] Iter: 19500 / 80000
+[v10] Iter: 20000 / 80000
+[v10] Iter: 20500 / 80000
+[v10] Iter: 21000 / 80000
+[v10] Iter: 21500 / 80000
+[v10] Iter: 22000 / 80000
+[v10] Iter: 22500 / 80000
+[v10] Iter: 23000 / 80000
+[v10] Iter: 23500 / 80000
+[v10] Iter: 24000 / 80000
+[v10] Iter: 24500 / 80000
+[v10] Iter: 25000 / 80000
+[v10] Iter: 25500 / 80000
+[v10] Iter: 26000 / 80000
+[v10] Iter: 26500 / 80000
+[v10] Iter: 27000 / 80000
+[v10] Iter: 27500 / 80000
+[v10] Iter: 28000 / 80000
+[v10] Iter: 28500 / 80000
+[v10] Iter: 29000 / 80000
+[v10] Iter: 29500 / 80000
+[v10] Iter: 30000 / 80000
+[v10] Iter: 30500 / 80000
+[v10] Iter: 31000 / 80000
+[v10] Iter: 31500 / 80000
+[v10] Iter: 32000 / 80000
+[v10] Iter: 32500 / 80000
+[v10] Iter: 33000 / 80000
+[v10] Iter: 33500 / 80000
+[v10] Iter: 34000 / 80000
+[v10] Iter: 34500 / 80000
+[v10] Iter: 35000 / 80000
+[v10] Iter: 35500 / 80000
+[v10] Iter: 36000 / 80000
+[v10] Iter: 36500 / 80000
+[v10] Iter: 37000 / 80000
+[v10] Iter: 37500 / 80000
+[v10] Iter: 38000 / 80000
+[v10] Iter: 38500 / 80000
+[v10] Iter: 39000 / 80000
+[v10] Iter: 39500 / 80000
+[v10] Iter: 40000 / 80000
+[v10] Iter: 40500 / 80000
+[v10] Iter: 41000 / 80000
+[v10] Iter: 41500 / 80000
+[v10] Iter: 42000 / 80000
+[v10] Iter: 42500 / 80000
+[v10] Iter: 43000 / 80000
+[v10] Iter: 43500 / 80000
+[v10] Iter: 44000 / 80000
+[v10] Iter: 44500 / 80000
+[v10] Iter: 45000 / 80000
+[v10] Iter: 45500 / 80000
+[v10] Iter: 46000 / 80000
+[v10] Iter: 46500 / 80000
+[v10] Iter: 47000 / 80000
+[v10] Iter: 47500 / 80000
+[v10] Iter: 48000 / 80000
+[v10] Iter: 48500 / 80000
+[v10] Iter: 49000 / 80000
+[v10] Iter: 49500 / 80000
+[v10] Iter: 50000 / 80000
+[v10] Iter: 50500 / 80000
+[v10] Iter: 51000 / 80000
+[v10] Iter: 51500 / 80000
+[v10] Iter: 52000 / 80000
+[v10] Iter: 52500 / 80000
+[v10] Iter: 53000 / 80000
+[v10] Iter: 53500 / 80000
+[v10] Iter: 54000 / 80000
+[v10] Iter: 54500 / 80000
+[v10] Iter: 55000 / 80000
+[v10] Iter: 55500 / 80000
+[v10] Iter: 56000 / 80000
+[v10] Iter: 56500 / 80000
+[v10] Iter: 57000 / 80000
+[v10] Iter: 57500 / 80000
+[v10] Iter: 58000 / 80000
+[v10] Iter: 58500 / 80000
+[v10] Iter: 59000 / 80000
+[v10] Iter: 59500 / 80000
+[v10] Iter: 60000 / 80000
+[v10] Iter: 60500 / 80000
+[v10] Iter: 61000 / 80000
+[v10] Iter: 61500 / 80000
+[v10] Iter: 62000 / 80000
+[v10] Iter: 62500 / 80000
+[v10] Iter: 63000 / 80000
+[v10] Iter: 63500 / 80000
+[v10] Iter: 64000 / 80000
+[v10] Iter: 64500 / 80000
+[v10] Iter: 65000 / 80000
+[v10] Iter: 65500 / 80000
+[v10] Iter: 66000 / 80000
+[v10] Iter: 66500 / 80000
+[v10] Iter: 67000 / 80000
+[v10] Iter: 67500 / 80000
+[v10] Iter: 68000 / 80000
+[v10] Iter: 68500 / 80000
+[v10] Iter: 69000 / 80000
+[v10] Iter: 69500 / 80000
+[v10] Iter: 70000 / 80000
+[v10] Iter: 70500 / 80000
+[v10] Iter: 71000 / 80000
+[v10] Iter: 71500 / 80000
+[v10] Iter: 72000 / 80000
+[v10] Iter: 72500 / 80000
+[v10] Iter: 73000 / 80000
+[v10] Iter: 73500 / 80000
+[v10] Iter: 74000 / 80000
+[v10] Iter: 74500 / 80000
+[v10] Iter: 75000 / 80000
+[v10] Iter: 75500 / 80000
+[v10] Iter: 76000 / 80000
+[v10] Iter: 76500 / 80000
+[v10] Iter: 77000 / 80000
+[v10] Iter: 77500 / 80000
+[v10] Iter: 78000 / 80000
+[v10] Iter: 78500 / 80000
+[v10] Iter: 79000 / 80000
+[v10] Iter: 79500 / 80000
+[v10] Iter: 80000 / 80000
+Performing Procrustes matching (iterative posterior-mean refinement; LSIRM positions only -- FMC parameters
+  are invariant under orthogonal+translation alignment)...
+  iterative-mean pass 1/3, target shift RMSE = (initial)
+  iterative-mean pass 2/3, target shift RMSE = 0.4382
+  iterative-mean pass 3/3, target shift RMSE = 0.0013
+[v10 split-merge] split: 5814 / 124112 (0.047), merge: 5451 / 250888 (0.022)
+
+-- v10_fmc_r5_K10_e0.05_S0_0.005_M5 Acceptance --
+  alpha1..5 mean : 0.594 / 0.444 / 0.507 / 0.596 / 0.822
+  beta1..3 mean  : 0.381 / 0.098 / 0.533
+  log_gamma1..5  : 0.286 / 0.214 / 0.214 / 0.311 / 0.845
+  a / b1..5 mean : 0.433 / 0.337, 0.248, 0.354, 0.242, NaN
+  LSIRM log_kappa per-item mean: 0.355
+
+-- v10_fmc_r5_K10_e0.05_S0_0.005_M5 Split-merge --
+  split: 5814 / 124112  (rate 0.047)
+  merge: 5451 / 250888  (rate 0.022)
+  net K_+ change (split_acc - merge_acc) = 363
+[1] "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/plot/case1_all_v10_fmc_r5_K10_e0.05_S0_0.005_M5"
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+
+-- v10 alternative partitions (P0 still used downstream) --
+  Binder convention: sum_{j<k} |I{c_j=c_k} - C_jk|, range [0, 2278]
+                  partition              winner  K  binder  vi_lb eta_sil
+             P0_prev_avgcut median-K_+ avg-link  4 679.375 1.6909   0.172
+ P1_minBinder_unconstrained                best 11 620.381 2.1229  -0.158
+     P3_minBinder_drawsOnly               draws  5 673.033 1.9990   0.128
+     P4_minVI_unconstrained                best  2 910.185 1.5334   0.319
+ ari_vs_P0
+     1.000
+     0.628
+     0.534
+     0.570
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+
+-- v10 S0 elicitation diagnostic --
+  S0 scale used: 0.0050
+  prior implied per-dim sd = sqrt(S0/(nu0-r-1)) = 0.0236
+  empirical within-cluster sd of eta_pm per dim:
+[1] 0.0024 0.0017 0.0010 0.0026 0.0010
+  ratio (prior implied / empirical) per dim:
+[1]  9.75 13.49 23.94  8.94 23.23
+  WARNING: prior >> empirical (ratio > 5). Consider tightening S0:
+    suggested S0_scale ~ max(emp_sd)^2 * (nu0-r-1) = 0.0001
+
+-- v10 silhouette diagnostic (eta-based) --
+  overall mean = 0.172, median = 0.220, frac<0 = 0.221
+  per-cluster:
+  cluster sil_width.n sil_width.mean sil_width.median sil_width.min
+1       1 33.00000000     0.14945008       0.18340303   -0.25981000
+2       2  8.00000000    -0.14364585      -0.22848147   -0.34957862
+3       3 21.00000000     0.36055126       0.34637723   -0.42167519
+4       4  6.00000000     0.05267003       0.09986051   -0.26141494
+
+  Items with negative silhouette (15, candidates for re-assignment):
+                             item cluster   sil_width neighbor
+2                           B4Q3B       2 -0.34957862        1
+5                           B4Q3E       1 -0.11699539        2
+15                          B4Q3O       4 -0.26141494        3
+21                       B4BSCL14       1 -0.11650727        2
+23                         B4BIL6       2 -0.21614986        1
+28         wl_immediate_intrusion       1 -0.04324327        2
+31           wl_delayed_intrusion       1 -0.25981000        2
+32              catflu_repetition       4 -0.15878663        2
+33               catflu_intrusion       3 -0.42167519        4
+37         sgst_reverse_incorrect       2 -0.29055062        1
+38 sgst_mixed_nonswitch_incorrect       2 -0.25863466        4
+40       sgst_mixed_all_incorrect       2 -0.24081308        4
+42                          B4Q1H       1 -0.05215047        2
+62                         B4Q1PP       1 -0.09822993        2
+66                         B4Q1ZZ       1 -0.16768627        3
+null device 
+          1 
+
+-- v10 co-clustering quality --
+  off-diag mean = 0.332  (uniform-K baseline = 0.338)
+  Pr(co > 0.8) = 0.022,  within-pair frac = 0.343,  ratio = 0.065
+  Pr(co < 0.2) = 0.328
+  Pr(co [0.3,0.7]) = 0.446  (ambiguous zone; >30% = weak)
+  -> within-pair ratio is weak
+
+-- v10 PEAR (posterior expected adjusted Rand) --
+  n_pairs sampled = 500
+  mean PEAR = 0.206, sd = 0.095
+  range [0.012, 0.687]
+  -> weak (posterior diffuse over partition space)
+
+=== v10 FMC summary ===
+  mean(K_+) = 3.63, median(K_+) = 4, sd(K_+) = 0.67
+  silhouette (eta-based): mean=0.172, frac<0=0.221
+  co-clustering: within-pair ratio=0.065 (weak), ambig=0.446, PEAR=0.206
+  split rate = 0.047, merge rate = 0.022
+
+  Final partition (cutree on 1 - PSM, k=4):
+final_partition
+ 1  2  3  4 
+33  8 21  6 
+
+  Mode-cluster table (subject to label switching):
+item_cluster_mode
+ 2  4  5  7  8 10 
+ 1 23  8  1 32  3 
+
+-> v10 plots & artifacts saved to: /Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/plot/case1_all_v10_fmc_r5_K10_e0.05_S0_0.005_M5
+[1] 0.2855875
+[1] 0.2142375
+[1] 0.2144
+[1] 0.3114625
+            [,1]
+  [1,] 0.4018875
+  [2,] 0.3583875
+  [3,] 0.3955375
+  [4,] 0.4055500
+  [5,] 0.3736875
+  [6,] 0.5116125
+  [7,] 0.3915375
+  [8,] 0.4730125
+  [9,] 0.4486750
+ [10,] 0.3721500
+ [11,] 0.3989000
+ [12,] 0.4395250
+ [13,] 0.4262000
+ [14,] 0.4588250
+ [15,] 0.3625500
+ [16,] 0.4434625
+ [17,] 0.4056750
+ [18,] 0.4285000
+ [19,] 0.3113500
+ [20,] 0.4205500
+ [21,] 0.4429625
+ [22,] 0.3675250
+ [23,] 0.4096375
+ [24,] 0.4627625
+ [25,] 0.3706375
+ [26,] 0.4475875
+ [27,] 0.4484375
+ [28,] 0.4221000
+ [29,] 0.3700125
+ [30,] 0.5426250
+ [31,] 0.4178750
+ [32,] 0.4013250
+ [33,] 0.4080500
+ [34,] 0.4229875
+ [35,] 0.4335375
+ [36,] 0.3516000
+ [37,] 0.3705250
+ [38,] 0.3648625
+ [39,] 0.4538000
+ [40,] 0.3715250
+ [41,] 0.4565125
+ [42,] 0.4457750
+ [43,] 0.4473750
+ [44,] 0.4401625
+ [45,] 0.4280375
+ [46,] 0.4940500
+ [47,] 0.5129250
+ [48,] 0.4158375
+ [49,] 0.4265000
+ [50,] 0.4346250
+ [51,] 0.5122500
+ [52,] 0.4029375
+ [53,] 0.4138625
+ [54,] 0.4010750
+ [55,] 0.3798125
+ [56,] 0.4917750
+ [57,] 0.5260875
+ [58,] 0.4443000
+ [59,] 0.4403625
+ [60,] 0.4647125
+ [61,] 0.4206500
+ [62,] 0.4398625
+ [63,] 0.3945875
+ [64,] 0.5516750
+ [65,] 0.5058000
+ [66,] 0.3885500
+ [67,] 0.3952875
+ [68,] 0.4766875
+ [69,] 0.3470000
+ [70,] 0.4345875
+ [71,] 0.3964750
+ [72,] 0.4954625
+ [73,] 0.4304750
+ [74,] 0.5006500
+ [75,] 0.3713375
+ [76,] 0.4554250
+ [77,] 0.4560000
+ [78,] 0.3620125
+ [79,] 0.3710250
+ [80,] 0.4470125
+ [81,] 0.4923625
+ [82,] 0.4121000
+ [83,] 0.4460500
+ [84,] 0.3829125
+ [85,] 0.5919625
+ [86,] 0.4246375
+ [87,] 0.4309125
+ [88,] 0.4840875
+ [89,] 0.3466625
+ [90,] 0.4876375
+ [91,] 0.5204625
+ [92,] 0.4255250
+ [93,] 0.4111750
+ [94,] 0.5052375
+ [95,] 0.5142875
+ [96,] 0.5674125
+ [97,] 0.4633375
+ [98,] 0.3388250
+ [99,] 0.4067750
+[100,] 0.3153500
+[101,] 0.4510000
+[102,] 0.4981625
+[103,] 0.4169000
+[104,] 0.4004375
+[105,] 0.5419500
+[106,] 0.4991500
+[107,] 0.4800250
+[108,] 0.5011875
+[109,] 0.4859875
+[110,] 0.5012750
+[111,] 0.4620250
+[112,] 0.3499625
+[113,] 0.4527500
+[114,] 0.4265500
+[115,] 0.3623125
+[116,] 0.3673750
+[117,] 0.3988250
+[118,] 0.3724000
+[119,] 0.3776500
+[120,] 0.5106750
+[121,] 0.3878875
+[122,] 0.5915000
+[123,] 0.3864250
+[124,] 0.3976000
+[125,] 0.5495625
+[126,] 0.3964500
+[127,] 0.4759500
+[128,] 0.3381250
+[129,] 0.5605500
+[130,] 0.5002125
+[131,] 0.4577000
+[132,] 0.4006750
+[133,] 0.4811250
+[134,] 0.4339875
+[135,] 0.3759000
+[136,] 0.4638625
+[137,] 0.4613125
+[138,] 0.3285250
+[139,] 0.3590500
+[140,] 0.3664375
+[141,] 0.4868625
+[142,] 0.4546375
+[143,] 0.4476375
+[144,] 0.4878000
+[145,] 0.4625375
+[146,] 0.4057625
+[147,] 0.5009000
+[148,] 0.4561750
+[149,] 0.5304000
+[150,] 0.4377000
+[151,] 0.4542375
+[152,] 0.4081750
+[153,] 0.5154125
+[154,] 0.4601250
+[155,] 0.4740375
+[156,] 0.4825125
+[157,] 0.5368750
+[158,] 0.4630875
+[159,] 0.4850625
+[160,] 0.4296125
+[161,] 0.4069375
+[162,] 0.4879750
+[163,] 0.3760375
+[164,] 0.4569625
+[165,] 0.5485250
+[166,] 0.4099875
+[167,] 0.4224750
+[168,] 0.5334125
+[169,] 0.4131750
+[170,] 0.3351500
+[171,] 0.4045000
+[172,] 0.3374500
+[173,] 0.5637000
+[174,] 0.4109375
+[175,] 0.4258500
+[176,] 0.4620375
+[177,] 0.4138750
+[178,] 0.4466500
+[179,] 0.4310250
+[180,] 0.5236500
+[181,] 0.3856625
+[182,] 0.4207375
+[183,] 0.3815625
+[184,] 0.4559750
+[185,] 0.3448250
+[186,] 0.4457750
+[187,] 0.4904875
+[188,] 0.3542750
+[189,] 0.4899125
+[190,] 0.3716250
+[191,] 0.4511625
+[192,] 0.3963750
+[193,] 0.4421250
+[194,] 0.4780375
+[195,] 0.3914625
+[196,] 0.3860125
+[197,] 0.3762000
+[198,] 0.2841000
+[199,] 0.4178000
+[200,] 0.4535875
+[201,] 0.4065125
+[202,] 0.3615000
+[203,] 0.4028875
+[204,] 0.4215375
+[205,] 0.4658875
+[206,] 0.3432000
+[207,] 0.3526250
+[208,] 0.3614375
+[209,] 0.4095125
+[210,] 0.4982625
+[211,] 0.4108375
+[212,] 0.5603750
+[213,] 0.3452125
+[214,] 0.4180875
+[215,] 0.3781625
+[216,] 0.5176875
+[217,] 0.3710750
+[218,] 0.3090625
+[219,] 0.5056625
+[220,] 0.3900500
+[221,] 0.3543125
+           [,1]
+ [1,] 0.3273250
+ [2,] 0.3474875
+ [3,] 0.3392750
+ [4,] 0.3279375
+ [5,] 0.3265125
+ [6,] 0.3053750
+ [7,] 0.3176125
+ [8,] 0.3761125
+ [9,] 0.3458000
+[10,] 0.3179000
+[11,] 0.3381875
+[12,] 0.3452500
+[13,] 0.3329625
+[14,] 0.3163250
+[15,] 0.3276125
+[16,] 0.3409625
+[17,] 0.4390375
+[18,] 0.3075500
+[19,] 0.3325250
+[20,] 0.3202375
+          [,1]
+[1,] 0.2663250
+[2,] 0.2425000
+[3,] 0.2309875
+[4,] 0.2538125
+[5,] 0.2478625
+           [,1]
+ [1,] 0.1755750
+ [2,] 0.4856875
+ [3,] 0.3940500
+ [4,] 0.1697000
+ [5,] 0.5217125
+ [6,] 0.2922000
+ [7,] 0.4279875
+ [8,] 0.4231625
+ [9,] 0.2453000
+[10,] 0.3992750
+[11,] 0.5222375
+[12,] 0.3762500
+[13,] 0.2590250
+[14,] 0.3727375
+[15,] 0.2459125
+           [,1]
+ [1,] 0.2021875
+ [2,] 0.2607125
+ [3,] 0.1868250
+ [4,] 0.1831875
+ [5,] 0.3177875
+ [6,] 0.1930125
+ [7,] 0.1726375
+ [8,] 0.1668625
+ [9,] 0.2429500
+[10,] 0.1752250
+[11,] 0.1751375
+[12,] 0.2051750
+[13,] 0.2478875
+[14,] 0.1975375
+[15,] 0.2911625
+[16,] 0.2096250
+[17,] 0.2929125
+[18,] 0.2977000
+[19,] 0.4036500
+[20,] 0.2125625
+[21,] 0.2815875
+[22,] 0.4683750
+[23,] 0.2592375
+[24,] 0.1871125
+[25,] 0.3189500
+[26,] 0.2377875
+[27,] 0.2041250
+[28,] 0.1778375
+           [,1]      [,2]      [,3]      [,4]
+ [1,] 0.3466875 0.3719875 0.4676250 0.8270750
+ [2,] 0.3405250 0.3942000 0.5681125 0.8213500
+ [3,] 0.4174125 0.3530625 0.4400250 0.7152250
+ [4,] 0.3713625 0.3832625 0.4913875 0.7855250
+ [5,] 0.3920375 0.5643750 0.5144500 0.5244750
+ [6,] 0.3230625 0.3590000 0.4966375 0.6354875
+ [7,] 0.3625250 0.3565500 0.4783750 0.7820500
+ [8,] 0.3893625 0.3437500 0.4070125 0.6107750
+ [9,] 0.3580750 0.4540625 0.6073875 0.7290500
+[10,] 0.3504250 0.3497750 0.4136875 0.5605125
+[11,] 0.3338625 0.2767375 0.3165750 0.5040250
+[12,] 0.3322125 0.3517875 0.4369750 0.5638625
+[13,] 0.3295750 0.3550750 0.4594125 0.6538375
+[14,] 0.3306625 0.3658750 0.4769500 0.7280625
+[15,] 0.3915875 0.4254750 0.4930875 0.7567375
+[16,] 0.3014125 0.2951500 0.3759875 0.5533125
+[17,] 0.3614625 0.4368125 0.5439625 0.6491875
+[18,] 0.3674250 0.4177625 0.5093000 0.7116750
+[19,] 0.4432125 0.5890375 0.6311375 0.6706875
+[20,] 0.3434750 0.3896500 0.4939125 0.7700250
+[21,] 0.3740000 0.4319625 0.5198000 0.6985625
+[22,] 0.4653000 0.5304750 0.6418000 0.7867000
+[23,] 0.3246125 0.3229625 0.3968875 0.6611875
+[24,] 0.3162625 0.3282500 0.4185375 0.6399000
+[25,] 0.3751875 0.4573375 0.6417125 0.8017625
+[26,] 0.3381875 0.3981875 0.5171875 0.6594250
+[27,] 0.3144500 0.3090375 0.3622000 0.5584750
+[28,] 0.3071125 0.3014250 0.3757250 0.5368000

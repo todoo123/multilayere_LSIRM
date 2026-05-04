@@ -1,0 +1,270 @@
+Loading required package: permute
+
+Attaching package: ‘igraph’
+
+The following object is masked from ‘package:vegan’:
+
+    diversity
+
+The following object is masked from ‘package:permute’:
+
+    permute
+
+The following objects are masked from ‘package:stats’:
+
+    decompose, spectrum
+
+The following object is masked from ‘package:base’:
+
+    union
+
+
+‘network’ 1.19.0 (2024-12-08), part of the Statnet Project
+* ‘news(package="network")’ for changes since last version
+* ‘citation("network")’ for citation information
+* ‘https://statnet.org’ for help, support, and other information
+
+
+Attaching package: ‘network’
+
+The following objects are masked from ‘package:igraph’:
+
+    %c%, %s%, add.edges, add.vertices, delete.edges, delete.vertices,
+    get.edge.attribute, get.edges, get.vertex.attribute, is.bipartite,
+    is.directed, list.edge.attributes, list.vertex.attributes,
+    set.edge.attribute, set.vertex.attribute
+
+Warning message:
+package ‘ggplot2’ was built under R version 4.4.3 
+Beta4 thresholds (first 3 items):
+      [,1]  [,2]  [,3]  [,4]
+[1,]  0.99  0.83 -0.58 -1.06
+[2,]  0.48  0.35 -1.13 -1.81
+[3,] -0.64 -1.91 -2.25 -2.76
+
+=== Data Summary ===
+Y_bin:  150 x 10 (binary)
+Y_con:  150 x 10 (continuous)
+Y_cnt:  150 x 10 (count)
+Y_ord1: 150 x 10 (ord, K=5)
+
+Ordinal response table:
+Y_ord1
+   1    2    3    4    5 
+1035  244  113   40   68 
+
+True item cluster sizes: 12 12 8 8
+null device 
+          1 
+[FMC init] PCA-eta sd per dim: 3.649, 3.547
+[FMC init] k-means cluster sizes: 6 5 7 2 4 3 7 1 3 2
+
+========== simulation_4_layered_v10 (n=150, P=10/10/10/10, K_true=4, K*=10, M_SM=5, row_center=FALSE, S0_scale=0.01) ==========
+Running joint LSIRM+PPCA-FMC v10 [n=150, P_total=40 (10/10/10/10/0), r_fac=2, K_star=10, e0=0.1, kappa0=0.001, M_SM=5, row_center=FALSE]
+[v10 joint] n=150 P1=10 P2=10 P3=10 P4=10 P5=0 P_total=40 K1=5 K2=0 nu2=4 r_fac=2 K_star=10 M_SM=5
+[v10] Iter: 500 / 50000
+[v10] Iter: 1000 / 50000
+[v10] Iter: 1500 / 50000
+[v10] Iter: 2000 / 50000
+[v10] Iter: 2500 / 50000
+[v10] Iter: 3000 / 50000
+[v10] Iter: 3500 / 50000
+[v10] Iter: 4000 / 50000
+[v10] Iter: 4500 / 50000
+[v10] Iter: 5000 / 50000
+[v10] Iter: 5500 / 50000
+[v10] Iter: 6000 / 50000
+[v10] Iter: 6500 / 50000
+[v10] Iter: 7000 / 50000
+[v10] Iter: 7500 / 50000
+[v10] Iter: 8000 / 50000
+[v10] Iter: 8500 / 50000
+[v10] Iter: 9000 / 50000
+[v10] Iter: 9500 / 50000
+[v10] Iter: 10000 / 50000
+[v10] Iter: 10500 / 50000
+[v10] Iter: 11000 / 50000
+[v10] Iter: 11500 / 50000
+[v10] Iter: 12000 / 50000
+[v10] Iter: 12500 / 50000
+[v10] Iter: 13000 / 50000
+[v10] Iter: 13500 / 50000
+[v10] Iter: 14000 / 50000
+[v10] Iter: 14500 / 50000
+[v10] Iter: 15000 / 50000
+[v10] Iter: 15500 / 50000
+[v10] Iter: 16000 / 50000
+[v10] Iter: 16500 / 50000
+[v10] Iter: 17000 / 50000
+[v10] Iter: 17500 / 50000
+[v10] Iter: 18000 / 50000
+[v10] Iter: 18500 / 50000
+[v10] Iter: 19000 / 50000
+[v10] Iter: 19500 / 50000
+[v10] Iter: 20000 / 50000
+[v10] Iter: 20500 / 50000
+[v10] Iter: 21000 / 50000
+[v10] Iter: 21500 / 50000
+[v10] Iter: 22000 / 50000
+[v10] Iter: 22500 / 50000
+[v10] Iter: 23000 / 50000
+[v10] Iter: 23500 / 50000
+[v10] Iter: 24000 / 50000
+[v10] Iter: 24500 / 50000
+[v10] Iter: 25000 / 50000
+[v10] Iter: 25500 / 50000
+[v10] Iter: 26000 / 50000
+[v10] Iter: 26500 / 50000
+[v10] Iter: 27000 / 50000
+[v10] Iter: 27500 / 50000
+[v10] Iter: 28000 / 50000
+[v10] Iter: 28500 / 50000
+[v10] Iter: 29000 / 50000
+[v10] Iter: 29500 / 50000
+[v10] Iter: 30000 / 50000
+[v10] Iter: 30500 / 50000
+[v10] Iter: 31000 / 50000
+[v10] Iter: 31500 / 50000
+[v10] Iter: 32000 / 50000
+[v10] Iter: 32500 / 50000
+[v10] Iter: 33000 / 50000
+[v10] Iter: 33500 / 50000
+[v10] Iter: 34000 / 50000
+[v10] Iter: 34500 / 50000
+[v10] Iter: 35000 / 50000
+[v10] Iter: 35500 / 50000
+[v10] Iter: 36000 / 50000
+[v10] Iter: 36500 / 50000
+[v10] Iter: 37000 / 50000
+[v10] Iter: 37500 / 50000
+[v10] Iter: 38000 / 50000
+[v10] Iter: 38500 / 50000
+[v10] Iter: 39000 / 50000
+[v10] Iter: 39500 / 50000
+[v10] Iter: 40000 / 50000
+[v10] Iter: 40500 / 50000
+[v10] Iter: 41000 / 50000
+[v10] Iter: 41500 / 50000
+[v10] Iter: 42000 / 50000
+[v10] Iter: 42500 / 50000
+[v10] Iter: 43000 / 50000
+[v10] Iter: 43500 / 50000
+[v10] Iter: 44000 / 50000
+[v10] Iter: 44500 / 50000
+[v10] Iter: 45000 / 50000
+[v10] Iter: 45500 / 50000
+[v10] Iter: 46000 / 50000
+[v10] Iter: 46500 / 50000
+[v10] Iter: 47000 / 50000
+[v10] Iter: 47500 / 50000
+[v10] Iter: 48000 / 50000
+[v10] Iter: 48500 / 50000
+[v10] Iter: 49000 / 50000
+[v10] Iter: 49500 / 50000
+[v10] Iter: 50000 / 50000
+Performing Procrustes matching (LSIRM positions only; FMC parameters are
+  invariant under orthogonal+translation alignment)...
+[v10 split-merge] split: 8236 / 54363 (0.152), merge: 7333 / 170637 (0.043)
+
+-- Acceptance --
+  alpha1..4 mean : 0.568 / 0.561 / 0.571 / 0.585
+  beta1..3 mean  : 0.574 / 0.552 / 0.597
+  log_gamma1..4  : 1.000 / 1.000 / 1.000 / 1.000
+  a / b1..4 mean : 0.572 / 0.580 / 0.329 / 0.583 / 0.576
+  log_kappa per-item mean: 0.498
+
+-- Split-merge --
+  split: 8236 / 54363  (rate 0.152)
+  merge: 7333 / 170637  (rate 0.043)
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+
+=== Distance recovery (correlation) ===
+  All layers combined: 0.749
+  L1 Binary:           0.772
+  L2 Continuous:       0.765
+  L3 Count:            0.756
+  L4 Ordinal:          0.732
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+
+=== Clustering recovery ===
+  median K_+ : 4   (true K = 4)
+  ARI(final partition vs true): 0.867
+  ARI(mode label   vs true):     0.337  (subject to label switching)
+
+Cross-tab: final_partition vs true_item_cluster
+               true_item_cluster
+final_partition  1  2  3  4
+              1 11  0  0  0
+              2  1 12  0  0
+              3  0  0  7  0
+              4  0  0  1  8
+
+Cross-tab: item_cluster_mode vs true_item_cluster
+                 true_item_cluster
+item_cluster_mode 1 2 3 4
+               2  1 0 0 5
+               3  7 1 0 0
+               4  0 5 3 0
+               5  4 6 0 0
+               7  0 0 0 3
+               9  0 0 3 0
+               10 0 0 2 0
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+Warning message:
+In title(...) :
+  for 'Biplot — items coloured by FMC partition (ARI=0.867)' in 'mbcsToSbcs': - substituted for — (U+2014)
+null device 
+          1 
+Warning message:
+In title(...) :
+  for 'Biplot — items coloured by TRUE meta-cluster' in 'mbcsToSbcs': - substituted for — (U+2014)
+
+=== FMC summary ===
+  mean(K_+) = 4.53, median(K_+) = 4, sd(K_+) = 0.76
+  ARI(partition vs true) = 0.867
+  split rate = 0.152, merge rate = 0.043
+
+-> v10 simulation plots & artifacts saved to: /Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/plot/simulation_4_layered_v10_rfac2_norowctr_S0_0.01
+
+=== Done! ===

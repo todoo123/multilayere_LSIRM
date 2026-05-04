@@ -101,7 +101,18 @@ lsirm_fmc_v10_cpp <- function(
     row_center = TRUE,
 
     verbose = TRUE,
-    fix_gamma = FALSE
+    fix_gamma = FALSE,
+
+    # Optional Procrustes target. List with components named matching the
+    # position arrays whose number of rows agree with (n, P1, P2, P3, P4, P5):
+    #   list(a = <n x d>, b1 = <P1 x d>, b2 = ..., b3 = ..., b4 = ..., b5 = ...)
+    # If supplied, every saved iteration's stacked positions are rigidly
+    # aligned (orthogonal+translation, no scale) to this reference. This is
+    # the only way to anchor the chain to a specific frame in simulation
+    # studies where the truth is known. If NULL, falls back to iterative
+    # refinement against the running posterior mean (no truth used; the chain
+    # is internally consistent but its orientation is arbitrary).
+    procrustes_target = NULL
 ) {
 
   # ----- Data preprocessing -----
@@ -256,24 +267,33 @@ lsirm_fmc_v10_cpp <- function(
   )
 
   # ----- Procrustes match LSIRM positions -----
-  cat("Performing Procrustes matching (LSIRM positions only; FMC parameters are\n",
-      "  invariant under orthogonal+translation alignment)...\n", sep = "")
-  A_arr  <- res$a
-  B1_arr <- res$b1; B2_arr <- res$b2; B3_arr <- res$b3
-  B4_arr <- res$b4; B5_arr <- res$b5
-  n_save <- dim(A_arr)[3]
-  ref_idx <- n_save
+  # Each saved iteration carries an arbitrary orthogonal+translation w.r.t.
+  # the truth (likelihood is invariant). Without anchoring, element-level
+  # credible intervals on (a, b) are essentially uninterpretable.
+  #
+  # Two modes here:
+  #   (A) procrustes_target supplied: rigidly align every iteration's stacked
+  #       coords to that fixed reference. In simulation, pass the truth.
+  #   (B) no target: iterative refinement against the running posterior mean
+  #       (3 passes). The chain becomes internally consistent in some
+  #       data-driven frame, but that frame is NOT the truth's frame --
+  #       element-level CIs are valid only relative to that arbitrary frame.
+  cat("Performing Procrustes matching (",
+      if (is.null(procrustes_target)) "iterative posterior-mean refinement"
+      else "external target supplied",
+      "; LSIRM positions only -- FMC parameters\n  are invariant under ",
+      "orthogonal+translation alignment)...\n", sep = "")
+  n_save <- dim(res$a)[3]
 
   get_stacked_coords <- function(idx) {
-    parts <- list(A_arr[,,idx])
-    if (P1 > 0) parts <- c(parts, list(B1_arr[,,idx]))
-    if (P2 > 0) parts <- c(parts, list(B2_arr[,,idx]))
-    if (P3 > 0) parts <- c(parts, list(B3_arr[,,idx]))
-    if (P4 > 0) parts <- c(parts, list(B4_arr[,,idx]))
-    if (P5 > 0) parts <- c(parts, list(B5_arr[,,idx]))
+    parts <- list(res$a[,,idx])
+    if (P1 > 0) parts <- c(parts, list(res$b1[,,idx]))
+    if (P2 > 0) parts <- c(parts, list(res$b2[,,idx]))
+    if (P3 > 0) parts <- c(parts, list(res$b3[,,idx]))
+    if (P4 > 0) parts <- c(parts, list(res$b4[,,idx]))
+    if (P5 > 0) parts <- c(parts, list(res$b5[,,idx]))
     do.call(rbind, parts)
   }
-  Target <- get_stacked_coords(ref_idx)
   idx_A <- 1:n; offset <- n
   if (P1 > 0) { idx_B1 <- (offset+1):(offset+P1); offset <- offset+P1 } else idx_B1 <- integer(0)
   if (P2 > 0) { idx_B2 <- (offset+1):(offset+P2); offset <- offset+P2 } else idx_B2 <- integer(0)
@@ -281,18 +301,92 @@ lsirm_fmc_v10_cpp <- function(
   if (P4 > 0) { idx_B4 <- (offset+1):(offset+P4); offset <- offset+P4 } else idx_B4 <- integer(0)
   if (P5 > 0) { idx_B5 <- (offset+1):(offset+P5); offset <- offset+P5 } else idx_B5 <- integer(0)
 
-  if (n_save > 1) {
-    for (i in 1:(n_save - 1)) {
+  compute_stacked_mean <- function() {
+    parts <- list(apply(res$a, c(1, 2), mean))
+    if (P1 > 0) parts <- c(parts, list(apply(res$b1, c(1, 2), mean)))
+    if (P2 > 0) parts <- c(parts, list(apply(res$b2, c(1, 2), mean)))
+    if (P3 > 0) parts <- c(parts, list(apply(res$b3, c(1, 2), mean)))
+    if (P4 > 0) parts <- c(parts, list(apply(res$b4, c(1, 2), mean)))
+    if (P5 > 0) parts <- c(parts, list(apply(res$b5, c(1, 2), mean)))
+    do.call(rbind, parts)
+  }
+
+  build_external_target <- function(tgt) {
+    parts <- list(as.matrix(tgt$a))
+    stopifnot(nrow(parts[[1]]) == n, ncol(parts[[1]]) == d)
+    if (P1 > 0) { stopifnot(!is.null(tgt$b1), nrow(tgt$b1) == P1); parts <- c(parts, list(as.matrix(tgt$b1))) }
+    if (P2 > 0) { stopifnot(!is.null(tgt$b2), nrow(tgt$b2) == P2); parts <- c(parts, list(as.matrix(tgt$b2))) }
+    if (P3 > 0) { stopifnot(!is.null(tgt$b3), nrow(tgt$b3) == P3); parts <- c(parts, list(as.matrix(tgt$b3))) }
+    if (P4 > 0) { stopifnot(!is.null(tgt$b4), nrow(tgt$b4) == P4); parts <- c(parts, list(as.matrix(tgt$b4))) }
+    if (P5 > 0) { stopifnot(!is.null(tgt$b5), nrow(tgt$b5) == P5); parts <- c(parts, list(as.matrix(tgt$b5))) }
+    do.call(rbind, parts)
+  }
+
+  # Per-iter Procrustes against target overfits each iteration to the
+  # reference, shrinking within-chain variance and underestimating CIs.
+  # We instead use per-iter alignment ONLY against the running posterior
+  # mean (which is itself a Procrustes mean -- so the chain becomes
+  # self-consistent without overfitting any single iter to the truth).
+  align_all_to <- function(Target) {
+    for (i in seq_len(n_save)) {
       Current <- get_stacked_coords(i)
       proc <- vegan::procrustes(X = Target, Y = Current,
                                 scale = FALSE, symmetric = FALSE)
       Aligned <- fitted(proc)
-      res$a[,,i] <- Aligned[idx_A, ]
-      if (length(idx_B1) > 0) res$b1[,,i] <- Aligned[idx_B1, ]
-      if (length(idx_B2) > 0) res$b2[,,i] <- Aligned[idx_B2, ]
-      if (length(idx_B3) > 0) res$b3[,,i] <- Aligned[idx_B3, ]
-      if (length(idx_B4) > 0) res$b4[,,i] <- Aligned[idx_B4, ]
-      if (length(idx_B5) > 0) res$b5[,,i] <- Aligned[idx_B5, ]
+      res$a[,,i] <<- Aligned[idx_A, ]
+      if (length(idx_B1) > 0) res$b1[,,i] <<- Aligned[idx_B1, ]
+      if (length(idx_B2) > 0) res$b2[,,i] <<- Aligned[idx_B2, ]
+      if (length(idx_B3) > 0) res$b3[,,i] <<- Aligned[idx_B3, ]
+      if (length(idx_B4) > 0) res$b4[,,i] <<- Aligned[idx_B4, ]
+      if (length(idx_B5) > 0) res$b5[,,i] <<- Aligned[idx_B5, ]
+    }
+  }
+
+  # Apply a SINGLE rigid transform (rotation R + translation t) uniformly to
+  # every iteration. This shifts the chain's frame without touching the
+  # within-chain variance, which is exactly what is needed when re-anchoring
+  # the posterior mean to a known reference (e.g. the truth in simulation).
+  apply_rigid_to_all <- function(R_mat, trans_vec) {
+    for (i in seq_len(n_save)) {
+      Current <- get_stacked_coords(i)
+      Aligned <- Current %*% R_mat +
+                 matrix(trans_vec, nrow(Current), ncol(Current), byrow = TRUE)
+      res$a[,,i] <<- Aligned[idx_A, ]
+      if (length(idx_B1) > 0) res$b1[,,i] <<- Aligned[idx_B1, ]
+      if (length(idx_B2) > 0) res$b2[,,i] <<- Aligned[idx_B2, ]
+      if (length(idx_B3) > 0) res$b3[,,i] <<- Aligned[idx_B3, ]
+      if (length(idx_B4) > 0) res$b4[,,i] <<- Aligned[idx_B4, ]
+      if (length(idx_B5) > 0) res$b5[,,i] <<- Aligned[idx_B5, ]
+    }
+  }
+
+  if (n_save > 1) {
+    # ---- Step 1: iterative-mean refinement (always) ----
+    n_proc_passes <- 3L
+    prev_target <- NULL
+    for (pass in seq_len(n_proc_passes)) {
+      Target <- compute_stacked_mean()
+      delta <- if (is.null(prev_target)) NA_real_
+               else sqrt(mean((Target - prev_target)^2))
+      align_all_to(Target)
+      cat(sprintf("  iterative-mean pass %d/%d, target shift RMSE = %s\n",
+                  pass, n_proc_passes,
+                  if (is.na(delta)) "(initial)" else sprintf("%.4f", delta)))
+      prev_target <- Target
+    }
+
+    # ---- Step 2 (optional): single rigid re-anchor to external target ----
+    if (!is.null(procrustes_target)) {
+      Target_ext <- build_external_target(procrustes_target)
+      PM <- compute_stacked_mean()
+      pr_anchor <- vegan::procrustes(X = Target_ext, Y = PM,
+                                     scale = FALSE, symmetric = FALSE)
+      apply_rigid_to_all(pr_anchor$rotation, pr_anchor$translation)
+      pre_rmse  <- sqrt(mean((PM - Target_ext)^2))
+      PM2 <- compute_stacked_mean()
+      post_rmse <- sqrt(mean((PM2 - Target_ext)^2))
+      cat(sprintf("  external re-anchor: post-mean RMSE %.3f -> %.3f\n",
+                  pre_rmse, post_rmse))
     }
   }
 

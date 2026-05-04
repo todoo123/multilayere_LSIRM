@@ -1,0 +1,393 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Beamer Presentation - LSIRM_FMC v10
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass{beamer}
+
+\mode<presentation> {
+\usetheme{Madrid}
+\usecolortheme{dolphin}
+}
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{kotex}
+\usepackage{amsmath, amssymb, bm}
+\usepackage{listings}
+\definecolor{codegreen}{rgb}{0,0.6,0}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{white},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    stringstyle=\color{codegreen},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    captionpos=b,
+    numbers=left,
+    keepspaces=true }
+
+%----------------------------------------------------------------------------------------
+%	TITLE PAGE
+%----------------------------------------------------------------------------------------
+
+\title[LSIRM\_FMC v10]{LSIRM\_FMC v10:\\ Joint Multilayered LSIRM with PPCA-Mixture Clustering\\ (NIW Conjugate Prior + Split--Merge)}
+
+\author{Hyunseok Yoon}
+\institute[Yonsei University]
+{
+Yonsei University \\
+\medskip
+\textit{}
+}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Introduction}
+\begin{enumerate}
+    \item Model Summary
+    \begin{itemize}
+        \item Two-block joint model: multilayered LSIRM + PPCA-FMC
+        \item LSIRM block (4-layer mixed-type item-response data)
+        \item PPCA measurement equation on LSIRM-induced log-distance
+        \item NIW conjugate mixture + Jain--Neal split--merge
+    \end{itemize}
+    \item Simulation study (v10)
+    \begin{itemize}
+        \item Coverage of LSIRM parameters
+        \item Cluster recovery (DICE / ARI) vs.\ unilayered baseline
+    \end{itemize}
+    \item todo list
+\end{enumerate}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Model Summary}
+{Two-block architecture}
+
+\begin{block}{Block 1 --- LSIRM (mixed-type, 4 layers)}
+\[
+\eta^{(\ell)}_{ij} \;=\; \alpha^{(\ell)}_i + \beta^{(\ell)}_j - \gamma^{(\ell)} D^{(\ell)}_{ij},
+\qquad D^{(\ell)}_{ij} = \|a_i - b^{(\ell)}_j\|_2.
+\]
+\end{block}
+
+\begin{block}{Block 2 --- PPCA-FMC (item factor mixture clustering)}
+\[
+x_j \;=\; \log \|a_i - b^{(\ell(j))}_j\| ~~\text{(row-centered)}, \qquad
+x_j \mid \delta,\Lambda,\eta_j,\sigma_\varepsilon^2 \sim \mathcal{N}_n(\delta + \Lambda \eta_j,\ \sigma_\varepsilon^2 I_n)
+\]
+\[
+\eta_j \mid c_j = l \sim \mathcal{N}_r(\mu_l, \Sigma_l), \qquad
+(\mu_l, \Sigma_l) \sim \mathrm{NIW}(m_0, \kappa_0, \nu_0, S_0)
+\]
+\end{block}
+
+\begin{itemize}
+    \item LSIRM block 은 응답 데이터의 likelihood 를, FMC block 은 LSIRM 으로부터 유도된 distance profile 의 군집 구조를 모델링합니다.
+    \item 두 block 의 coupling 은 one-way: LSIRM positions $\to$ $X = (x_{ij})$ $\to$ PPCA-FMC.
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Model Summary}
+{LSIRM block --- 4 layers}
+
+\begin{block}{Layer 1: binary}
+\[
+Y^{(1)}_{ij}\mid \eta^{(1)}_{ij} \sim \mathrm{Bernoulli}\!\left(\mathrm{logit}^{-1}\!\left(\eta^{(1)}_{ij}\right)\right)
+\]
+\end{block}
+
+\begin{block}{Layer 2: continuous (robust Student-$t$)}
+\[
+Y^{(2)}_{ij}\mid \eta^{(2)}_{ij},\sigma_0^2,\lambda_{ij}
+\sim \mathcal{N}\!\left(\eta^{(2)}_{ij},\ \sigma_0^2 / \lambda_{ij}\right),\quad
+\lambda_{ij} \sim \mathrm{Gamma}(\nu_2/2,\nu_2/2)
+\]
+\end{block}
+
+\begin{block}{Layer 3: count (Negative Binomial, per-item $\kappa_j$)}
+\[
+Y^{(3)}_{ij}\mid \mu_{ij},\kappa_j \sim \mathrm{NB}\!\left(\tfrac{1}{\kappa_j},\ \mu_{ij}\right),\quad
+\mu_{ij} = \exp(\eta^{(3)}_{ij})
+\]
+\end{block}
+
+\begin{block}{Layer 4: ordinal (GRM)}
+\[
+\mathrm{logit}\,P(Y^{(4)}_{ij}\ge k) = \alpha^{(4)}_i + \beta^{(4)}_{jk} - \gamma^{(4)} D^{(4)}_{ij},\quad k=1,\dots,K_1-1
+\]
+\end{block}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Model Summary}
+{Layer 4 (GRM) --- order-constrained MCMC parameterization}
+
+\begin{itemize}
+    \item GRM threshold 는 $\beta^{(4)}_{j,1} > \beta^{(4)}_{j,2} > \cdots > \beta^{(4)}_{j,K_1-1}$ 의 순서 제약을 만족해야 합니다.
+    \item MCMC 시 다음과 같이 unconstrained 변환을 사용합니다.
+    \begin{itemize}
+        \item $\beta^{(4)}_{j,1} = u_{j,1}$
+        \item $\beta^{(4)}_{j,k} = \beta^{(4)}_{j,k-1} - \exp(\delta_{j,k}),\ k=2,\dots,K_1-1$
+    \end{itemize}
+    \item 따라서 proposal 변수는 $u_{j,1},\delta_{j,2},\dots,\delta_{j,K_1-1}$ 이며 Jacobian 은
+    \[
+        |J| = \prod_{k=2}^{K_1-1} \exp(\delta_{j,k}).
+    \]
+    \item v9 까지의 ordinal-as-continuous 처리에서 Likert 변환 시 truth 복원 실패하던 문제가 해결되었습니다.
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Model Summary}
+{PPCA-FMC block --- design rationale}
+
+\begin{itemize}
+    \item LSIRM 에서 얻은 item-respondent 거리 $\|a_i - b_j\|$ 를 \textbf{log-transform + row-center} 한 profile $x_j \in \mathbb{R}^n$ 을 PPCA 로 모델링합니다.
+    \item Row-centering: respondent 평균 log-distance 를 $\delta_i$ 로 결정론적으로 흡수 → loading $\Lambda$ 의 식별성 확보.
+    \item 각 item 의 latent factor score $\eta_j$ 위에 \textbf{finite Gaussian mixture} 를 부여하여 item meta-cluster 를 얻습니다.
+    \item Sparse overfitted finite mixture: $\rho \sim \mathrm{Dirichlet}(e_0, \dots, e_0)$, $e_0 = 0.1$, $K^\star = 10$ (truncation level).
+    \item Effective cluster 수 $K_+$ 는 비어있지 않은 component 의 수로 자동 결정됩니다.
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Model Summary}
+{v10 의 핵심 변경: NIW conjugate prior}
+
+\begin{block}{v9 vs.\ v10 mixture prior}
+\[
+\text{v9: } \mu_l \sim \mathcal{N}_r(m_0, V_0),\ \ \Sigma_l \sim \mathrm{IW}(\nu_0, S_0) \quad \text{(independent)}
+\]
+\[
+\text{v10: } \Sigma_l \sim \mathrm{IW}(\nu_0, S_0),\ \ \mu_l \mid \Sigma_l \sim \mathcal{N}_r\!\left(m_0,\ \tfrac{1}{\kappa_0}\Sigma_l\right) \quad \text{(NIW)}
+\]
+\end{block}
+
+\begin{itemize}
+    \item NIW 는 conjugate prior 이므로 $(\mu_l, \Sigma_l, \rho)$ 를 \textbf{integrate out} 하여 $c_j$ 의 collapsed posterior predictive 를 closed-form 으로 얻을 수 있습니다.
+    \item Posterior predictive 는 multivariate Student-$t$:
+    \[
+        P(c_j = l \mid c_{-j}, \eta) \;\propto\; (n_{l,-j} + e_0)\, t_{d_{l,-j}}\!\left(\eta_j;\, m_{l,-j},\, V^{\mathrm{pred}}_{l,-j}\right)
+    \]
+    \item Empty component ($n_{l,-j}=0$) 의 경우 prior predictive density 만으로 reoccupy 가능 → label stickiness 완화.
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Model Summary}
+{Jain--Neal split--merge moves}
+
+\begin{itemize}
+    \item Single-site collapsed Gibbs sweep 한 번 후 매 iteration 마다 $M_{\mathrm{SM}} = 5$ 회의 \textbf{Jain--Neal restricted-Gibbs split--merge} proposal 을 시도합니다.
+    \item Target: NIW-collapsed partition target
+    \[
+        \pi(c \mid \eta) \;\propto\; \prod_{l=1}^{K^\star} \frac{\Gamma(n_l + e_0)}{\Gamma(e_0)} \, m(\eta_{\mathcal{J}_l})
+    \]
+    where $m(\eta_{\mathcal{J}_l})$ 는 NIW marginal likelihood.
+    \item 두 item $i,j$ 를 임의 선택 → 같은 cluster 면 \textbf{split}, 다른 cluster 면 \textbf{merge} 제안.
+    \item 단일-사이트 Gibbs 만으로는 한 번에 한 item 만 옮기므로 큰 cluster 를 두 개로 쪼개는 데 어려움이 있는데, split-merge 가 이를 보완합니다.
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Model Summary}
+{$S_0$ 의 elicitation}
+
+\begin{itemize}
+    \item NIW hyperparameter 중 \textbf{$S_0$ 가 가장 sensitive} 합니다. Loose $S_0$ 는 model 이 cluster 를 실제보다 넓다고 믿게 만들어 split 을 억제합니다.
+    \item Pilot chain 진단 절차:
+    \begin{enumerate}
+        \item Pilot run 후 $\eta_j$ posterior mean 으로 cluster 별 within-cluster sd $\widehat{\mathrm{sd}}_q$ 추정.
+        \item Prior implied per-dim sd $\sqrt{s_0/(\nu_0 - r - 1)}$ 와 비교.
+        \item 5--10 배 이상 차이가 나면 $s_0$ 를 줄여 prior implied scale 을 empirical scale 에 맞춤.
+    \end{enumerate}
+    \item v10 default: $S_0 = 0.01\, I_r$, $\nu_0 = r + 10$, $\kappa_0 = 10^{-3}$ → 4-layer simulation 에서 $K_+ = 5$, ARI $= 0.89$ 달성 (이전 default $S_0 = 0.05\, I_r$ 로는 $K_+ = 2$--$3$, ARI $\approx 0.46$).
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Simulation Study}
+{Setting (v10)}
+
+\begin{itemize}
+    \item Sample size: $n = 150$, $P_1 = P_2 = P_3 = P_4 = 10$ (총 $P = 40$ items).
+    \item LSIRM dim $d = 2$, factor dim $r = 2$, truncation $K^\star = 10$, $K_{\mathrm{true}} = 4$.
+    \item True item meta-cluster: 4 개의 diamond 형태 cluster (서로 다른 $\Sigma$ 형태 포함 - isotropic, anisotropic, rotated).
+    \item 두 모델을 동일 데이터 위에서 비교:
+    \begin{enumerate}
+        \item \textbf{Multilayer v10}: 4-layer 그대로 fitting.
+        \item \textbf{Unilayer baseline}: 모든 layer 를 column-mean 기준으로 \textbf{dichotomize} 하여 단일 binary matrix 로 stack 후 동일 v10 sampler 로 fitting.
+    \end{enumerate}
+    \item Procrustes 정렬은 simulation 에서 truth 를 target 으로 사용 (element-level CI 의 의미를 부여하기 위함).
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Simulation Study}
+{Evaluation metrics}
+
+\begin{itemize}
+    \item LSIRM-side coverage: 각 parameter 별 95\% credible interval 의 truth 포함률 + mean width.
+    \begin{itemize}
+        \item $\alpha^{(\ell)}, \beta^{(\ell)}$ ($\ell = 1,2,3$), GRM thresholds $\beta^{(4)}_{jk}$.
+        \item $\gamma^{(\ell)}, \sigma_0^2$.
+        \item Distance coverage $|a_i - b_j|\cdot \gamma$.
+    \end{itemize}
+    \item Cluster recovery:
+    \begin{itemize}
+        \item \textbf{DICE} (pair-counting Sorensen index): $\frac{2A}{2A + B + C}$, label-invariant.
+        \item \textbf{ARI} (adjusted Rand index).
+        \item Posterior similarity matrix $\to$ average-linkage hierarchical clustering $\to$ $K_{\mathrm{true}}$ cluster.
+    \end{itemize}
+    \item Split/merge acceptance rate 도 함께 기록.
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Simulation Study}
+{Results --- coverage of $\alpha$ and $\beta$ \ ($N_{\mathrm{rep}}=100$)}
+
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\centering
+\textbf{(a)} Item discrimination $\alpha$\\[2pt]
+{\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{l cc}
+\toprule
+ & Cov\% (SD) & Width (SD) \\
+\midrule
+\textbf{Unilayer} (single)      & 82.86 (3.91) & 1.23 (0.06) \\
+\midrule
+\textbf{Multilayer}             &              &              \\
+\;Layer 1 (binary)              & 95.33 (1.87) & 2.02 (0.10) \\
+\;Layer 2 (continuous)          & 95.52 (2.21) & 1.19 (0.04) \\
+\;Layer 3 (count)               & 95.28 (2.06) & 1.80 (0.08) \\
+\;Layer 4 (ordinal)             & 95.67 (1.45) & 1.67 (0.05) \\
+\bottomrule
+\end{tabular}
+}
+\end{column}
+
+\begin{column}{0.52\textwidth}
+\centering
+\textbf{(b)} Item difficulty $\beta$\\[2pt]
+{\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{l cc cc}
+\toprule
+ & \multicolumn{2}{c}{\textbf{Unilayer}} & \multicolumn{2}{c}{\textbf{Multilayer}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Layer & Cov\% (SD) & Width (SD) & Cov\% (SD) & Width (SD) \\
+\midrule
+1 (binary)        & 84.00 (10.13)             & 1.67 (0.18) & 94.63 (5.03)         & 1.78 (0.09) \\
+2 (continuous)    & \textbf{\phantom{0}8.80 (5.77)} & 1.65 (0.15) & \textbf{92.63 (5.83)} & 1.11 (0.07) \\
+3 (count)         & 82.27 (9.58)              & 1.59 (0.19) & 94.90 (4.68)         & 1.47 (0.07) \\
+4 (ordinal thr.)  & ---                       & ---         & 94.96 (2.86)         & 1.61 (0.08) \\
+\bottomrule
+\end{tabular}
+}
+\end{column}
+\end{columns}
+
+\vspace{2pt}
+{\tiny
+\textbf{Notes.} Unilayer baseline 은 모든 layer 를 column-mean 기준으로 dichotomize 하여 single binary matrix 로 stack 한 뒤 동일 sampler 로 fitting → 단일 $\alpha$ vector (150-dim) 만 얻음. $\beta$ 는 stacked matrix 의 segment 별로 보고 (binary / continuous-dichot. / count-dichot.); ordinal 항목은 stacking 시 dichotomize 되어 별도 segment 로 분리 보고되지 않음. Cov\% / Width 는 element-wise 95\% CI 의 \emph{coverage rate} 와 \emph{mean width}, 괄호는 rep 간 SD ($N_{\mathrm{rep}}=100$).
+}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Simulation Study}
+{Results --- distance coverage \& cluster recovery \ ($N_{\mathrm{rep}}=100$)}
+
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\centering
+\textbf{(c)} Distance $\gamma\,\lVert a_i - b_j\rVert$\\[2pt]
+{\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{l cc}
+\toprule
+ & Cov\% (SD) & Width (SD) \\
+\midrule
+\textbf{Unilayer} (combined)    & 81.31 (4.66) & 2.41 (0.07) \\
+\midrule
+\textbf{Multilayer}             &              &              \\
+\;Layer 1 (binary)              & 95.98 (1.45) & 2.34 (0.13) \\
+\;Layer 2 (continuous)          & 95.28 (1.59) & 1.66 (0.04) \\
+\;Layer 3 (count)               & 95.85 (1.54) & 2.07 (0.09) \\
+\;Layer 4 (ordinal)             & 95.83 (1.52) & 2.02 (0.08) \\
+\bottomrule
+\end{tabular}
+}
+\end{column}
+
+\begin{column}{0.45\textwidth}
+\centering
+\textbf{(d)} Cluster recovery (ARI)\\[2pt]
+{\scriptsize
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{l cc}
+\toprule
+Model & Mean & SD \\
+\midrule
+Unilayer        & 0.200             & 0.141 \\
+Multilayer (v10)& \textbf{0.729}    & 0.081 \\
+\bottomrule
+\end{tabular}
+}
+\vspace{4pt}
+{\tiny
+ARI 는 posterior similarity matrix 기반 average-linkage clustering ($K_{\mathrm{true}}=4$) 결과를 truth 와 비교.
+}
+\end{column}
+\end{columns}
+
+\vspace{2pt}
+{\tiny
+\textbf{Notes.} Unilayer distance 는 stacked binary matrix 전체 (18{,}000-dim) 에 대한 단일 $\gamma\lVert a_i - b_j\rVert$ vector. Multilayer 는 layer 별 4{,}500-dim 씩 분리 보고. Cov\% / Width 정의는 (a)(b) 와 동일 ($N_{\mathrm{rep}}=100$).
+}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{todo list}
+\begin{enumerate}
+    \item Simulation
+    \begin{enumerate}
+        \item v10 simulation $N_{\mathrm{rep}} = 10$ 결과 정리 + 그림 생성 \textbf{(진행중)}
+        \item Multilayer 가 unilayer 대비 강점을 명확히 보이는 cluster geometry 시나리오 추가 (anisotropic / rotated) \textbf{(진행중)}
+        \item $S_0$ sensitivity check (default $0.01 I_r$ 대비 $\pm$ 한 order 변화 시 cluster recovery 변화) \textbf{(예정)}
+    \end{enumerate}
+    \item Real data
+    \begin{enumerate}
+        \item MIDUS 5-layer 결과 ($r_{\mathrm{fac}} = 5$, cumvar 99.09\%) 정리 \textbf{(진행중)}
+        \item KSHA data 관련 염유식 교수님 lab 미팅 요청 \textbf{(진행중)}
+        \item 전민정 교수님 depression checklist + 생체 데이터 결합 분석 \textbf{(진행중)}
+    \end{enumerate}
+    \item Methodology paper
+    \begin{enumerate}
+        \item v10 NIW + split-merge 부분 완성 \textbf{(완료)}
+        \item Identifiability / Procrustes alignment 논의 보강 \textbf{(예정)}
+    \end{enumerate}
+\end{enumerate}
+\end{frame}
+
+%------------------------------------------------
+
+\bibliographystyle{Chicago}
+\bibliography{reference}
+
+\end{document}

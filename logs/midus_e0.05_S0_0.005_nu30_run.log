@@ -1,0 +1,535 @@
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+
+====== Wave 2 preprocess ======
+
+=== Survey (04652 / M2P1) selected ===
+dim: 4963 7 
+
+
+=== Biomarker (29282 / M2P4) selected ===
+dim: 1255 54 
+
+
+=== Cognitive (25281 / M2P3) selected ===
+dim: 4512 16 
+
+
+=== Biomarker 변환 후 class 확인 ===
+'data.frame':	1255 obs. of  54 variables:
+ $ M2ID    : num  10002 10005 10019 10040 10047 ...
+ $ B4Q1D   : int  1 1 1 1 3 1 1 3 2 3 ...
+ $ B4Q1H   : int  2 1 2 1 1 1 1 1 1 2 ...
+ $ B4Q1K   : int  1 1 1 1 2 1 1 1 2 3 ...
+ $ B4Q1N   : int  2 1 1 1 2 1 1 2 3 3 ...
+ $ B4Q1P   : int  1 1 1 1 2 1 1 1 1 2 ...
+ $ B4Q1T   : int  2 1 4 1 1 1 1 1 1 2 ...
+ $ B4Q1Z   : int  1 1 1 2 1 2 1 1 1 3 ...
+ $ B4Q1FF  : int  2 1 1 1 1 2 1 1 2 2 ...
+ $ B4Q1II  : int  1 1 2 1 1 1 1 1 1 3 ...
+ $ B4Q1CCC : int  1 1 1 2 1 2 1 1 2 3 ...
+ $ B4Q1GGG : int  2 1 2 1 1 1 2 1 2 4 ...
+ $ B4Q1B   : int  1 1 1 1 1 1 1 1 2 3 ...
+ $ B4Q1F   : int  1 2 1 1 1 1 2 1 1 2 ...
+ $ B4Q1M   : int  1 1 1 1 1 2 2 1 3 1 ...
+ $ B4Q1Q   : int  3 1 1 1 1 1 1 1 1 3 ...
+ $ B4Q1S   : int  1 1 1 1 2 1 1 1 4 4 ...
+ $ B4Q1X   : int  1 1 1 1 1 1 1 1 1 3 ...
+ $ B4Q1BB  : int  1 2 1 1 1 1 1 1 1 3 ...
+ $ B4Q1DD  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ B4Q1KK  : int  3 1 1 1 1 1 2 1 1 1 ...
+ $ B4Q1NN  : int  1 1 1 1 1 1 1 1 1 2 ...
+ $ B4Q1PP  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ B4Q1RR  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ B4Q1TT  : int  2 1 1 1 1 2 1 1 2 3 ...
+ $ B4Q1VV  : int  1 1 1 1 1 1 1 1 4 2 ...
+ $ B4Q1ZZ  : int  1 1 1 1 2 1 1 1 1 3 ...
+ $ B4Q1BBB : int  3 1 1 1 1 1 2 1 1 1 ...
+ $ B4Q1JJJ : int  2 1 1 1 1 2 3 2 1 1 ...
+ $ B4Q3A   : int  0 0 1 0 0 0 0 0 1 1 ...
+ $ B4Q3B   : int  0 0 0 0 0 0 0 0 1 0 ...
+ $ B4Q3C   : int  1 0 0 0 0 0 0 0 1 1 ...
+ $ B4Q3D   : int  0 0 0 0 0 0 1 0 1 1 ...
+ $ B4Q3E   : int  0 0 1 0 0 1 0 0 1 1 ...
+ $ B4Q3F   : int  0 0 0 0 0 0 0 0 1 1 ...
+ $ B4Q3G   : int  1 0 0 0 0 0 1 0 0 1 ...
+ $ B4Q3H   : int  1 0 0 1 0 0 0 0 1 1 ...
+ $ B4Q3I   : int  0 0 0 0 0 0 0 0 0 1 ...
+ $ B4Q3J   : int  0 0 0 0 1 0 0 0 1 1 ...
+ $ B4Q3K   : int  0 0 0 0 0 1 1 1 1 1 ...
+ $ B4Q3L   : int  1 0 0 1 1 0 0 1 1 1 ...
+ $ B4Q3M   : int  1 0 0 0 1 0 1 0 0 1 ...
+ $ B4Q3N   : int  1 0 1 0 0 0 0 0 1 1 ...
+ $ B4Q3O   : int  0 0 0 0 1 0 0 0 0 1 ...
+ $ B4Q3P   : int  1 0 0 0 1 0 0 0 1 1 ...
+ $ B4Q3Q   : int  1 0 0 0 0 0 0 0 1 0 ...
+ $ B4Q3R   : int  1 0 1 0 1 0 0 0 1 1 ...
+ $ B4Q3S   : int  0 0 1 0 0 0 0 0 0 1 ...
+ $ B4Q3T   : int  1 0 1 0 0 0 1 0 1 1 ...
+ $ B4BSCL14: num  26.13 8.32 12.33 10.91 13.96 ...
+ $ B4BNE12 : num  19.4 18.6 13.9 21.9 18 ...
+ $ B4BIL6  : num  2.57 3.65 3.35 0.87 3.39 1.16 5.42 1.43 3.62 6.95 ...
+ $ B4BFGN  : num  362 451 267 293 395 346 736 240 489 435 ...
+ $ B4BCRP  : num  0.41 2.64 1.02 0.35 6.09 0.84 31.6 0.29 8.54 5.79 ...
+
+=== Cognitive 변환 후 summary (new count vars) ===
+
+[wl_immediate_omit]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   7.000   8.000   8.318  10.000  15.000      19 
+
+[wl_immediate_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.2566  0.0000 14.0000      19 
+
+[wl_immediate_intrusion]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.4661  1.0000  7.0000      19 
+
+[wl_delayed_omit]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+   1.00    9.00   11.00   10.64   12.00   15.00     236 
+
+[wl_delayed_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.1006  0.0000 16.0000     236 
+
+[wl_delayed_intrusion]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.9048  1.0000 26.0000     236 
+
+[catflu_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.3284  0.0000  8.0000      14 
+
+[catflu_intrusion]
+    Min.  1st Qu.   Median     Mean  3rd Qu.     Max.     NA's 
+ 0.00000  0.00000  0.00000  0.05158  0.00000 16.00000       14 
+
+[numseries_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   2.000   3.000   2.824   4.000   5.000      45 
+
+[backcount_error]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.8725  1.0000 90.0000      33 
+
+[sgst_normal_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.2947  0.0000 20.0000     212 
+
+[sgst_reverse_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.6926  1.0000 20.0000     208 
+
+[sgst_mixed_nonswitch_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   1.006   1.000  23.000     207 
+
+[sgst_mixed_switch_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.3401  0.0000  6.0000     207 
+
+[sgst_mixed_all_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   1.346   1.000  29.000     207 
+
+=== Screening 결과 ===
+전체: 4963 
+screen_case
+   0    1 <NA> 
+3764  687  512 
+
+=== df_p4_pheno ===
+dim: 1255 54 
+
+=== df_p3_pheno ===
+dim: 4512 16 
+
+=== 분석용 데이터셋 크기 ===
+df_analysis_p4  (P1×P4):       1054 명 × 65 변수
+df_analysis_p3  (P1×P3):       4206 명 × 27 변수
+df_analysis_all (P1×P3×P4):    1016 명 × 80 변수
+
+=== P1-P4: screen_case==1 → 154명 ===
+  변수별 NA (제거 전):
+   B4Q3A    B4Q3B    B4Q3C    B4Q3D    B4Q3E    B4Q3F    B4Q3G    B4Q3H 
+       2        2        3        3        3        4        2        3 
+   B4Q3I    B4Q3J    B4Q3K    B4Q3L    B4Q3M    B4Q3N    B4Q3O    B4Q3P 
+       3        3        3        3        3        2        2        2 
+   B4Q3Q    B4Q3R    B4Q3S    B4Q3T    B4Q1N   B4Q1FF   B4Q1RR B4BSCL14 
+       3        2        2        2        1        1        1       10 
+ B4BNE12   B4BIL6   B4BFGN   B4BCRP 
+       4        1        2        2 
+  NA 없는 complete case: 135 / 154명
+  → NA 제거 후: 135명 (제거 19명)
+  Y_bin: 135×20 | Y_cnt: 135×0 | Y_ord1: 135×28 (K1=5) | Y_ord2: 135×0 (K2=–) | Y_con: 135×5
+
+=== P1-P3: screen_case==1 → 560명 ===
+  변수별 NA (제거 전):
+             wl_immediate_omit        wl_immediate_repetition 
+                             5                              5 
+        wl_immediate_intrusion                wl_delayed_omit 
+                             5                             21 
+         wl_delayed_repetition           wl_delayed_intrusion 
+                            21                             21 
+             catflu_repetition               catflu_intrusion 
+                             2                              2 
+           numseries_incorrect                backcount_error 
+                             8                              6 
+         sgst_normal_incorrect         sgst_reverse_incorrect 
+                            27                             27 
+sgst_mixed_nonswitch_incorrect    sgst_mixed_switch_incorrect 
+                            27                             27 
+      sgst_mixed_all_incorrect 
+                            27 
+  NA 없는 complete case: 517 / 560명
+  → NA 제거 후: 517명 (제거 43명)
+  Y_bin: 517×0 | Y_cnt: 517×15 | Y_ord1: 517×0 (K1=–) | Y_ord2: 517×0 (K2=–) | Y_con: 517×0
+
+=== P1-P3-P4: screen_case==1 → 148명 ===
+  변수별 NA (제거 전):
+                         B4Q3A                          B4Q3B 
+                             2                              2 
+                         B4Q3C                          B4Q3D 
+                             3                              3 
+                         B4Q3E                          B4Q3F 
+                             3                              4 
+                         B4Q3G                          B4Q3H 
+                             2                              3 
+                         B4Q3I                          B4Q3J 
+                             3                              3 
+                         B4Q3K                          B4Q3L 
+                             3                              3 
+                         B4Q3M                          B4Q3N 
+                             3                              2 
+                         B4Q3O                          B4Q3P 
+                             2                              2 
+                         B4Q3Q                          B4Q3R 
+                             3                              2 
+                         B4Q3S                          B4Q3T 
+                             2                              2 
+             wl_immediate_omit        wl_immediate_repetition 
+                             1                              1 
+        wl_immediate_intrusion                wl_delayed_omit 
+                             1                              2 
+         wl_delayed_repetition           wl_delayed_intrusion 
+                             2                              2 
+           numseries_incorrect          sgst_normal_incorrect 
+                             1                              5 
+        sgst_reverse_incorrect sgst_mixed_nonswitch_incorrect 
+                             5                              5 
+   sgst_mixed_switch_incorrect       sgst_mixed_all_incorrect 
+                             5                              5 
+                         B4Q1N                         B4Q1FF 
+                             1                              1 
+                        B4Q1RR                       B4BSCL14 
+                             1                             10 
+                       B4BNE12                         B4BIL6 
+                             4                              1 
+                        B4BFGN                         B4BCRP 
+                             2                              2 
+  NA 없는 complete case: 125 / 148명
+  → NA 제거 후: 125명 (제거 23명)
+  Y_bin: 125×20 | Y_cnt: 125×15 | Y_ord1: 125×28 (K1=5) | Y_ord2: 125×0 (K2=–) | Y_con: 125×5
+
+====== Refresher 1 preprocess ======
+
+=== Survey (36532) selected ===
+dim: 3577 7 
+
+
+=== Biomarker (36901) selected ===
+dim: 863 54 
+
+
+=== Cognitive (37081) selected ===
+dim: 2763 16 
+
+
+=== Biomarker 변환 후 class 확인 ===
+'data.frame':	863 obs. of  54 variables:
+ $ MRID     : num  30024 30052 30059 30092 30104 ...
+ $ RA4Q1D   : int  2 1 1 1 1 1 1 1 1 2 ...
+ $ RA4Q1H   : int  1 2 3 2 2 1 1 2 1 3 ...
+ $ RA4Q1K   : int  1 3 2 2 2 1 1 1 1 2 ...
+ $ RA4Q1N   : int  2 2 2 1 1 2 1 1 1 2 ...
+ $ RA4Q1P   : int  3 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1T   : int  2 1 2 2 3 1 1 1 1 3 ...
+ $ RA4Q1Z   : int  2 2 2 1 1 3 1 2 1 1 ...
+ $ RA4Q1FF  : int  3 1 2 2 1 1 1 1 1 2 ...
+ $ RA4Q1II  : int  1 1 1 1 1 2 1 1 1 4 ...
+ $ RA4Q1CCC : int  2 1 1 2 1 1 1 1 1 1 ...
+ $ RA4Q1GGG : int  2 1 1 4 2 1 1 1 1 2 ...
+ $ RA4Q1B   : int  1 1 1 1 1 1 2 2 1 3 ...
+ $ RA4Q1F   : int  1 1 2 1 1 1 1 1 1 1 ...
+ $ RA4Q1M   : int  1 1 1 2 1 1 1 1 1 3 ...
+ $ RA4Q1Q   : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1S   : int  1 1 3 1 1 1 3 1 1 4 ...
+ $ RA4Q1X   : int  1 1 1 1 1 1 2 1 1 1 ...
+ $ RA4Q1BB  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1DD  : int  1 1 1 1 1 2 1 1 1 1 ...
+ $ RA4Q1KK  : int  4 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1NN  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1PP  : int  1 1 1 1 1 2 1 1 1 1 ...
+ $ RA4Q1RR  : int  1 1 1 1 1 1 1 1 1 1 ...
+ $ RA4Q1TT  : int  1 1 1 3 2 1 2 1 1 1 ...
+ $ RA4Q1VV  : int  1 1 1 1 1 1 1 1 1 3 ...
+ $ RA4Q1ZZ  : int  1 1 1 1 1 3 1 1 1 1 ...
+ $ RA4Q1BBB : int  1 1 1 3 1 2 1 1 1 2 ...
+ $ RA4Q1JJJ : int  2 1 1 2 3 2 2 1 1 3 ...
+ $ RA4Q3A   : int  0 0 0 1 0 0 1 0 0 1 ...
+ $ RA4Q3B   : int  0 0 0 0 0 0 1 0 0 0 ...
+ $ RA4Q3C   : int  0 0 0 0 0 0 0 0 0 1 ...
+ $ RA4Q3D   : int  1 0 0 0 0 0 0 0 0 1 ...
+ $ RA4Q3E   : int  0 0 0 1 0 0 1 1 0 1 ...
+ $ RA4Q3F   : int  1 0 0 0 1 0 0 0 0 1 ...
+ $ RA4Q3G   : int  1 0 1 1 0 0 1 0 0 1 ...
+ $ RA4Q3H   : int  1 1 0 1 0 0 1 0 0 1 ...
+ $ RA4Q3I   : int  0 0 0 0 0 0 0 0 0 1 ...
+ $ RA4Q3J   : int  0 0 0 0 0 0 0 0 0 1 ...
+ $ RA4Q3K   : int  1 1 1 1 1 1 0 0 0 1 ...
+ $ RA4Q3L   : int  1 0 0 1 1 0 0 0 0 0 ...
+ $ RA4Q3M   : int  1 0 0 1 0 0 1 1 0 1 ...
+ $ RA4Q3N   : int  0 0 0 1 0 0 1 0 0 1 ...
+ $ RA4Q3O   : int  1 0 0 1 0 0 0 0 0 1 ...
+ $ RA4Q3P   : int  1 0 0 1 0 0 0 0 0 0 ...
+ $ RA4Q3Q   : int  0 0 0 1 0 0 0 0 0 0 ...
+ $ RA4Q3R   : int  0 0 0 1 0 0 0 0 0 1 ...
+ $ RA4Q3S   : int  0 0 0 1 0 0 1 0 0 1 ...
+ $ RA4Q3T   : int  0 0 0 1 0 0 0 0 0 1 ...
+ $ RA4BSCLAV: num  23.2 25.9 12.9 20.3 31.4 ...
+ $ RA4BNE12 : num  28.9 14.4 26.7 21.3 43.6 ...
+ $ RA4BIL6  : num  3.84 1.35 2.29 8.89 4.33 ...
+ $ RA4BFGN  : num  259 365 366 330 241 440 343 326 324 419 ...
+ $ RA4BCRP  : num  1.29 1.27 3.83 6.03 1.15 4.79 0.9 0.55 1.84 7.42 ...
+
+=== Cognitive 변환 후 summary (new count vars) ===
+
+[wl_immediate_omit]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   7.000   8.000   7.869   9.000  15.000       9 
+
+[wl_immediate_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.3199  0.0000 10.0000       9 
+
+[wl_immediate_intrusion]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.5251  1.0000  9.0000       9 
+
+[wl_delayed_omit]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+   0.00    9.00   11.00   10.26   12.00   15.00     153 
+
+[wl_delayed_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.1115  0.0000 12.0000     153 
+
+[wl_delayed_intrusion]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   1.000   1.051   1.000  15.000     153 
+
+[catflu_repetition]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   0.459   1.000   8.000      18 
+
+[catflu_intrusion]
+    Min.  1st Qu.   Median     Mean  3rd Qu.     Max.     NA's 
+ 0.00000  0.00000  0.00000  0.06703  0.00000 16.00000       18 
+
+[numseries_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   1.000   3.000   2.535   4.000   5.000      72 
+
+[backcount_error]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.9771  1.0000 90.0000      51 
+
+[sgst_normal_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.7556  0.0000 20.0000       1 
+
+[sgst_reverse_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   1.403   1.000  20.000       1 
+
+[sgst_mixed_nonswitch_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   0.000   1.966   1.000  23.000       1 
+
+[sgst_mixed_switch_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+ 0.0000  0.0000  0.0000  0.6217  1.0000  6.0000       1 
+
+[sgst_mixed_all_incorrect]
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+  0.000   0.000   1.000   2.588   2.000  29.000       1 
+
+=== Screening 결과 ===
+전체: 3577 
+screen_case
+   0    1 <NA> 
+2617  606  354 
+
+=== df_p4_pheno ===
+dim: 863 54 
+
+=== df_p3_pheno ===
+dim: 2763 16 
+
+=== 분석용 데이터셋 크기 ===
+df_analysis_p4  (Survey×Bio):       746 명 × 65 변수
+df_analysis_p3  (Survey×Cog):       2550 명 × 27 변수
+df_analysis_all (Survey×Cog×Bio):   713 명 × 80 변수
+
+=== Survey-Bio: screen_case==1 → 123명 ===
+  변수별 NA (제거 전):
+   RA4Q1D    RA4Q1Z RA4BSCLAV  RA4BNE12   RA4BIL6   RA4BFGN   RA4BCRP 
+        1         1         6         3         2         2         2 
+  NA 없는 complete case: 110 / 123명
+  → NA 제거 후: 110명 (제거 13명)
+  Y_bin: 110×20 | Y_cnt: 110×0 | Y_ord1: 110×28 (K1=5) | Y_ord2: 110×0 (K2=–) | Y_con: 110×5
+
+=== Survey-Cog: screen_case==1 → 424명 ===
+  변수별 NA (제거 전):
+      wl_immediate_omit wl_immediate_repetition  wl_immediate_intrusion 
+                      2                       2                       2 
+        wl_delayed_omit   wl_delayed_repetition    wl_delayed_intrusion 
+                     25                      25                      25 
+      catflu_repetition        catflu_intrusion     numseries_incorrect 
+                      2                       2                      14 
+        backcount_error 
+                      9 
+  NA 없는 complete case: 393 / 424명
+  → NA 제거 후: 393명 (제거 31명)
+  Y_bin: 393×0 | Y_cnt: 393×15 | Y_ord1: 393×0 (K1=–) | Y_ord2: 393×0 (K2=–) | Y_con: 393×0
+
+=== Survey-Cog-Bio: screen_case==1 → 113명 ===
+  변수별 NA (제거 전):
+      wl_delayed_omit wl_delayed_repetition  wl_delayed_intrusion 
+                    7                     7                     7 
+  numseries_incorrect       backcount_error                RA4Q1D 
+                    1                     1                     1 
+               RA4Q1Z             RA4BSCLAV              RA4BNE12 
+                    1                     6                     3 
+              RA4BIL6               RA4BFGN               RA4BCRP 
+                    2                     2                     2 
+  NA 없는 complete case: 96 / 113명
+  → NA 제거 후: 96명 (제거 17명)
+  Y_bin: 96×20 | Y_cnt: 96×15 | Y_ord1: 96×28 (K1=5) | Y_ord2: 96×0 (K2=–) | Y_con: 96×5
+Loading required package: permute
+
+Attaching package: ‘igraph’
+
+The following object is masked from ‘package:vegan’:
+
+    diversity
+
+The following object is masked from ‘package:permute’:
+
+    permute
+
+The following objects are masked from ‘package:purrr’:
+
+    compose, simplify
+
+The following objects are masked from ‘package:dplyr’:
+
+    as_data_frame, groups, union
+
+The following objects are masked from ‘package:stats’:
+
+    decompose, spectrum
+
+The following object is masked from ‘package:base’:
+
+    union
+
+
+‘network’ 1.19.0 (2024-12-08), part of the Statnet Project
+* ‘news(package="network")’ for changes since last version
+* ‘citation("network")’ for citation information
+* ‘https://statnet.org’ for help, support, and other information
+
+
+Attaching package: ‘network’
+
+The following objects are masked from ‘package:igraph’:
+
+    %c%, %s%, add.edges, add.vertices, delete.edges, delete.vertices,
+    get.edge.attribute, get.edges, get.vertex.attribute, is.bipartite,
+    is.directed, list.edge.attributes, list.vertex.attributes,
+    set.edge.attribute, set.vertex.attribute
+
+
+Attaching package: ‘MASS’
+
+The following object is masked from ‘package:dplyr’:
+
+    select
+
+Warning message:
+package ‘ggplot2’ was built under R version 4.4.3 
+[FMC init] PCA-eta scale: sd per dim = 4.072, 3.546, 2.841, 2.735, 2.655
+[FMC init] kmeans cluster sizes: 3 10 5 8 10 8 4 8 4 8
+
+========== Case 1: All (bin+con+cnt+ord) [v10_fmc_r5_K10_e0.05_S0_0.005_nu30_M5] ==========
+  Y_bin: 221×20 | Y_con: 221×5 | Y_cnt: 221×15 | Y_ord1: 221×28 | Y_ord2: 221×0
+Running joint LSIRM+PPCA-FMC v10 [n=221, P_total=68 (20/5/15/28/0), r_fac=5, K_star=10, e0=0.05, kappa0=0.001, M_SM=5, row_center=TRUE]
+[v10 joint] n=221 P1=20 P2=5 P3=15 P4=28 P5=0 P_total=68 K1=5 K2=0 nu2=4 r_fac=5 K_star=10 M_SM=5
+[v10] Iter: 500 / 80000
+[v10] Iter: 1000 / 80000
+[v10] Iter: 1500 / 80000
+[v10] Iter: 2000 / 80000
+[v10] Iter: 2500 / 80000
+[v10] Iter: 3000 / 80000
+[v10] Iter: 3500 / 80000
+[v10] Iter: 4000 / 80000
+[v10] Iter: 4500 / 80000
+[v10] Iter: 5000 / 80000
+[v10] Iter: 5500 / 80000
+[v10] Iter: 6000 / 80000
+[v10] Iter: 6500 / 80000
+[v10] Iter: 7000 / 80000
+[v10] Iter: 7500 / 80000
+[v10] Iter: 8000 / 80000
+[v10] Iter: 8500 / 80000
+[v10] Iter: 9000 / 80000
+[v10] Iter: 9500 / 80000
+[v10] Iter: 10000 / 80000
+[v10] Iter: 10500 / 80000
+[v10] Iter: 11000 / 80000
+[v10] Iter: 11500 / 80000
+[v10] Iter: 12000 / 80000
+[v10] Iter: 12500 / 80000
+[v10] Iter: 13000 / 80000
+[v10] Iter: 13500 / 80000
+[v10] Iter: 14000 / 80000
+[v10] Iter: 14500 / 80000
+[v10] Iter: 15000 / 80000
+[v10] Iter: 15500 / 80000
+[v10] Iter: 16000 / 80000
+[v10] Iter: 16500 / 80000
+[v10] Iter: 17000 / 80000
+[v10] Iter: 17500 / 80000
+[v10] Iter: 18000 / 80000
+[v10] Iter: 18500 / 80000
+[v10] Iter: 19000 / 80000
+[v10] Iter: 19500 / 80000
+[v10] Iter: 20000 / 80000
+[v10] Iter: 20500 / 80000
+[v10] Iter: 21000 / 80000
+[v10] Iter: 21500 / 80000
+[v10] Iter: 22000 / 80000
+[v10] Iter: 22500 / 80000
+[v10] Iter: 23000 / 80000

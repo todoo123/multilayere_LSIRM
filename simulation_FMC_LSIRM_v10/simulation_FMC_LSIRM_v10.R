@@ -54,14 +54,14 @@ library(vegan)
 ################################################################################
 # 2. Simulation configuration
 ################################################################################
-N_REP   <- 10L          # number of replications
+N_REP   <- 1L          # number of replications
 SEED0   <- 20260501L    # base seed; replication r uses SEED0 + r
 
 n  <- 150L
-P1 <- 10L     # binary
-P2 <- 10L     # continuous (robust Student-t)
-P3 <- 10L     # count (NB)
-P4 <- 10L     # ordinal (GRM, K1=5)
+P1 <- 30L     # binary
+P2 <- 30L     # continuous (robust Student-t)
+P3 <- 30L     # count (NB)
+P4 <- 30L     # ordinal (GRM, K1=5)
 P_total <- P1 + P2 + P3 + P4
 
 d        <- 2L
@@ -94,8 +94,8 @@ sigma_meta <- list(
   diag(c(0.18, 0.18)),
   make_rot(pi / 4) %*% diag(c(0.45, 0.07)) %*% t(make_rot(pi / 4))
 )
-centers_resp    <- centers_meta * 1.5
-sd_cluster_resp <- 0.80
+centers_resp    <- centers_meta * 0.7   # was 1.5; rescaled to match LSIRM position prior N(0,I) (per-coord var ~ 0.74)
+sd_cluster_resp <- 0.5                  # was 0.80
 
 # True item clusters (round-robin assignment within each layer)
 assign_meta <- function(P, K) rep_len(seq_len(K), P)
@@ -127,14 +127,21 @@ common_lsirm_hyper <- list(
   mu_beta5 = 0, sd_beta5 = 2
 )
 common_lsirm_prop_sd <- list(
-  alpha1 = 0.5, alpha2 = 0.4, alpha3 = 0.5, alpha4 = 0.5, alpha5 = 0.5,
-  log_gamma1 = 0.10, log_gamma2 = 0.05, log_gamma3 = 0.05,
+  alpha1 = 1.15, alpha2 = 0.48, alpha3 = 1.15, alpha4 = 0.92, alpha5 = 0.5,
+  log_gamma1 = 0.07, log_gamma2 = 0.018, log_gamma3 = 0.05,
   log_gamma4 = 0.05, log_gamma5 = 0.05,
-  a = 0.30,
-  beta1 = 0.40, beta2 = 0.10, beta3 = 0.20, beta4 = 0.30, beta5 = 0.30,
-  b1 = 0.30, b2 = 0.20, b3 = 0.20, b4 = 0.20, b5 = 0.20,
+  a = 0.26,
+  beta1 = 0.44, beta2 = 0.13, beta3 = 0.37, beta4 = 0.30, beta5 = 0.30,
+  b1 = 0.33, b2 = 0.13, b3 = 0.30, b4 = 0.26, b5 = 0.20,
   log_kappa = 0.20
 )
+
+# Unilayer SDs: same as multilayer except alpha1 and log_gamma1, which see
+# all P_total=120 dichotomized items per respondent (vs 30 binary in multi),
+# so their posteriors are more concentrated and proposal SDs must shrink.
+uni_lsirm_prop_sd <- common_lsirm_prop_sd
+uni_lsirm_prop_sd$alpha1     <- 0.69    # was 1.15; multi acc 0.228 -> shrink x0.6
+uni_lsirm_prop_sd$log_gamma1 <- 0.035   # was 0.07; multi acc 0.162 -> shrink x0.5
 common_fmc_hyper <- list(
   e0            = e0,
   m0            = rep(0, r_fac),
@@ -356,6 +363,73 @@ build_fmc_init_smart <- function(eta_init_pca, n_, K_star, r_fac) {
   )
 }
 
+# ---------- label matching (brute-force permutation; K is small) ----------
+# Returns est_lab relabeled by the permutation that maximizes agreement with
+# true_lab. K = number of true clusters (= number of est clusters here).
+match_labels_to_truth <- function(true_lab, est_lab, K) {
+  stopifnot(length(true_lab) == length(est_lab))
+  perms <- (function(n) {
+    if (n == 1L) return(list(1L))
+    sub <- Recall(n - 1L)
+    out <- vector("list", length(sub) * n); k <- 0L
+    for (s in sub) for (i in 0:length(s)) {
+      k <- k + 1L; out[[k]] <- append(s, n, after = i)
+    }
+    out
+  })(K)
+  best_perm <- seq_len(K); best_acc <- -1
+  for (p in perms) {
+    relab <- p[est_lab]
+    acc <- mean(relab == true_lab, na.rm = TRUE)
+    if (acc > best_acc) { best_acc <- acc; best_perm <- p }
+  }
+  best_perm[est_lab]
+}
+
+# ---------- biplot helper (used only when N_REP == 1) ----------
+# A: respondent positions (n x 2), B: item positions (P x 2).
+# true_cluster: length-P true item meta-cluster (controls color).
+# est_cluster:  length-P model-inferred partition (controls shape).
+#               If NULL, uses true_cluster (i.e. shape == truth).
+# Correctly classified items have (color, shape) coming from the same true
+# cluster index; mis-classified items show a color/shape mismatch.
+plot_biplot <- function(A, B, true_cluster, est_cluster = NULL,
+                        title, file,
+                        cluster_cols = c("#E41A1C", "#377EB8",
+                                         "#4DAF4A", "#984EA3"),
+                        cluster_pchs = c(16, 17, 15, 18)) {
+  stopifnot(ncol(A) >= 2, ncol(B) >= 2,
+            length(true_cluster) == nrow(B))
+  if (is.null(est_cluster)) est_cluster <- true_cluster
+  stopifnot(length(est_cluster) == nrow(B))
+  K_col <- length(cluster_cols); K_pch <- length(cluster_pchs)
+
+  pdf(file, width = 6.5, height = 6.5)
+  on.exit(dev.off())
+  xlim <- range(c(A[, 1], B[, 1]))
+  ylim <- range(c(A[, 2], B[, 2]))
+  plot(A[, 1], A[, 2],
+       pch  = 16, cex = 0.55,
+       col  = adjustcolor("grey50", 0.55),
+       xlim = xlim, ylim = ylim, asp = 1,
+       xlab = "dim 1", ylab = "dim 2", main = title)
+  points(B[, 1], B[, 2],
+         pch = cluster_pchs[est_cluster],
+         cex = 1.4,
+         col = cluster_cols[true_cluster])
+  legend("topright",
+         legend = c("respondent",
+                    paste0("true cluster ", seq_len(K_col))),
+         pch    = c(16, rep(15, K_col)),
+         col    = c("grey50", cluster_cols),
+         bty = "n", cex = 0.72)
+  legend("bottomright",
+         legend = paste0("model cluster ", seq_len(K_pch)),
+         pch    = cluster_pchs,
+         col    = "black",
+         bty = "n", cex = 0.72)
+}
+
 ################################################################################
 # 4. Per-replication routines
 ################################################################################
@@ -466,7 +540,10 @@ fit_multilayer <- function(dat) {
     n_split_merge = n_split_merge,
     row_center    = row_center_flag,
     verbose       = FALSE,
-    fix_gamma     = TRUE
+    fix_gamma     = FALSE,
+    procrustes_target = list(a  = dat$A_true,
+                             b1 = dat$B1_true, b2 = dat$B2_true,
+                             b3 = dat$B3_true, b4 = dat$B4_true)
   )
 }
 
@@ -493,7 +570,7 @@ fit_unilayer <- function(dat) {
     nu2     = nu2_fit,
     lsirm_hyper   = common_lsirm_hyper,
     fmc_hyper     = common_fmc_hyper,
-    lsirm_prop_sd = common_lsirm_prop_sd,
+    lsirm_prop_sd = uni_lsirm_prop_sd,
     lsirm_init    = NULL,
     fmc_init      = fmc_init,
     save_lambda_full = FALSE,
@@ -504,7 +581,10 @@ fit_unilayer <- function(dat) {
     n_split_merge = n_split_merge,
     row_center    = row_center_flag,
     verbose       = FALSE,
-    fix_gamma     = TRUE
+    fix_gamma     = FALSE,
+    procrustes_target = list(a  = dat$A_true,
+                             b1 = rbind(dat$B1_true, dat$B2_true,
+                                        dat$B3_true, dat$B4_true))
   )
 }
 
@@ -604,6 +684,21 @@ coverage_unilayer <- function(rep, fit, dat) {
   rows[[length(rows) + 1]] <- make_row(rep, "unilayer", "beta",
     coverage_from_samples(beta_all[, idx_nonord, drop = FALSE], beta_true_nonord))
 
+  # Per-segment beta coverage: items truly Binary (1..P1), continuous-dich
+  # (P1+1..P1+P2), count-dich (P1+P2+1..P1+P2+P3). The "truth" we feed in
+  # comes from the data-generation parameters of each layer; only the binary
+  # block is generation-faithful. The continuous and count blocks have been
+  # dichotomized at the column mean, so the unilayer beta_j is fitting an
+  # effective binary likelihood that the original (beta_l_j_true, gamma, ETA)
+  # do not pin down on the same scale -- expect coverage to drop there as a
+  # *measurement* artefact, not a sampler problem.
+  rows[[length(rows) + 1]] <- make_row(rep, "unilayer", "beta_seg_bin",
+    coverage_from_samples(beta_all[, 1:P1, drop = FALSE], dat$beta1_true))
+  rows[[length(rows) + 1]] <- make_row(rep, "unilayer", "beta_seg_con_dich",
+    coverage_from_samples(beta_all[, (P1+1):(P1+P2), drop = FALSE], dat$beta2_true))
+  rows[[length(rows) + 1]] <- make_row(rep, "unilayer", "beta_seg_cnt_dich",
+    coverage_from_samples(beta_all[, (P1+P2+1):(P1+P2+P3), drop = FALSE], dat$beta3_true))
+
   # --- distance and gamma (kept) ---
   D_all_true <- cbind(dat$D1_true, dat$D2_true, dat$D3_true, dat$D4_true)
   rows[[length(rows) + 1]] <- make_row(rep, "unilayer", "dist_all",
@@ -677,11 +772,56 @@ for (r in seq_len(N_REP)) {
   cat(sprintf("  [rep %d] DICE: multi=%.3f  uni=%.3f   ARI: multi=%.3f  uni=%.3f\n",
               r, rec_m$dice, rec_u$dice, rec_m$ari, rec_u$ari))
 
+  # ---- biplot output (only for the first rep) ----
+  # Posterior samples are Procrustes-aligned to truth, so posterior means live
+  # in the same coordinate system as A_true / B*_true.
+  # Color = true cluster, shape = model-inferred FMC partition (relabeled to
+  # truth via permutation matching). Color/shape mismatch = misclassification.
+  if (r == 1L) {
+    cat(sprintf("  [rep %d] saving biplots ...\n", r))
+    B_true_stack <- rbind(dat$B1_true, dat$B2_true, dat$B3_true, dat$B4_true)
+    plot_biplot(dat$A_true, B_true_stack,
+                true_cluster = true_item_cluster,
+                est_cluster  = NULL,
+                title = "True biplot (rep 01)",
+                file  = file.path(OUTPUT_DIR, "biplot_true_v10.pdf"))
+
+    est_m <- final_partition_from_psm(fit_m$fmc_co_cluster, K_target = K_true)
+    est_m_aligned <- match_labels_to_truth(true_item_cluster, est_m, K_true)
+    A_m <- apply(fit_m$a,  c(2, 3), mean)
+    B_m <- rbind(apply(fit_m$b1, c(2, 3), mean),
+                 apply(fit_m$b2, c(2, 3), mean),
+                 apply(fit_m$b3, c(2, 3), mean),
+                 apply(fit_m$b4, c(2, 3), mean))
+    plot_biplot(A_m, B_m,
+                true_cluster = true_item_cluster,
+                est_cluster  = est_m_aligned,
+                title = "Multilayer LSIRM (color=true, shape=model)",
+                file  = file.path(OUTPUT_DIR, "biplot_multilayer_v10.pdf"))
+
+    est_u <- final_partition_from_psm(fit_u$fmc_co_cluster, K_target = K_true)
+    est_u_aligned <- match_labels_to_truth(true_item_cluster, est_u, K_true)
+    A_u <- apply(fit_u$a,  c(2, 3), mean)
+    B_u <- apply(fit_u$b1, c(2, 3), mean)
+    plot_biplot(A_u, B_u,
+                true_cluster = true_item_cluster,
+                est_cluster  = est_u_aligned,
+                title = "Unilayer LSIRM (color=true, shape=model)",
+                file  = file.path(OUTPUT_DIR, "biplot_unilayer_v10.pdf"))
+  }
+
   # incremental save (so partial results survive a server interruption)
   write.csv(do.call(rbind, all_coverage),
             file.path(OUTPUT_DIR, "coverage_per_rep_v10.csv"), row.names = FALSE)
   write.csv(do.call(rbind, all_dice),
             file.path(OUTPUT_DIR, "cluster_dice_v10.csv"), row.names = FALSE)
+
+  # save fits + truth for offline diagnostics (ONLY when N_REP is small;
+  # full chains are heavy)
+  if (N_REP <= 2) {
+    saveRDS(list(rep = r, seed = rep_seed, fit_m = fit_m, fit_u = fit_u, dat = dat),
+            file.path(OUTPUT_DIR, sprintf("rep%02d_fits_v10.rds", r)))
+  }
 }
 
 t_end <- Sys.time()

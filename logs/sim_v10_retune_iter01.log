@@ -1,0 +1,184 @@
+Loading required package: permute
+
+Attaching package: ‘igraph’
+
+The following object is masked from ‘package:vegan’:
+
+    diversity
+
+The following object is masked from ‘package:permute’:
+
+    permute
+
+The following objects are masked from ‘package:stats’:
+
+    decompose, spectrum
+
+The following object is masked from ‘package:base’:
+
+    union
+
+
+‘network’ 1.19.0 (2024-12-08), part of the Statnet Project
+* ‘news(package="network")’ for changes since last version
+* ‘citation("network")’ for citation information
+* ‘https://statnet.org’ for help, support, and other information
+
+
+Attaching package: ‘network’
+
+The following objects are masked from ‘package:igraph’:
+
+    %c%, %s%, add.edges, add.vertices, delete.edges, delete.vertices,
+    get.edge.attribute, get.edges, get.vertex.attribute, is.bipartite,
+    is.directed, list.edge.attributes, list.vertex.attributes,
+    set.edge.attribute, set.vertex.attribute
+
+Warning message:
+package ‘ggplot2’ was built under R version 4.4.3 
+Beta4 thresholds (first 3 items):
+     [,1]  [,2] [,3]  [,4]
+[1,] 2.49 -0.34 -0.7 -0.78
+[2,] 1.46  0.96  0.5 -2.19
+[3,] 2.35  0.51 -0.9 -1.28
+
+=== Data Summary ===
+Y_bin:  150 x 30 (binary)
+Y_con:  150 x 30 (continuous)
+Y_cnt:  150 x 30 (count)
+Y_ord1: 150 x 30 (ord, K=5)
+
+Ordinal response table:
+Y_ord1
+   1    2    3    4    5 
+3082  602  398  222  196 
+
+True item cluster sizes: 32 32 28 28
+null device 
+          1 
+[FMC init] PCA-eta sd per dim: 3.3, 3.179
+[FMC init] k-means cluster sizes: 11 10 20 8 11 11 18 9 15 7
+
+========== simulation_4_layered_v10 (n=150, P=30/30/30/30, K_true=4, K*=10, M_SM=5, row_center=FALSE, S0_scale=0.01) ==========
+Running joint LSIRM+PPCA-FMC v10 [n=150, P_total=120 (30/30/30/30/0), r_fac=2, K_star=10, e0=0.1, kappa0=0.001, M_SM=5, row_center=FALSE]
+[v10 joint] n=150 P1=30 P2=30 P3=30 P4=30 P5=0 P_total=120 K1=5 K2=0 nu2=4 r_fac=2 K_star=10 M_SM=5
+[v10] Iter: 500 / 5000
+[v10] Iter: 1000 / 5000
+[v10] Iter: 1500 / 5000
+[v10] Iter: 2000 / 5000
+[v10] Iter: 2500 / 5000
+[v10] Iter: 3000 / 5000
+[v10] Iter: 3500 / 5000
+[v10] Iter: 4000 / 5000
+[v10] Iter: 4500 / 5000
+[v10] Iter: 5000 / 5000
+Performing Procrustes matching (external target supplied; LSIRM positions only -- FMC parameters
+  are invariant under orthogonal+translation alignment)...
+  iterative-mean pass 1/3, target shift RMSE = (initial)
+  iterative-mean pass 2/3, target shift RMSE = 0.0031
+  iterative-mean pass 3/3, target shift RMSE = 0.0000
+  external re-anchor: post-mean RMSE 1.739 -> 0.669
+[v10 split-merge] split: 483 / 4237 (0.114), merge: 438 / 18263 (0.024)
+
+-- Acceptance --
+  alpha1..4 mean : 0.479 / 0.400 / 0.443 / 0.464
+  beta1..3 mean  : 0.577 / 0.560 / 0.575
+  log_gamma1..4  : 0.332 / 0.248 / 0.459 / 0.370
+  a / b1..4 mean : 0.358 / 0.471 / 0.364 / 0.466 / 0.484
+  log_kappa per-item mean: 0.496
+
+-- Split-merge --
+  split: 483 / 4237  (rate 0.114)
+  merge: 438 / 18263  (rate 0.024)
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+
+=== Distance recovery (correlation) ===
+  All layers combined: 0.845
+  L1 Binary:           0.821
+  L2 Continuous:       0.887
+  L3 Count:            0.850
+  L4 Ordinal:          0.832
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+
+=== Clustering recovery ===
+  median K_+ : 6   (true K = 4)
+  ARI(final partition vs true): 0.680
+  ARI(mode label   vs true):     0.278  (subject to label switching)
+
+Cross-tab: final_partition vs true_item_cluster
+               true_item_cluster
+final_partition  1  2  3  4
+              1 29  2  0  1
+              2  0 24  3  0
+              3  0  0  1 23
+              4  0  0 21  0
+              5  3  6  0  0
+              6  0  0  3  4
+
+Cross-tab: item_cluster_mode vs true_item_cluster
+                 true_item_cluster
+item_cluster_mode  1  2  3  4
+                1 27  1  0 16
+                2  0  1  0  0
+                4  0 19 25 10
+                5  5 11  2  2
+                9  0  0  1  0
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+null device 
+          1 
+Warning message:
+In title(...) :
+  for 'Biplot — items coloured by FMC partition (ARI=0.680)' in 'mbcsToSbcs': - substituted for — (U+2014)
+null device 
+          1 
+Warning message:
+In title(...) :
+  for 'Biplot — items coloured by TRUE meta-cluster' in 'mbcsToSbcs': - substituted for — (U+2014)
+
+=== FMC summary ===
+  mean(K_+) = 5.80, median(K_+) = 6, sd(K_+) = 0.79
+  ARI(partition vs true) = 0.680
+  split rate = 0.114, merge rate = 0.024
+
+-> v10 simulation plots & artifacts saved to: /Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/plot/simulation_4_layered_v10_rfac2_norowctr_S0_0.01
+
+=== Done! ===

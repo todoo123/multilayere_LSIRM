@@ -1,0 +1,3 @@
+"model","dice_mean","dice_sd","ari_mean","ari_sd","K_median_mean","split_rate_mean"
+"multilayer",0.754781615757922,NA,0.67507525453037,NA,5,0.112984822934233
+"unilayer",0.473754329869438,NA,0.287332958001591,NA,4,0.127815888470901
