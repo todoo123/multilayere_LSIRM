@@ -1,0 +1,887 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm,bm,mathtools}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{float}
+
+\onehalfspacing
+
+\newcommand{\R}{\mathbb R}
+\newcommand{\ind}{\mathbb I}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\trans}{^{\mathsf T}}
+\DeclareMathOperator{\logit}{logit}
+\DeclareMathOperator{\Cat}{Categorical}
+\DeclareMathOperator{\Dir}{Dirichlet}
+\DeclareMathOperator{\IG}{IG}
+\DeclareMathOperator{\IW}{IW}
+\DeclareMathOperator{\tr}{tr}
+
+\title{Joint Multilayered LSIRM with Latent-Position Gaussian Mixture Clustering\\
+NIW Predictive Allocation and Jain--Neal Split--Merge Moves}
+\date{Model Description}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+This document defines a joint multilayered LSIRM in which item clustering is
+performed directly on item latent positions.  The previous PPCA measurement
+block is removed.  In the modified model, each item latent position is assigned
+a finite Gaussian mixture prior,
+\[
+    b_j^{(\ell(j))}\mid c_j=l,\mu_l,\Sigma_l
+    \sim N_d(\mu_l,\Sigma_l),
+    \qquad d=2,
+\]
+where $c_j$ is the item cluster label.  The mixture prior is imposed only on
+the item latent positions.  It is not imposed directly on respondent ability or
+item difficulty parameters.  Therefore, clustering regularizes the latent item
+geometry while difficulty and ability remain governed by their own non-clustered
+priors.
+
+The model is fully joint: item cluster labels affect the posterior distribution
+of item positions through the mixture prior, and item positions affect the
+network/response likelihood through the LSIRM distance term.  Consequently,
+cluster labels can indirectly affect respondent and item effects through the
+posterior dependence induced by the likelihood, but no cluster-specific prior is
+placed directly on those scalar effects.
+
+\section{Indexing, dimensions, and observed data}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Symbol & Meaning & Dimension/range \\
+\midrule
+$\ell$ & layer index & $\ell=1,\dots,L$ \\
+$i$ & respondent/person index & $i=1,\dots,n_\ell$ \\
+$j$ & local item index within layer $\ell$ & $j=1,\dots,P_\ell$ \\
+$q$ & global item index across all layers & $q=1,\dots,P$, $P=\sum_{\ell=1}^L P_\ell$ \\
+$\ell(q)$ & layer containing global item $q$ & $\{1,\dots,L\}$ \\
+$j(q)$ & local item index of global item $q$ & $\{1,
+\dots,P_{\ell(q)}\}$ \\
+$d$ & latent space dimension & $d=2$ in the current implementation \\
+$K^\star$ & truncation level / maximum number of mixture components & positive integer \\
+$K_+$ & number of occupied mixture components & $K_+=|\{l:n_l>0\}|$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The observed data are denoted by
+\[
+    Y^{(\ell)}=\{y_{ij}^{(\ell)}:(i,j)\in\mathcal O_\ell\},
+\]
+where $\mathcal O_\ell$ is the set of observed respondent--item pairs in layer
+$\ell$.  If there is no missingness, then
+$\mathcal O_\ell=\{1,\dots,n_\ell\}\times\{1,\dots,P_\ell\}$.
+
+\section{LSIRM likelihood}
+
+For respondent $i$ and item $j$ in layer $\ell$, define
+\begin{align}
+    a_i^{(\ell)} &\in \R^d,
+    &\text{respondent latent position,} \\
+    b_j^{(\ell)} &\in \R^d,
+    &\text{item latent position,} \\
+    \theta_i^{(\ell)} &\in \R,
+    &\text{respondent ability or activity effect,} \\
+    \beta_j^{(\ell)} &\in \R,
+    &\text{item intercept, easiness, or difficulty-related effect.}
+\end{align}
+
+The layer-specific LSIRM linear predictor is
+\begin{equation}
+    \eta_{ij}^{(\ell)}
+    =
+    \theta_i^{(\ell)}
+    +\beta_j^{(\ell)}
+    -\norm{a_i^{(\ell)}-b_j^{(\ell)}}_2.
+    \label{eq:lsirm-linear-predictor}
+\end{equation}
+
+For a binary response layer, the likelihood is
+\begin{align}
+    y_{ij}^{(\ell)}\mid \theta_i^{(\ell)},\beta_j^{(\ell)},a_i^{(\ell)},b_j^{(\ell)}
+    &\sim \operatorname{Bernoulli}(p_{ij}^{(\ell)}), \\
+    \logit\{p_{ij}^{(\ell)}\}
+    &=\eta_{ij}^{(\ell)}.
+    \label{eq:bernoulli-likelihood}
+\end{align}
+
+More generally, if different layers use different observation models or link
+functions, write
+\begin{equation}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell
+    \sim f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\},
+    \qquad (i,j)\in\mathcal O_\ell,
+    \label{eq:generic-layer-likelihood}
+\end{equation}
+where $\xi_\ell$ denotes additional layer-specific nuisance parameters, if any.
+The full LSIRM log-likelihood is
+\begin{equation}
+    \ell_{\mathrm{LSIRM}}(\Theta_{\mathrm{LSIRM}})
+    =
+    \sum_{\ell=1}^L
+    \sum_{(i,j)\in\mathcal O_\ell}
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}.
+    \label{eq:lsirm-loglik}
+\end{equation}
+For the Bernoulli-logit case,
+\begin{equation}
+    \log f_\ell(y\mid \eta)
+    =
+    y\eta-\log(1+e^\eta).
+\end{equation}
+
+\section{Latent-position Gaussian mixture prior for items}
+
+\subsection{Global item position notation}
+
+Define the global item latent position
+\begin{equation}
+    z_q
+    =
+    b_{j(q)}^{(\ell(q))}
+    \in\R^d,
+    \qquad q=1,\dots,P.
+    \label{eq:global-item-position}
+\end{equation}
+The clustering model is placed directly on $z_q$.
+
+\subsection{Finite Gaussian mixture prior}
+
+For $q=1,\dots,P$ and $l=1,\dots,K^\star$,
+\begin{align}
+    z_q\mid c_q=l,\mu_l,\Sigma_l
+    &\sim N_d(\mu_l,\Sigma_l),
+    \label{eq:z-mixture}\\
+    c_q\mid \rho
+    &\sim \Cat(\rho_1,\dots,\rho_{K^\star}),\\
+    \rho
+    &\sim \Dir(e_0,\dots,e_0).
+    \label{eq:rho-prior}
+\end{align}
+
+The mixture component parameters follow a Normal--Inverse-Wishart prior:
+\begin{align}
+    \Sigma_l
+    &\sim \IW(\nu_0,S_0),
+    \label{eq:sigma-niw-prior}\\
+    \mu_l\mid \Sigma_l
+    &\sim N_d\left(m_0,\frac{1}{\kappa_0}\Sigma_l\right),
+    \qquad l=1,\dots,K^\star.
+    \label{eq:mu-niw-prior}
+\end{align}
+Here $m_0\in\R^d$, $\kappa_0>0$, $\nu_0>d-1$, and
+$S_0\in\R^{d\times d}$ is positive definite.
+
+\paragraph{Important modeling restriction.}
+The cluster label $c_q$ is allowed to affect $z_q=b_{j(q)}^{(\ell(q))}$ only.
+There is no cluster-specific prior of the form
+$\theta_i^{(\ell)}\mid c_q$, $\beta_j^{(\ell)}\mid c_q$, or
+$\xi_\ell\mid c_q$.  Thus, clusters represent latent item geometry rather than
+marginal difficulty, ability, or layer-specific nuisance effects.
+
+\section{Priors for non-clustering LSIRM parameters}
+
+For each layer $\ell$,
+\begin{align}
+    a_i^{(\ell)}\mid \sigma_{a,\ell}^2
+    &\sim N_d(0,\sigma_{a,\ell}^2 I_d),
+    && i=1,\dots,n_\ell,
+    \label{eq:a-prior}\\
+    \theta_i^{(\ell)}\mid \sigma_{\theta,\ell}^2
+    &\sim N(0,\sigma_{\theta,\ell}^2),
+    && i=1,\dots,n_\ell,
+    \label{eq:theta-prior}\\
+    \beta_j^{(\ell)}\mid \sigma_{\beta,\ell}^2
+    &\sim N(0,\sigma_{\beta,\ell}^2),
+    && j=1,\dots,P_\ell.
+    \label{eq:beta-prior}
+\end{align}
+The item position $b_j^{(\ell)}$ does not receive an additional independent
+Gaussian prior.  Its prior is the mixture prior in
+\eqref{eq:z-mixture}--\eqref{eq:mu-niw-prior}.
+
+Optional variance hyperpriors may be assigned as
+\begin{align}
+    \sigma_{a,\ell}^2 &\sim \IG(A_a,B_a),\\
+    \sigma_{\theta,\ell}^2 &\sim \IG(A_\theta,B_\theta),\\
+    \sigma_{\beta,\ell}^2 &\sim \IG(A_\beta,B_\beta).
+\end{align}
+If the variances are fixed, the corresponding inverse-gamma updates below are
+omitted.
+
+\section{Layer comparability, alignment, and scale diagnostics}
+\label{sec:layer-comparability}
+
+Because the mixture prior clusters item positions across all layers, the model
+assumes that
+\[
+    b_j^{(\ell)}\in\R^d
+\]
+is expressed in a comparable coordinate system across layers.  If layer-specific
+latent spaces differ greatly in scale, translation, or orientation, the mixture
+prior may cluster layer effects rather than phenotype-related item geometry.
+
+At each stored MCMC iteration, compute the layer-specific item-position scale
+\begin{equation}
+    s_\ell
+    =
+    \left\{
+    \frac{1}{P_\ell d}
+    \sum_{j=1}^{P_\ell}
+    \norm{b_j^{(\ell)}-\bar b^{(\ell)}}_2^2
+    \right\}^{1/2},
+    \qquad
+    \bar b^{(\ell)}=\frac{1}{P_\ell}\sum_{j=1}^{P_\ell}b_j^{(\ell)}.
+    \label{eq:layer-scale-diagnostic}
+\end{equation}
+Then monitor
+\begin{equation}
+    R_{\mathrm{scale}}
+    =
+    \frac{\max_\ell s_\ell}{\min_\ell s_\ell}.
+\end{equation}
+Large values of $R_{\mathrm{scale}}$ indicate that cluster labels may be partly
+recovering layer-scale differences.  In that case, the model should be revised
+by imposing stronger shared-scale identification, fixing layer-specific latent
+space scales, or applying a prespecified alignment/scaling constraint during
+MCMC.  This check is part of the model diagnostic procedure, not a separate
+post-hoc clustering baseline.
+
+For translational non-identifiability, impose or monitor the centering
+constraint
+\begin{equation}
+    \sum_{i=1}^{n_\ell}a_i^{(\ell)}=0,
+    \qquad
+    \sum_{j=1}^{P_\ell}b_j^{(\ell)}=0,
+    \qquad \ell=1,\dots,L,
+    \label{eq:centering-constraint}
+\end{equation}
+or use an equivalent deterministic recentering step after each complete latent
+position update.  Rotational and reflection invariance may be handled by fixing
+anchors or by a deterministic Procrustes identification step when necessary.
+
+\section{Full joint posterior}
+
+Let
+\begin{align*}
+    \Theta_{\mathrm{LSIRM}}
+    &=
+    \{a_i^{(\ell)},b_j^{(\ell)},\theta_i^{(\ell)},\beta_j^{(\ell)},
+    \xi_\ell,\sigma_{a,\ell}^2,\sigma_{\theta,\ell}^2,
+    \sigma_{\beta,\ell}^2:
+    \ell=1,\dots,L\},\\
+    \Theta_{\mathrm{mix}}
+    &=
+    \{c_q,\rho,\mu_l,\Sigma_l:q=1,\dots,P,\ l=1,\dots,K^\star\}.
+\end{align*}
+The full posterior is proportional to
+\begin{align}
+&p(\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{mix}}\mid Y)
+\notag\\
+&\quad \propto
+\prod_{\ell=1}^L
+\prod_{(i,j)\in\mathcal O_\ell}
+    f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}
+\notag\\
+&\qquad\times
+\prod_{q=1}^P
+    N_d(z_q;\mu_{c_q},\Sigma_{c_q})\rho_{c_q}
+\notag\\
+&\qquad\times
+\prod_{l=1}^{K^\star}
+    p(\mu_l\mid\Sigma_l)p(\Sigma_l)
+    \ p(\rho)
+\notag\\
+&\qquad\times
+\prod_{\ell=1}^L
+\left[
+\prod_{i=1}^{n_\ell}p(a_i^{(\ell)}\mid\sigma_{a,\ell}^2)
+\prod_{i=1}^{n_\ell}p(\theta_i^{(\ell)}\mid\sigma_{\theta,\ell}^2)
+\prod_{j=1}^{P_\ell}p(\beta_j^{(\ell)}\mid\sigma_{\beta,\ell}^2)
+\right]
+\notag\\
+&\qquad\times
+\prod_{\ell=1}^L
+    p(\sigma_{a,\ell}^2)p(\sigma_{\theta,\ell}^2)p(\sigma_{\beta,\ell}^2)
+    p(\xi_\ell),
+    \label{eq:full-posterior}
+\end{align}
+where $z_q=b_{j(q)}^{(\ell(q))}$.
+
+\section{NIW posterior quantities}
+
+For a generic set of global item indices $A\subseteq\{1,\dots,P\}$, define
+\begin{align}
+    n_A &= |A|,\\
+    \bar z_A &= \frac{1}{n_A}\sum_{q\in A}z_q,
+    \qquad n_A>0,\\
+    Q_A &= \sum_{q\in A}(z_q-\bar z_A)(z_q-\bar z_A)\trans,
+    \qquad n_A>0.
+\end{align}
+For $n_A=0$, use prior quantities directly and set $Q_A=0$.
+
+The NIW posterior parameters for the items in $A$ are
+\begin{align}
+    \kappa_A &= \kappa_0+n_A,\\
+    \nu_A &= \nu_0+n_A,\\
+    m_A &=
+    \begin{cases}
+    \dfrac{\kappa_0m_0+n_A\bar z_A}{\kappa_0+n_A}, & n_A>0,\\[1em]
+    m_0, & n_A=0,
+    \end{cases}\\
+    S_A &=
+    \begin{cases}
+    S_0+Q_A+
+    \dfrac{\kappa_0 n_A}{\kappa_0+n_A}
+    (\bar z_A-m_0)(\bar z_A-m_0)\trans,
+    & n_A>0,\\[1em]
+    S_0, & n_A=0.
+    \end{cases}
+    \label{eq:niw-posterior-params}
+\end{align}
+
+For component $l$, let
+\[
+    \mathcal J_l=\{q:c_q=l\},
+    \qquad n_l=|\mathcal J_l|.
+\]
+Then
+\[
+    (\kappa_l,\nu_l,m_l,S_l)
+    =
+    (\kappa_{\mathcal J_l},\nu_{\mathcal J_l},m_{\mathcal J_l},S_{\mathcal J_l}).
+\]
+For leave-one-out calculations,
+\[
+    \mathcal J_{l,-q}=\{r:r\neq q,\ c_r=l\}.
+\]
+
+\section{NIW posterior predictive allocation update}
+
+Integrating out $(\mu_l,\Sigma_l)$ for label allocation gives the Student-$t$
+posterior predictive density
+\begin{equation}
+    z_q\mid z_{\mathcal J_{l,-q}}
+    \sim
+    t_{\nu_{l,-q}-d+1}
+    \left(
+    m_{l,-q},
+    \frac{\kappa_{l,-q}+1}
+    {\kappa_{l,-q}(\nu_{l,-q}-d+1)}S_{l,-q}
+    \right).
+    \label{eq:niw-predictive}
+\end{equation}
+Therefore the collapsed single-site label update is
+\begin{equation}
+    P(c_q=l\mid c_{-q},z)
+    \propto
+    (n_{l,-q}+e_0)
+    t_{\nu_{l,-q}-d+1}
+    \left(
+    z_q;
+    m_{l,-q},
+    \frac{\kappa_{l,-q}+1}
+    {\kappa_{l,-q}(\nu_{l,-q}-d+1)}S_{l,-q}
+    \right),
+    \label{eq:c-update}
+\end{equation}
+for $l=1,\dots,K^\star$.  This is a Gibbs update, so the acceptance
+probability is one after sampling from the normalized probabilities in
+\eqref{eq:c-update}.
+
+\section{Posterior draw of mixture component parameters}
+
+After updating the labels, draw component parameters from their NIW posterior:
+\begin{align}
+    \Sigma_l\mid z,c
+    &\sim \IW(\nu_l,S_l),
+    \label{eq:sigma-posterior}\\
+    \mu_l\mid \Sigma_l,z,c
+    &\sim N_d\left(m_l,\frac{1}{\kappa_l}\Sigma_l\right),
+    \qquad l=1,\dots,K^\star.
+    \label{eq:mu-posterior}
+\end{align}
+For empty components, $n_l=0$, and this reduces to a draw from the NIW prior.
+
+The mixture weights may be sampled for monitoring or storage:
+\begin{equation}
+    \rho\mid c
+    \sim
+    \Dir(e_0+n_1,\dots,e_0+n_{K^\star}).
+    \label{eq:rho-posterior}
+\end{equation}
+The draw of $\rho$ is not needed for the collapsed label update.
+
+\section{Collapsed partition target for split--merge moves}
+
+Integrating out $\rho$ and all component parameters gives the collapsed
+partition target
+\begin{equation}
+    \pi(c\mid z)
+    \propto
+    \prod_{l=1}^{K^\star}
+    \frac{\Gamma(n_l+e_0)}{\Gamma(e_0)}
+    m(z_{\mathcal J_l}),
+    \label{eq:collapsed-partition-target}
+\end{equation}
+where
+\begin{equation}
+    m(z_A)
+    =
+    \int
+    \prod_{q\in A}N_d(z_q;\mu,\Sigma)
+    p(\mu,\Sigma)\,d\mu\,d\Sigma
+\end{equation}
+is the NIW marginal likelihood.
+
+The log NIW marginal likelihood is
+\begin{align}
+    \log m(z_A)
+    &=-\frac{n_A d}{2}\log\pi
+    +\frac{d}{2}\{\log\kappa_0-\log\kappa_A\}
+    +\frac{\nu_0}{2}\log|S_0|
+    -\frac{\nu_A}{2}\log|S_A|
+    \notag\\
+    &\qquad
+    +\log\Gamma_d\left(\frac{\nu_A}{2}\right)
+    -\log\Gamma_d\left(\frac{\nu_0}{2}\right),
+    \label{eq:niw-marginal}
+\end{align}
+where
+\begin{equation}
+    \log\Gamma_d(a)
+    =
+    \frac{d(d-1)}{4}\log\pi
+    +
+    \sum_{h=1}^d\log\Gamma\left(a+\frac{1-h}{2}\right).
+\end{equation}
+Thus,
+\begin{equation}
+    \log\pi(c\mid z)
+    =
+    \sum_{l=1}^{K^\star}
+    \left[
+    \log\Gamma(n_l+e_0)-\log\Gamma(e_0)
+    +\log m(z_{\mathcal J_l})
+    \right]
+    +\mathrm{constant}.
+    \label{eq:log-collapsed-partition-target}
+\end{equation}
+
+\section{Metropolis--Hastings updates for LSIRM parameters}
+
+All LSIRM parameters with non-conjugate full conditionals can be updated by
+random-walk Metropolis--Hastings.  The formulas below assume symmetric
+Gaussian random-walk proposals.  If a non-symmetric proposal is used, the
+corresponding proposal-density ratio must be added to the log acceptance ratio.
+
+\subsection{Respondent ability or activity effect $\theta_i^{(\ell)}$}
+
+Propose
+\[
+    \theta_i^{(\ell)\prime}
+    =
+    \theta_i^{(\ell)}+\varepsilon_\theta,
+    \qquad
+    \varepsilon_\theta\sim N(0,s_\theta^2).
+\]
+Let $\eta_{ij}^{(\ell)\prime}$ be the linear predictor after replacing
+$\theta_i^{(\ell)}$ by $\theta_i^{(\ell)\prime}$.  The log acceptance ratio is
+\begin{align}
+    \log R_\theta
+    &=
+    \sum_{j:(i,j)\in\mathcal O_\ell}
+    \left[
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)\prime},\xi_\ell\}
+    -
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}
+    \right]
+    \notag\\
+    &\qquad
+    -
+    \frac{1}{2\sigma_{\theta,\ell}^2}
+    \left\{(\theta_i^{(\ell)\prime})^2-(\theta_i^{(\ell)})^2\right\}.
+    \label{eq:theta-mh-ratio}
+\end{align}
+Accept with probability
+\begin{equation}
+    \alpha_\theta
+    =
+    \min\{1,\exp(\log R_\theta)\}.
+\end{equation}
+
+\subsection{Item effect $\beta_j^{(\ell)}$}
+
+Propose
+\[
+    \beta_j^{(\ell)\prime}
+    =
+    \beta_j^{(\ell)}+\varepsilon_\beta,
+    \qquad
+    \varepsilon_\beta\sim N(0,s_\beta^2).
+\]
+The log acceptance ratio is
+\begin{align}
+    \log R_\beta
+    &=
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \left[
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)\prime},\xi_\ell\}
+    -
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}
+    \right]
+    \notag\\
+    &\qquad
+    -
+    \frac{1}{2\sigma_{\beta,\ell}^2}
+    \left\{(\beta_j^{(\ell)\prime})^2-(\beta_j^{(\ell)})^2\right\}.
+    \label{eq:beta-mh-ratio}
+\end{align}
+Accept with probability
+\begin{equation}
+    \alpha_\beta
+    =
+    \min\{1,\exp(\log R_\beta)\}.
+\end{equation}
+
+\subsection{Respondent latent position $a_i^{(\ell)}$}
+
+Propose
+\[
+    a_i^{(\ell)\prime}
+    =
+    a_i^{(\ell)}+\varepsilon_a,
+    \qquad
+    \varepsilon_a\sim N_d(0,s_a^2 I_d).
+\]
+The log acceptance ratio is
+\begin{align}
+    \log R_a
+    &=
+    \sum_{j:(i,j)\in\mathcal O_\ell}
+    \left[
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)\prime},\xi_\ell\}
+    -
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}
+    \right]
+    \notag\\
+    &\qquad
+    -
+    \frac{1}{2\sigma_{a,\ell}^2}
+    \left\{
+    \norm{a_i^{(\ell)\prime}}_2^2-
+    \norm{a_i^{(\ell)}}_2^2
+    \right\}.
+    \label{eq:a-mh-ratio}
+\end{align}
+Accept with probability
+\begin{equation}
+    \alpha_a
+    =
+    \min\{1,\exp(\log R_a)\}.
+\end{equation}
+
+\subsection{Item latent position $b_j^{(\ell)}$}
+
+Let $q=q(\ell,j)$ be the global item index corresponding to local item $j$ in
+layer $\ell$, and let $c_q$ be its current cluster label.  Propose
+\[
+    b_j^{(\ell)\prime}
+    =
+    b_j^{(\ell)}+\varepsilon_b,
+    \qquad
+    \varepsilon_b\sim N_d(0,s_b^2 I_d).
+\]
+The log acceptance ratio must include both the LSIRM likelihood contribution
+and the Gaussian mixture prior contribution:
+\begin{align}
+    \log R_b
+    &=
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \left[
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)\prime},\xi_\ell\}
+    -
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}
+    \right]
+    \notag\\
+    &\qquad
+    +
+    \log N_d\{b_j^{(\ell)\prime};\mu_{c_q},\Sigma_{c_q}\}
+    -
+    \log N_d\{b_j^{(\ell)};\mu_{c_q},\Sigma_{c_q}\}.
+    \label{eq:b-mh-ratio}
+\end{align}
+Accept with probability
+\begin{equation}
+    \alpha_b
+    =
+    \min\{1,\exp(\log R_b)\}.
+    \label{eq:b-acceptance-probability}
+\end{equation}
+This is the main difference from a post-hoc clustering approach.  The cluster
+assignment affects the posterior update of $b_j^{(\ell)}$ through the mixture
+prior term in \eqref{eq:b-mh-ratio}.
+
+\section{Conjugate updates for variance parameters}
+
+If the layer-specific prior variances are sampled, their full conditionals are
+\begin{align}
+    \sigma_{a,\ell}^2\mid a^{(\ell)}
+    &\sim
+    \IG\left(
+    A_a+\frac{n_\ell d}{2},
+    B_a+\frac{1}{2}\sum_{i=1}^{n_\ell}\norm{a_i^{(\ell)}}_2^2
+    \right),
+    \label{eq:sigma-a-update}\\
+    \sigma_{\theta,\ell}^2\mid \theta^{(\ell)}
+    &\sim
+    \IG\left(
+    A_\theta+\frac{n_\ell}{2},
+    B_\theta+\frac{1}{2}\sum_{i=1}^{n_\ell}(\theta_i^{(\ell)})^2
+    \right),
+    \label{eq:sigma-theta-update}\\
+    \sigma_{\beta,\ell}^2\mid \beta^{(\ell)}
+    &\sim
+    \IG\left(
+    A_\beta+\frac{P_\ell}{2},
+    B_\beta+\frac{1}{2}\sum_{j=1}^{P_\ell}(\beta_j^{(\ell)})^2
+    \right).
+    \label{eq:sigma-beta-update}
+\end{align}
+
+\section{Jain--Neal restricted Gibbs split--merge moves}
+
+Split--merge moves are Metropolis--Hastings updates on $c$ conditional on the
+current item positions $z=(z_1,\dots,z_P)$.  The target is the collapsed
+partition density in \eqref{eq:log-collapsed-partition-target}.
+
+\subsection{Anchor selection}
+
+Select two distinct global item indices $u$ and $v$ uniformly from
+$\{1,\dots,P\}$.  If $c_u=c_v$, attempt a split move.  If $c_u\neq c_v$,
+attempt a merge move.  The anchor selection probability is symmetric and
+cancels in the Metropolis--Hastings ratio.
+
+\subsection{Split proposal}
+
+Suppose $c_u=c_v=a$.  Let
+\[
+    A=\{q:c_q=a\}
+\]
+be the cluster to be split.  Choose an empty component label
+$b\in\{l:n_l=0\}$ uniformly.  If no empty component exists, skip the split.
+
+Initialize two temporary clusters by forcing
+\[
+    c_u'=a,
+    \qquad
+    c_v'=b.
+\]
+For each $q\in A\setminus\{u,v\}$, assign $q$ to either $a$ or $b$ by a
+restricted NIW-collapsed Gibbs scan:
+\begin{align}
+    w_q(a)&\propto
+    (n_{a,-q}^{\mathrm{temp}}+e_0)
+    p(z_q\mid z_{a,-q}^{\mathrm{temp}}),\\
+    w_q(b)&\propto
+    (n_{b,-q}^{\mathrm{temp}}+e_0)
+    p(z_q\mid z_{b,-q}^{\mathrm{temp}}),
+\end{align}
+where the predictive density is the NIW Student-$t$ density in
+\eqref{eq:niw-predictive}.  Let $p_q^{\mathrm{fwd}}$ be the normalized
+probability of the assignment actually selected during the forward restricted
+scan.  Then
+\begin{equation}
+    \log q(c'\mid c)
+    =
+    -\log E(c)
+    +
+    \sum_{q\in A\setminus\{u,v\}}\log p_q^{\mathrm{fwd}},
+    \label{eq:split-forward-probability}
+\end{equation}
+where $E(c)=|\{l:n_l=0\}|$ is the number of empty components before the split.
+The reverse move is deterministic merge, so
+\[
+    \log q(c\mid c')=0.
+\]
+The split acceptance probability is
+\begin{equation}
+    \alpha_{\mathrm{split}}
+    =
+    \min\left\{1,
+    \exp\left[
+    \log\pi(c'\mid z)-\log\pi(c\mid z)
+    -\log q(c'\mid c)
+    \right]
+    \right\}.
+    \label{eq:split-acceptance}
+\end{equation}
+
+\subsection{Merge proposal}
+
+Suppose $c_u=a$, $c_v=b$, and $a\neq b$.  Let
+\[
+    A=\{q:c_q=a\},
+    \qquad
+    B=\{q:c_q=b\}.
+\]
+The proposal merges $B$ into $A$:
+\[
+    c_q'=a,
+    \qquad q\in A\cup B.
+\]
+Thus
+\[
+    \log q(c'\mid c)=0.
+\]
+The reverse proposal is a split of $A\cup B$ back into $A$ and $B$ using the
+same anchors $u$ and $v$.  Let $p_q^{\mathrm{rev}}$ be the normalized
+probability of assigning $q$ to its original side during this reverse
+restricted Gibbs scan.  Then
+\begin{equation}
+    \log q(c\mid c')
+    =
+    -\log E(c')
+    +
+    \sum_{q\in(A\cup B)\setminus\{u,v\}}\log p_q^{\mathrm{rev}},
+    \label{eq:merge-reverse-probability}
+\end{equation}
+where $E(c')$ is the number of empty components after the merge.  The merge
+acceptance probability is
+\begin{equation}
+    \alpha_{\mathrm{merge}}
+    =
+    \min\left\{1,
+    \exp\left[
+    \log\pi(c'\mid z)-\log\pi(c\mid z)
+    +\log q(c\mid c')
+    \right]
+    \right\}.
+    \label{eq:merge-acceptance}
+\end{equation}
+
+\section{Acceptance-rate monitoring}
+
+For each Metropolis--Hastings block, monitor empirical acceptance rates:
+\begin{align}
+    \widehat{\mathrm{AR}}_\theta
+    &=\frac{\#\{\theta\text{ proposals accepted}\}}
+            {\#\{\theta\text{ proposals attempted}\}},\\
+    \widehat{\mathrm{AR}}_\beta
+    &=\frac{\#\{\beta\text{ proposals accepted}\}}
+            {\#\{\beta\text{ proposals attempted}\}},\\
+    \widehat{\mathrm{AR}}_a
+    &=\frac{\#\{a\text{ proposals accepted}\}}
+            {\#\{a\text{ proposals attempted}\}},\\
+    \widehat{\mathrm{AR}}_b
+    &=\frac{\#\{b\text{ proposals accepted}\}}
+            {\#\{b\text{ proposals attempted}\}},\\
+    \widehat{\mathrm{AR}}_{\mathrm{split}}
+    &=\frac{\#\{\text{split proposals accepted}\}}
+            {\#\{\text{split proposals attempted}\}},\\
+    \widehat{\mathrm{AR}}_{\mathrm{merge}}
+    &=\frac{\#\{\text{merge proposals accepted}\}}
+            {\#\{\text{merge proposals attempted}\}}.
+\end{align}
+The single-site label update in \eqref{eq:c-update} is a Gibbs update and
+therefore has acceptance probability one.  Very low split acceptance can imply
+that the current item positions support only coarse clusters, that $S_0$ is too
+loose/tight for the scale of $z_q$, or that the restricted Gibbs split proposal
+is not sufficiently close to high-posterior split configurations.
+
+\section{Posterior cluster summaries}
+
+Because labels are not identifiable, cluster summaries should be
+label-switching invariant.  The primary summary is the posterior similarity
+matrix
+\begin{equation}
+    C_{qr}
+    =
+    P(c_q=c_r\mid Y),
+    \qquad q,r=1,\dots,P.
+\end{equation}
+During MCMC, update online by
+\begin{equation}
+    C_{qr}^{\mathrm{raw}}
+    \leftarrow
+    C_{qr}^{\mathrm{raw}}+\ind(c_q=c_r)
+\end{equation}
+after burn-in.  At the end, divide by the number of saved iterations.
+
+Also monitor
+\begin{equation}
+    K_+^{(t)}=|\{l:n_l^{(t)}>0\}|,
+\end{equation}
+the layer-scale diagnostic in \eqref{eq:layer-scale-diagnostic}, and the
+split/merge acceptance rates.
+
+
+\section{One full MCMC sweep}
+
+\begin{algorithm}[H]
+\caption{One MCMC sweep: LSIRM update and collapsed label update}
+\small
+\begin{algorithmic}[1]
+\State \textbf{Input:} data $Y$, layer maps $q\mapsto(\ell(q),j(q))$, hyperparameters, proposal scales, $K^\star$, and $M_{\mathrm{SM}}$.
+\State Update layer-specific nuisance parameters $\xi_\ell$, if present.
+\For{$\ell=1,\dots,L$}
+    \For{$i=1,\dots,n_\ell$}
+        \State Propose $\theta_i^{(\ell)\prime}$ and accept/reject using \eqref{eq:theta-mh-ratio}.
+        \State Propose $a_i^{(\ell)\prime}$ and accept/reject using \eqref{eq:a-mh-ratio}.
+    \EndFor
+    \For{$j=1,\dots,P_\ell$}
+        \State Propose $\beta_j^{(\ell)\prime}$ and accept/reject using \eqref{eq:beta-mh-ratio}.
+        \State Let $q=q(\ell,j)$ and propose $b_j^{(\ell)\prime}$.
+        \State Accept/reject $b_j^{(\ell)\prime}$ using \eqref{eq:b-mh-ratio}, including the mixture prior term.
+    \EndFor
+    \State Apply deterministic centering or identification constraints if used.
+    \State Update $\sigma_{a,\ell}^2$, $\sigma_{\theta,\ell}^2$, and $\sigma_{\beta,\ell}^2$ using \eqref{eq:sigma-a-update}--\eqref{eq:sigma-beta-update}, if sampled.
+\EndFor
+\State Construct global item positions $z_q=b_{j(q)}^{(\ell(q))}$ for $q=1,\dots,P$.
+\State Compute and store layer-scale diagnostics $s_\ell$ and $R_{\mathrm{scale}}$.
+\For{$q=1,\dots,P$}
+    \State Remove item $q$ from its current cluster.
+    \State Compute NIW leave-one-out predictive weights in \eqref{eq:c-update} for $l=1,\dots,K^\star$.
+    \State Sample $c_q$ from the normalized weights.
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{One MCMC sweep: split--merge, mixture-parameter update, and storage}
+\small
+\begin{algorithmic}[1]
+\For{$m=1,\dots,M_{\mathrm{SM}}$}
+    \State Select two anchors $u,v$ uniformly at random.
+    \If{$c_u=c_v$}
+        \State Attempt a restricted-Gibbs split move and accept/reject using \eqref{eq:split-acceptance}.
+    \Else
+        \State Attempt a merge move and accept/reject using \eqref{eq:merge-acceptance}.
+    \EndIf
+\EndFor
+\For{$l=1,\dots,K^\star$}
+    \State Compute NIW posterior parameters $(\kappa_l,\nu_l,m_l,S_l)$ from \eqref{eq:niw-posterior-params}.
+    \State Draw $\Sigma_l\mid z,c$ using \eqref{eq:sigma-posterior}.
+    \State Draw $\mu_l\mid \Sigma_l,z,c$ using \eqref{eq:mu-posterior}.
+\EndFor
+\State Optionally draw $\rho\mid c$ using \eqref{eq:rho-posterior}.
+\If{iteration is after burn-in}
+    \State Store $c$, $K_+$, $z$, selected LSIRM parameters, acceptance indicators, and layer-scale diagnostics.
+    \State Update posterior similarity counts $C_{qr}^{\mathrm{raw}}\leftarrow C_{qr}^{\mathrm{raw}}+\ind(c_q=c_r)$.
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\end{document}
