@@ -1,0 +1,902 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm,bm,mathtools}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{float}
+
+\onehalfspacing
+
+\newcommand{\R}{\mathbb R}
+\newcommand{\ind}{\mathbb I}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\trans}{^{\mathsf T}}
+\DeclareMathOperator{\logit}{logit}
+\DeclareMathOperator{\IG}{IG}
+\DeclareMathOperator{\GammaDist}{Gamma}
+\DeclareMathOperator{\Bern}{Bernoulli}
+\DeclareMathOperator{\NB}{NB}
+\DeclareMathOperator{\EPA}{EPA}
+\DeclareMathOperator{\Perm}{Perm}
+\DeclareMathOperator{\Unif}{Uniform}
+
+\title{Joint Multilayered LSIRM with the\\
+Ewens--Pitman Attraction Pairwise Partition Prior on Items\\
+(EPA--LSIRM, v12)}
+\date{Model Description}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+This document defines a joint multilayered LSIRM in which item clustering is
+performed by the Ewens--Pitman Attraction (EPA) pairwise partition prior of
+Dahl, Day, and Tsai (2017), conditioned on item latent positions.  The
+previous formulation (v11) placed a finite Gaussian mixture (NIW) prior
+\emph{generatively} on item latent positions $b_j^{(\ell)}$.  In v12 the
+generative mixture is removed: items have a single common Gaussian prior on
+their latent positions, and an EPA prior is imposed on the \emph{partition}
+of items only, with similarity driven by pairwise distances among those same
+positions.
+
+The structural consequence is the following \emph{decoupling property}.  The
+LSIRM response likelihood depends on item positions $z_q$ but not on the
+partition $\mathcal{P}$, and the prior on $b_j^{(\ell)}$ also does not depend
+on $\mathcal{P}$.  Therefore, in any Metropolis--Hastings move that changes
+$\mathcal{P}$ alone (single-item Gibbs, split--merge), the LSIRM likelihood
+factor $p(Y\mid\Theta)$ cancels exactly in the MH ratio; the acceptance
+probability reduces to a ratio of EPA partition pmfs and a proposal
+correction.  Conversely, in any move that changes $b_j^{(\ell)}$, the EPA
+prior must be re-evaluated because pairwise distances change.
+
+The LSIRM block --- linear predictors, per-layer observation models
+(Bernoulli, Student-$t$, Negative Binomial, LSGRM), respondent and item
+effects, identifiability conventions --- is identical to v11 and is
+reproduced below for self-containedness.  The only LSIRM-side change is in
+the prior on $b_j^{(\ell)}$, which is now an isotropic Gaussian rather than a
+cluster-specific mixture.  All clustering machinery in §\ref{sec:epa-prior}
+through §\ref{sec:sm} is new in v12.
+
+\section{Indexing, dimensions, and observed data}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Symbol & Meaning & Dimension/range \\
+\midrule
+$\ell$ & layer index & $\ell=1,\dots,L$ \\
+$i$ & respondent index & $i=1,\dots,n_\ell$ \\
+$j$ & local item index within layer $\ell$ & $j=1,\dots,P_\ell$ \\
+$q$ & global item index across all layers & $q=1,\dots,P$, $P=\sum_{\ell=1}^L P_\ell$ \\
+$\ell(q)$ & layer containing global item $q$ & $\{1,\dots,L\}$ \\
+$j(q)$ & local item index of global item $q$ & $\{1,\dots,P_{\ell(q)}\}$ \\
+$d$ & latent-space dimension & $d=2$ in the current implementation \\
+$\mathcal{P}$ & partition of $\{1,\dots,P\}$ & $\{S_1,\dots,S_K\}$ \\
+$K$ & number of subsets in $\mathcal{P}$ & $K=|\mathcal{P}|$ \\
+$\sigma$ & EPA allocation permutation & $\sigma\in\Perm(P)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Common-respondent assumption.}
+Throughout this document the typical multilayered setting with shared
+respondents is assumed: $n_\ell=n$ for all $\ell$, and the respondent latent
+position is shared across layers, $a_i^{(\ell)}=a_i\in\R^d$.  The layered
+notation $a_i^{(\ell)}$ is kept in equations below for visual symmetry with
+$b_j^{(\ell)}$ but should be read as the single $a_i$.  Two consequences
+follow.  First, every $b_j^{(\ell)}$ lives in one common coordinate system
+anchored by the shared $a$'s; the only identifiability ambiguity is a single
+global orthogonal transformation of the entire configuration
+$(a, b^{(1)},\dots,b^{(L)})$, not per-layer rigid motions.  Second, the MH
+update of $a_i$ aggregates likelihood contributions across all layers
+containing respondent $i$, with a single fixed unit-variance prior on $a_i$.
+
+The observed data are
+\[
+    Y^{(\ell)}=\{y_{ij}^{(\ell)}:(i,j)\in\mathcal O_\ell\},
+\]
+with $\mathcal O_\ell$ the set of observed respondent--item pairs in layer
+$\ell$.
+
+\section{LSIRM likelihood}
+
+The model uses, for respondent $i$ and item $j$ in layer $\ell$:
+\begin{itemize}[leftmargin=1.5em]
+    \item $a_i\in\R^d$: shared respondent latent position.
+    \item $b_j^{(\ell)}\in\R^d$: item latent position in layer $\ell$.
+    \item $\alpha_i^{(\ell)}\in\R$: respondent effect in layer $\ell$.
+    \item $\beta_j^{(\ell)}\in\R$: item difficulty for binary, continuous,
+    and count layers; replaced by a threshold vector
+    $\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$ in ordinal
+    layers.
+    \item $\gamma_\ell>0$: layer-specific distance weight.
+    \item $\sigma_0^2>0$: continuous-layer error scale.
+    \item $\nu_2>0$: continuous-layer Student-$t$ degrees of freedom.
+    \item $\kappa_j>0$: item-specific count-layer overdispersion.
+\end{itemize}
+Let $\mathcal L_{\mathrm{ord}}\subseteq\{1,\dots,L\}$ index the ordinal
+layers.
+
+\paragraph{Implementation note.}
+The current implementation is a four-layer instance ($L=4$): one binary, one
+continuous, one count, and one ordinal (LSGRM) layer, so
+$\mathcal L_{\mathrm{ord}}=\{4\}$.  The notation below is layer-generic.
+
+The layer-specific LSIRM linear predictor is
+\begin{equation}
+    \eta_{ij}^{(\ell)}
+    =
+    \alpha_i^{(\ell)}-\beta_j^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad \ell\notin\mathcal L_{\mathrm{ord}},
+    \label{eq:lsirm-linear-predictor}
+\end{equation}
+with the convention that for ordinal layers the difficulty $\beta_j^{(\ell)}$
+is replaced by item-specific thresholds entering the likelihood directly:
+\begin{equation}
+    \eta_{ij}^{(\ell)}
+    =
+    \alpha_i^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad \ell\in\mathcal L_{\mathrm{ord}}.
+    \label{eq:lsirm-linear-predictor-ord}
+\end{equation}
+
+\subsection{Per-layer observation models}
+
+\paragraph{Binary (logistic regression).}
+\begin{equation}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)}\sim
+    \Bern(p_{ij}^{(\ell)}),
+    \qquad \logit p_{ij}^{(\ell)}=\eta_{ij}^{(\ell)}.
+\end{equation}
+
+\paragraph{Continuous (robust Student-$t$ via normal--gamma scale mixture).}
+\begin{align}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\lambda_{ij}^{(\ell)}
+    &\sim N\!\left(\eta_{ij}^{(\ell)},\;\sigma_0^2/\lambda_{ij}^{(\ell)}\right),\notag\\
+    \lambda_{ij}^{(\ell)}
+    &\sim \GammaDist(\nu_2/2,\nu_2/2).
+\end{align}
+Marginalizing $\lambda_{ij}^{(\ell)}$ gives
+$y_{ij}^{(\ell)}\sim t_{\nu_2}(\eta_{ij}^{(\ell)},\sigma_0^2)$.
+
+\paragraph{Count (negative binomial with item-specific overdispersion).}
+\begin{equation}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\kappa_j
+    \sim \NB\!\left(r=1/\kappa_j,\;\mu=\exp\eta_{ij}^{(\ell)}\right),
+\end{equation}
+with $E[y_{ij}^{(\ell)}]=\mu$ and $\mathrm{Var}[y_{ij}^{(\ell)}]=\mu+\kappa_j\mu^2$.
+The Poisson limit is recovered as $\kappa_j\to 0$.  The prior is log-normal,
+\begin{equation}
+    \log\kappa_j\sim N(\mu_{\log\kappa},\sigma_{\log\kappa}^2).
+\end{equation}
+
+\paragraph{Ordinal (LSGRM, De Carolis--Kang--Jeon, 2025).}
+For an ordinal layer $\ell\in\mathcal L_{\mathrm{ord}}$ with $K_\ell$ ordered
+categories and item thresholds
+$\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$,
+\begin{equation}
+    \logit P\!\bigl(y_{ij}^{(\ell)}\geq k+1\bigm|\eta_{ij}^{(\ell)},\beta_{j,k}^{(\ell)}\bigr)
+    =\eta_{ij}^{(\ell)}-\beta_{j,k}^{(\ell)},
+    \qquad k=1,\dots,K_\ell-1,
+\end{equation}
+with $P(y\geq 1)=1$, $P(y\geq K_\ell+1)=0$; category probabilities follow by
+differencing.
+
+\subsection{Compact notation}
+
+Each per-layer likelihood is summarized as
+\begin{equation}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell
+    \sim f_\ell\bigl\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\bigr\},
+    \qquad (i,j)\in\mathcal O_\ell,
+\end{equation}
+where $\xi_\ell$ collects layer-specific nuisance parameters (e.g.\
+$(\sigma_0^2,\lambda_{ij}^{(\ell)})$ in continuous layers,
+$\{\kappa_j\}$ in count layers, the threshold vector in ordinal layers, and
+$\gamma_\ell$ in every layer).  The full LSIRM log-likelihood is
+\begin{equation}
+    \ell_{\mathrm{LSIRM}}
+    =
+    \sum_{\ell=1}^L\sum_{(i,j)\in\mathcal O_\ell}
+    \log f_\ell\bigl\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\bigr\}.
+    \label{eq:lsirm-loglik}
+\end{equation}
+
+\section{EPA pairwise partition prior on items}
+\label{sec:epa-prior}
+
+\subsection{Global item latent positions}
+
+The global item latent position is
+\begin{equation}
+    z_q = b_{j(q)}^{(\ell(q))}\in\R^d,
+    \qquad q=1,\dots,P,
+\end{equation}
+and we write $z=(z_1,\dots,z_P)$.  The clustering model is placed on the
+partition of $\{1,\dots,P\}$, conditional on $z$.
+
+\subsection{Pairwise similarity}
+
+For an EPA temperature $\tau\geq 0$,
+\begin{equation}
+    \lambda_{qr}(z,\tau) = \exp\!\bigl\{-\tau\,d_{qr}(z)\bigr\},
+    \qquad d_{qr}(z)=\norm{z_q-z_r}_2^2.
+    \label{eq:lambda}
+\end{equation}
+Unlike the original Dahl--Day--Tsai (2017) formulation, no latent-scale
+normalizer $s_z^2$ is used.  In EPA--LSIRM the latent space scale is already
+anchored by the priors $a_i\sim N_d(0,I_d)$ (\ref{eq:a-prior}) and
+$b_j^{(\ell)}\sim N_d(0,\sigma_b^2 I_d)$ (\ref{eq:b-prior}), so $\norm{z_q-z_r}_2^2$
+is automatically $O(1)$ across layers.  An additional normalizer would only
+introduce a redundant reparameterization
+$\tau\mapsto\tau/s_z^2$ without altering the model.
+
+\subsection{Sequential allocation EPA pmf}
+
+Let $\sigma=(\sigma_1,\dots,\sigma_P)\in\Perm(P)$ be an allocation permutation
+and $\pi_t=\pi(\sigma_1,\dots,\sigma_t)$ the partition produced after the
+first $t$ allocations, with $q_{t-1}=|\pi_{t-1}|$.  The conditional
+allocation probability of $\sigma_t$ at step $t$ is
+\begin{equation}
+\Pr\!\bigl(\sigma_t\in S\,\big|\,\sigma_{1:t-1},\alpha,\delta,\tau,z\bigr)
+=
+\begin{cases}
+\displaystyle
+\frac{t-1-\delta\,q_{t-1}}{\alpha+t-1}\cdot
+\frac{\sum_{r\in S}\lambda_{\sigma_t r}(z,\tau)}
+     {\sum_{s=1}^{t-1}\lambda_{\sigma_t \sigma_s}(z,\tau)},
+& S\in\pi_{t-1},\\[10pt]
+\displaystyle\frac{\alpha+\delta\,q_{t-1}}{\alpha+t-1},
+& S \text{ a new subset.}
+\end{cases}
+\label{eq:epa-cond}
+\end{equation}
+The full EPA pmf factorizes as
+\begin{equation}
+    p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau)
+    =\prod_{t=1}^{P}p_t(\alpha,\delta,\sigma,z,\pi_{t-1}).
+    \label{eq:epa-pmf}
+\end{equation}
+Mass parameter $\alpha\in\R_{>0}$, discount $\delta\in[0,1)$, and temperature
+$\tau\geq 0$.
+
+\subsection{Hyperpriors and identifiability conventions}
+
+\begin{align}
+    \alpha &\sim \GammaDist(a_\alpha,b_\alpha),\\
+    \tau &\sim \GammaDist(a_\tau,b_\tau),\\
+    \sigma &\sim \Unif(\Perm(P)),\\
+    \delta &= 0\quad\text{(fixed in the current implementation).}
+\end{align}
+Defaults are weakly informative: $(a_\alpha,b_\alpha)=(1,1)$,
+$(a_\tau,b_\tau)=(1,1)$.  Setting $\delta=0$ reduces the EPA mass-weighting
+factor $(\alpha+\delta q_{t-1})/(\alpha+t-1)$ to $\alpha/(\alpha+t-1)$,
+matching the Dirichlet-process--type sequential allocation under EPA's
+distance-dependent reallocation kernel.
+
+\subsection{Decoupling property}
+\label{sec:decouple}
+
+The partition $\mathcal{P}$ enters the joint distribution \emph{only} through
+the EPA pmf \eqref{eq:epa-pmf}.  The LSIRM likelihood
+\eqref{eq:lsirm-loglik} does not depend on $\mathcal{P}$, and no other prior
+in the model depends on $\mathcal{P}$.  Therefore
+\begin{equation}
+    p\bigl(Y,\mathcal{P}\,\big|\,\Theta_{\mathrm{LSIRM}},\sigma,\alpha,\delta,\tau\bigr)
+    =
+    p(Y\mid\Theta_{\mathrm{LSIRM}})\;
+    p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau),
+    \label{eq:joint-decouple}
+\end{equation}
+which is the structural property that drives all partition updates below.
+
+\section{Priors for non-clustering parameters}
+
+\paragraph{Respondent latent position (fixed unit variance for identifiability).}
+\begin{equation}
+    a_i\sim N_d(0,I_d),\qquad i=1,\dots,n.
+    \label{eq:a-prior}
+\end{equation}
+Fixing the variance at $1$ anchors the latent-space scale; following LSGRM
+convention, $\gamma_\ell$ remains the free distance-scale parameter.
+
+\paragraph{Item latent position (free isotropic Gaussian prior, modified from v11).}
+In contrast to v11, where $b_j^{(\ell)}$ inherited its prior from a
+cluster-specific Gaussian mixture, v12 endows each $b_j^{(\ell)}$ with an
+independent isotropic Gaussian prior of fixed scale,
+\begin{equation}
+    b_j^{(\ell)}\sim N_d(0,\sigma_b^2 I_d),
+    \qquad j=1,\dots,P_\ell,\;\ell=1,\dots,L.
+    \label{eq:b-prior}
+\end{equation}
+The scale $\sigma_b^2$ is a fixed hyperparameter (not sampled); the
+implementation uses $\sigma_b^2=1$ to match the respondent prior scale and to
+keep $\gamma_\ell$ as the only free distance-scale parameter.  The cluster
+identity of item $j$ does \emph{not} enter \eqref{eq:b-prior}, by design ---
+this is what produces the decoupling property in §\ref{sec:decouple}.
+
+\paragraph{Respondent effect.}
+\begin{equation}
+    \alpha_i^{(\ell)}\mid\sigma_{\alpha,\ell}^2\sim N(0,\sigma_{\alpha,\ell}^2),
+    \qquad
+    \sigma_{\alpha,\ell}^2\sim\IG(A_{\alpha,\ell},B_{\alpha,\ell}),
+    \qquad \ell=1,\dots,L.
+    \label{eq:alpha-prior}
+\end{equation}
+
+\paragraph{Item difficulty $\beta_j^{(\ell)}$ (fixed-scale prior).}
+For non-ordinal layers,
+\begin{equation}
+    \beta_j^{(\ell)}\sim N(0,\sigma_{\beta,\ell}^2),
+    \qquad \ell\notin\mathcal L_{\mathrm{ord}},
+    \label{eq:beta-prior}
+\end{equation}
+with $\sigma_{\beta,\ell}^2$ fixed (the implementation uses
+$\sigma_{\beta,\ell}=2$).
+
+\paragraph{Ordinal thresholds (independent normals subject to ordering).}
+For $\ell\in\mathcal L_{\mathrm{ord}}$,
+\begin{equation}
+    \beta_{j,k}^{(\ell)}\sim N(0,\sigma_{\beta,\ell}^2),
+    \qquad
+    \beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)},
+    \label{eq:beta-thr-prior}
+\end{equation}
+with $\sigma_{\beta,\ell}^2$ fixed.
+
+The remaining layer-specific nuisance parameters --- $\gamma_\ell$,
+$\sigma_0^2$, and $\{\kappa_j\}$ --- are equipped with independent log-normal
+or inverse-gamma priors as in v11; their priors are unchanged.
+
+\section{Rotation and reflection invariance}
+\label{sec:invariance}
+
+Under the common-respondent assumption, the entire configuration
+$(a,b^{(1)},\dots,b^{(L)})$ shares one coordinate system.  The only
+identifiability ambiguity is a single global orthogonal transformation
+$Q\in O(d)$:
+\begin{equation}
+    a_i\mapsto Qa_i,
+    \qquad
+    b_j^{(\ell)}\mapsto Qb_j^{(\ell)}.
+\end{equation}
+The LSIRM linear predictor depends on positions only through
+$\norm{a_i-b_j^{(\ell)}}_2$, which is $O(d)$-invariant.  The EPA similarity
+\eqref{eq:lambda} depends only on pairwise distances $\norm{z_q-z_r}_2$ and
+is therefore also $O(d)$-invariant.  The priors $N_d(0,I_d)$ on $a_i$ and
+$N_d(0,\sigma_b^2 I_d)$ on $b_j^{(\ell)}$ are $O(d)$-invariant in
+distribution.  Therefore the joint posterior on the clustering targets
+($\mathcal{P}$, $K=|\mathcal{P}|$, the cluster sizes, the posterior
+similarity matrix $C_{qr}=\Pr(q\sim_{\mathcal{P}}r\mid Y)$) is $O(d)$-invariant.
+
+\paragraph{Consequence for the sampler.}
+Within-MCMC orientation alignment is \emph{not} required for clustering
+correctness.  A post-hoc Procrustes alignment is recommended only when the
+visualization of $a$ or $b^{(\ell)}$ must be compared to a target
+configuration.  Translation invariance is broken by the centered Gaussian
+priors on $a$ and $b$, exactly as in v11.
+
+\section{Full joint posterior}
+
+Let
+\begin{align*}
+    \Theta_{\mathrm{LSIRM}}
+    &=\{a_i,\alpha_i^{(\ell)},b_j^{(\ell)},\beta_j^{(\ell)},\xi_\ell,\sigma_{\alpha,\ell}^2:i,j,\ell\},\\
+    \Theta_{\mathrm{EPA}}
+    &=\{\mathcal{P},\sigma,\alpha,\tau\}\quad(\delta\equiv 0).
+\end{align*}
+Then
+\begin{align}
+&p\bigl(\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{EPA}}\,\big|\,Y\bigr)
+\notag\\
+&\quad\propto
+\prod_{\ell=1}^L
+\prod_{(i,j)\in\mathcal{O}_\ell}
+    f_\ell\bigl\{y_{ij}^{(\ell)}\,\big|\,\eta_{ij}^{(\ell)},\xi_\ell\bigr\}
+\notag\\
+&\qquad\times\;
+p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau)
+\notag\\
+&\qquad\times\;
+\prod_{i=1}^n N_d(a_i;0,I_d)\;
+\prod_{\ell=1}^L\prod_{j=1}^{P_\ell} N_d\bigl(b_j^{(\ell)};0,\sigma_b^2 I_d\bigr)
+\notag\\
+&\qquad\times\;
+\prod_{\ell=1}^L\!\left[
+\prod_{i=1}^n p\bigl(\alpha_i^{(\ell)}\mid\sigma_{\alpha,\ell}^2\bigr)\,
+p_\beta^{(\ell)}\bigl(\beta^{(\ell)}\bigr)\,
+p(\sigma_{\alpha,\ell}^2)\,p(\xi_\ell)
+\right]
+\notag\\
+&\qquad\times\;
+p(\alpha)\,p(\tau)\,p(\sigma),
+\label{eq:full-posterior}
+\end{align}
+with $z_q=b_{j(q)}^{(\ell(q))}$ and the layer-specific item-difficulty prior
+factor $p_\beta^{(\ell)}(\beta^{(\ell)})$ defined as in
+\eqref{eq:beta-prior}--\eqref{eq:beta-thr-prior}.
+
+\section{Metropolis--Hastings updates for LSIRM parameters}
+
+All LSIRM parameters with non-conjugate full conditionals are updated by
+random-walk Metropolis--Hastings with symmetric Gaussian proposals.
+
+\subsection{Respondent effect $\alpha_i^{(\ell)}$}
+
+Propose $\alpha_i^{(\ell)\prime}=\alpha_i^{(\ell)}+\varepsilon_\alpha$,
+$\varepsilon_\alpha\sim N(0,s_\alpha^2)$.  The log MH ratio is
+\begin{align}
+    \log R_\alpha
+    &=
+    \sum_{j:(i,j)\in\mathcal{O}_\ell}
+    \!\left[
+    \log f_\ell\bigl\{\cdot\mid\eta_{ij}^{(\ell)\prime}\bigr\}-
+    \log f_\ell\bigl\{\cdot\mid\eta_{ij}^{(\ell)}\bigr\}
+    \right]
+    \notag\\
+    &\quad-\frac{1}{2\sigma_{\alpha,\ell}^2}
+    \bigl\{(\alpha_i^{(\ell)\prime})^2-(\alpha_i^{(\ell)})^2\bigr\}.
+    \label{eq:alpha-mh-ratio}
+\end{align}
+
+\subsection{Item difficulty $\beta_j^{(\ell)}$}
+
+For non-ordinal layers,
+\begin{align}
+    \log R_\beta
+    &=
+    \sum_{i:(i,j)\in\mathcal{O}_\ell}
+    \!\left[
+    \log f_\ell\bigl\{\cdot\mid\eta_{ij}^{(\ell)\prime}\bigr\}-
+    \log f_\ell\bigl\{\cdot\mid\eta_{ij}^{(\ell)}\bigr\}
+    \right]
+    \notag\\
+    &\quad
+    -\frac{1}{2\sigma_{\beta,\ell}^2}\bigl\{(\beta_j^{(\ell)\prime})^2-(\beta_j^{(\ell)})^2\bigr\}.
+    \label{eq:beta-mh-ratio}
+\end{align}
+For ordinal layers, propose each threshold by an independent Gaussian random
+walk, reject any move that violates ordering, and use the analogue of
+\eqref{eq:beta-mh-ratio} with the LSGRM ordinal likelihood evaluated at the
+full threshold vector.
+
+\subsection{Respondent latent position $a_i$}
+
+Propose $a_i'=a_i+\varepsilon_a$, $\varepsilon_a\sim N_d(0,s_a^2 I_d)$, and
+aggregate likelihood contributions from every layer:
+\begin{align}
+    \log R_a
+    &=
+    \sum_{\ell=1}^L
+    \sum_{j:(i,j)\in\mathcal{O}_\ell}
+    \!\left[
+    \log f_\ell\bigl\{\cdot\mid\eta_{ij}^{(\ell)\prime}\bigr\}-
+    \log f_\ell\bigl\{\cdot\mid\eta_{ij}^{(\ell)}\bigr\}
+    \right]
+    \notag\\
+    &\quad-\frac{1}{2}\bigl\{\norm{a_i'}_2^2-\norm{a_i}_2^2\bigr\}.
+    \label{eq:a-mh-ratio}
+\end{align}
+
+\subsection{Item latent position $b_j^{(\ell)}$ (modified from v11)}
+\label{sec:b-update}
+
+Let $q=q(\ell,j)$.  Propose $b_j^{(\ell)\prime}=b_j^{(\ell)}+\varepsilon_b$,
+$\varepsilon_b\sim N_d(0,s_b^2 I_d)$, and let $z'$ denote $z$ with $z_q$
+replaced by $b_j^{(\ell)\prime}$.  The log MH ratio combines three terms ---
+LSIRM likelihood, free Gaussian prior on $b$, \emph{and} the EPA prior, the
+last of which is required because the EPA pmf depends on $z$ through pairwise
+similarity:
+\begin{align}
+    \log R_b
+    &=
+    \sum_{i:(i,j)\in\mathcal{O}_\ell}
+    \!\left[
+    \log f_\ell\bigl\{\cdot\mid\eta_{ij}^{(\ell)\prime}\bigr\}-
+    \log f_\ell\bigl\{\cdot\mid\eta_{ij}^{(\ell)}\bigr\}
+    \right]
+    \notag\\
+    &\quad
+    -\frac{1}{2\sigma_b^2}\bigl\{\norm{b_j^{(\ell)\prime}}_2^2-\norm{b_j^{(\ell)}}_2^2\bigr\}
+    \notag\\
+    &\quad
+    +\log p_{\EPA}(\mathcal{P}\mid\sigma,z',\alpha,\delta,\tau)
+    -\log p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau).
+    \label{eq:b-mh-ratio}
+\end{align}
+This replaces the v11 mixture term: the cluster identity $c_q$ no longer
+appears, but the EPA prior contribution does, and is non-trivial because
+moving $z_q$ rescales similarities $\lambda_{qr}(z,\tau)$ for every $r\ne q$.
+
+\paragraph{Caching.}
+Recomputing \eqref{eq:epa-pmf} from scratch costs $O(P^2)$.  Updating one
+$z_q$ changes only the $q$-th row and column of the similarity matrix
+$\Lambda$; cached partial sums $\sum_{r\in S}\lambda_{\sigma_t r}$ for each
+allocation step $t$ that involves $q$ should be updated incrementally,
+giving $O(P)$ work per $b$ update in the typical case.
+
+\subsection{Conjugate update for $\sigma_{\alpha,\ell}^2$}
+
+\begin{equation}
+    \sigma_{\alpha,\ell}^2\mid\alpha^{(\ell)}\sim
+    \IG\!\left(A_{\alpha,\ell}+\tfrac{n}{2},\;
+    B_{\alpha,\ell}+\tfrac{1}{2}\textstyle\sum_i(\alpha_i^{(\ell)})^2\right).
+    \label{eq:sigma-alpha-update}
+\end{equation}
+
+\section{Single-item Gibbs update for $\mathcal{P}$}
+
+For each global item $q\in\{1,\dots,P\}$ in random order, remove $q$ from its
+current subset and reassign it to either an existing subset
+$S\in\mathcal{P}_{-q}$ or a new singleton.  Let $\mathcal{P}^{(S)}$ denote
+the candidate partition obtained by adding $q$ to $S$ (or creating a new
+singleton).  Because of the decoupling \eqref{eq:joint-decouple} the LSIRM
+likelihood does not enter, and the conditional is
+\begin{equation}
+    \Pr(q\in S\mid\mathcal{P}_{-q},\sigma,z,\alpha,\delta,\tau)
+    \propto p_{\EPA}\bigl(\mathcal{P}^{(S)}\mid\sigma,z,\alpha,\delta,\tau\bigr).
+    \label{eq:single-item-gibbs}
+\end{equation}
+The candidates are: each existing subset of $\mathcal{P}_{-q}$, plus a new
+singleton, giving $|\mathcal{P}_{-q}|+1$ options.  Because the EPA pmf is
+non-exchangeable, each candidate requires re-evaluating
+\eqref{eq:epa-pmf} for the corresponding partition --- but since adding a
+single item only changes the EPA factor at the position $t$ where $q$ appears
+in $\sigma$ and at later steps, the per-candidate cost is reduced by caching
+the cumulative log-products of $p_t$ for $t$ preceding the modified position.
+
+\section{Permutation update}
+
+Update $\sigma$ by random-swap MH: propose $\sigma'$ obtained from $\sigma$
+by swapping two uniformly chosen positions, accept with
+\begin{equation}
+    \log R_\sigma
+    =\log p_{\EPA}(\mathcal{P}\mid\sigma',z,\alpha,\delta,\tau)
+    -\log p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau).
+    \label{eq:sigma-mh-ratio}
+\end{equation}
+The uniform prior on $\Perm(P)$ contributes equal terms that cancel.  Several
+swaps may be performed per sweep ($M_\sigma$ swaps; default $M_\sigma=P$).
+
+\section{EPA hyperparameter updates}
+
+Update $\alpha$ on the log scale: propose $\log\alpha'=\log\alpha+\varepsilon$,
+$\varepsilon\sim N(0,s_{\log\alpha}^2)$, with log-acceptance
+\begin{align}
+    \log R_\alpha^{\mathrm{hyp}}
+    &=\log p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha',\delta,\tau)
+    -\log p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau)
+    \notag\\
+    &\quad+\log p_\alpha(\alpha')-\log p_\alpha(\alpha)
+    +\log\alpha'-\log\alpha,
+    \label{eq:alpha-hyp-mh-ratio}
+\end{align}
+the last line being the log-Jacobian of the log-scale parameterization.  The
+update for $\tau$ is analogous.
+
+\section{Jain--Neal restricted Gibbs split--merge}
+\label{sec:sm}
+
+The single-item Gibbs sweep on $\mathcal{P}$ in
+\eqref{eq:single-item-gibbs} mixes locally but cannot relocate an entire
+block of items in one move.  When two distinct clusterings of nearly equal
+posterior mass are separated by a barrier of single-item moves through
+low-probability intermediate partitions, the chain mixes slowly.  We
+therefore add a Jain--Neal split--merge step in the nonconjugate variant of
+Jain and Neal (2007), specialized to EPA via the decoupling
+\eqref{eq:joint-decouple}.
+
+\subsection{Anchor selection and move type}
+
+Sample distinct anchors $(u,v)$ uniformly without replacement from
+$\{1,\dots,P\}^2$ (probability $1/[P(P-1)]$).  Determine move type:
+\begin{itemize}
+\item If there exists $S\in\mathcal{P}$ with $u,v\in S$, propose a
+  \emph{split} of $S$.
+\item Otherwise $u\in S_u\ne S_v\ni v$, and propose a \emph{merge} of $S_u$
+  and $S_v$.
+\end{itemize}
+Move type is a deterministic function of $(u,v,\mathcal{P})$, so the
+move-type indicator cancels.  Define
+\begin{equation}
+    \mathcal{S}=\begin{cases}S,&\text{split,}\\ S_u\cup S_v,&\text{merge,}\end{cases}
+    \qquad\mathcal{S}^*=\mathcal{S}\setminus\{u,v\}.
+\end{equation}
+
+\subsection{Restricted Gibbs sweeps}
+
+For a restricted partition
+$\mathbf{L}=\{S^{\mathrm{spl}}_u,S^{\mathrm{spl}}_v\}$ on $\mathcal{S}$ (with
+$u\in S^{\mathrm{spl}}_u$, $v\in S^{\mathrm{spl}}_v$ permanently) and a
+non-anchor item $q^*\in\mathcal{S}^*$, the conditional reassignment
+probability is
+\begin{equation}
+    \Pr\bigl(L_{q^*}=u\,\big|\,\mathbf{L}_{-q^*},\sigma,z,\alpha,\delta,\tau\bigr)
+    =\frac{\rho_u(q^*)}{\rho_u(q^*)+\rho_v(q^*)},
+    \label{eq:rgibbs-cond}
+\end{equation}
+where, after temporarily setting $L_{q^*}=w\in\{u,v\}$ to obtain
+$\mathbf{L}^{(w)}$ and combining with the unchanged outside-$\mathcal{S}$
+labels,
+\begin{equation}
+    \rho_w(q^*)
+    =p_{\EPA}\bigl(\mathbf{L}^{(w)}\cup\mathcal{P}_{-\mathcal{S}}\,\big|\,\sigma,z,\alpha,\delta,\tau\bigr).
+    \label{eq:rho-defn}
+\end{equation}
+The LSIRM likelihood does not enter \eqref{eq:rho-defn} because of
+\eqref{eq:joint-decouple}.
+
+\paragraph{Launch state.}
+Initialize a restricted partition on $\mathcal{S}$:
+\begin{itemize}
+\item \textbf{Split case.} Each $q^*\in\mathcal{S}^*$ is independently
+  assigned to $S^{\mathrm{spl}}_u$ or $S^{\mathrm{spl}}_v$ with probability
+  $1/2$.
+\item \textbf{Merge case.} The trivial restricted partition
+  $\{S_u,S_v\}$ is used (the partition we want to merge from, also serving as
+  the ``before-launch'' state for the reverse split proposal).
+\end{itemize}
+Run $R$ restricted Gibbs scans (each scan visits every $q^*\in\mathcal{S}^*$
+in fixed order and updates $L_{q^*}$ from \eqref{eq:rgibbs-cond}); denote
+the resulting state $\mathbf{L}=\mathbf{L}_R$.  This launch state is
+\emph{not} a sample from any target distribution; it serves only as the
+starting point of a final scan whose path probability is the proposal
+density.
+
+\subsection{Forward proposal (split case)}
+
+From $\mathbf{L}$, run one final restricted Gibbs scan and record the path
+probability
+\begin{equation}
+    q_{\mathrm{prop}}\bigl(\mathcal{P}\to\mathcal{P}^{\mathrm{spl}}\bigr)
+    =\prod_{q^*\in\mathcal{S}^*}
+        \Pr\bigl(L_{q^*}^{\mathrm{final}}
+                =L_{q^*}^{\mathcal{P}^{\mathrm{spl}}}
+                \,\big|\,\text{scan-state at $q^*$}\bigr).
+    \label{eq:qfwd-split}
+\end{equation}
+The result defines
+\begin{equation}
+    \mathcal{P}^{\mathrm{spl}}
+    =\bigl(\mathcal{P}\setminus\{S\}\bigr)\cup\{S^{\mathrm{spl}}_u,S^{\mathrm{spl}}_v\}.
+\end{equation}
+The reverse move is the deterministic merge, so
+$q_{\mathrm{prop}}(\mathcal{P}^{\mathrm{spl}}\to\mathcal{P})=1$.
+
+\subsection{Forward proposal (merge case)}
+
+The forward move is deterministic:
+\begin{equation}
+    \mathcal{P}^{\mathrm{mrg}}
+    =\bigl(\mathcal{P}\setminus\{S_u,S_v\}\bigr)\cup\{S_u\cup S_v\},
+    \qquad q_{\mathrm{prop}}\bigl(\mathcal{P}\to\mathcal{P}^{\mathrm{mrg}}\bigr)=1.
+\end{equation}
+The reverse split must recreate $\{S_u,S_v\}$ on $\mathcal{S}=S_u\cup S_v$:
+generate a reverse launch state by $R$ restricted Gibbs scans starting from
+$\mathbf{L}_0^{\mathrm{rev}}=\{S_u,S_v\}$, then \emph{score} (do not sample)
+the original assignment in $\mathcal{P}$ via one scoring scan,
+\begin{equation}
+    q_{\mathrm{prop}}\bigl(\mathcal{P}^{\mathrm{mrg}}\to\mathcal{P}\bigr)
+    =\prod_{q^*\in\mathcal{S}^*}
+        \Pr\bigl(L_{q^*}^{\mathrm{final}}
+                =L_{q^*}^{\mathcal{P}}
+                \,\big|\,\text{reverse scan-state at $q^*$}\bigr).
+    \label{eq:qrev-merge}
+\end{equation}
+
+\subsection{Acceptance probabilities}
+
+Because of \eqref{eq:joint-decouple} the LSIRM likelihood cancels, the
+move-type indicator is deterministic, and the symmetric anchor probability
+$1/[P(P-1)]$ also cancels.  Therefore
+\begin{align}
+    \log R_{\mathrm{spl}}
+    &=\log p_{\EPA}(\mathcal{P}^{\mathrm{spl}}\mid\sigma,z,\alpha,\delta,\tau)
+    -\log p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau)
+    \notag\\
+    &\quad
+    -\log q_{\mathrm{prop}}(\mathcal{P}\to\mathcal{P}^{\mathrm{spl}}),
+    \label{eq:logR-split}\\
+    \log R_{\mathrm{mrg}}
+    &=\log p_{\EPA}(\mathcal{P}^{\mathrm{mrg}}\mid\sigma,z,\alpha,\delta,\tau)
+    -\log p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau)
+    \notag\\
+    &\quad
+    +\log q_{\mathrm{prop}}(\mathcal{P}^{\mathrm{mrg}}\to\mathcal{P}),
+    \label{eq:logR-merge}
+\end{align}
+with acceptance probabilities $\min\{1,\exp(\log R_{\cdot})\}$.
+
+\paragraph{Permutation handling.}
+$\sigma$ is held fixed during a split--merge attempt and updated separately
+in the random-swap step \eqref{eq:sigma-mh-ratio}.  Because $\sigma$ enters
+$p_{\EPA}$ and the restricted-Gibbs conditionals \eqref{eq:rho-defn}
+deterministically and consistently across forward and reverse moves, this is
+sufficient for detailed balance.
+
+\paragraph{Tuning.}
+$R$ controls launch-state quality: $R\in\{2,5,10\}$ following Jain and Neal
+(2007); the implementation default is $R=5$.  Combined split/merge
+acceptance is targeted at $0.10$--$0.30$.  Per outer sweep, attempt
+$M_{\mathrm{SM}}$ split--merge moves (default $M_{\mathrm{SM}}\in\{1,5\}$).
+
+\section{Posterior cluster summaries}
+
+Because cluster labels are not identifiable (subsets in $\mathcal{P}$ are
+unordered), summaries should be label-switching invariant.  The primary
+summary is the posterior similarity matrix
+\begin{equation}
+    C_{qr}=\Pr\bigl(q\sim_{\mathcal{P}}r\,\big|\,Y\bigr),
+    \qquad q,r=1,\dots,P,
+\end{equation}
+updated online during MCMC by
+$C_{qr}^{\mathrm{raw}}\leftarrow C_{qr}^{\mathrm{raw}}+\ind(q\sim_{\mathcal{P}^{(t)}}r)$
+after burn-in and divided by the number of saved iterations at the end.
+Also monitor the trace of $K^{(t)}=|\mathcal{P}^{(t)}|$.
+
+\section{One full MCMC sweep}
+
+\begin{algorithm}[H]
+\caption{One restricted Gibbs scan
+$\textsc{RGibbsScan}(\mathbf{L},\mathcal{S}^*,u,v,\sigma,z,\alpha,\delta,\tau,\mathcal{P}_{-\mathcal{S}})$.
+Returns the updated restricted partition and the log-probability of the
+sampled path (or, in scoring mode, of a forced path).}
+\small
+\begin{algorithmic}[1]
+\State $\log q\gets 0$
+\For{$q^*\in\mathcal{S}^*$ in fixed order}
+    \State Compute $\rho_u(q^*),\rho_v(q^*)$ via \eqref{eq:rho-defn}.
+    \State $p^*\gets\rho_u(q^*)/(\rho_u(q^*)+\rho_v(q^*))$.
+    \If{sampling mode}
+        \State Draw $w\in\{u,v\}$ with $\Pr(w=u)=p^*$.
+    \Else{ (scoring mode)}
+        \State Set $w$ to the prescribed target label $L_{q^*}^{\mathrm{target}}$.
+    \EndIf
+    \State $L_{q^*}\gets w$;
+    update $\mathbf{L}$ accordingly.
+    \State $\log q\gets\log q+\log\Pr(L_{q^*}=w)$.
+\EndFor
+\State \Return $(\mathbf{L},\log q)$.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{One split--merge MH step for EPA--LSIRM.}
+\small
+\begin{algorithmic}[1]
+\Require Current state $(\mathcal{P},\sigma,\alpha,\tau,z)$ and number of
+launch scans $R\geq 0$.
+\State Sample anchors $(u,v)$ uniformly without replacement.
+\If{$u\sim_{\mathcal{P}}v$}
+    \State $\mathcal{S}\gets S$ (the cluster containing $u,v$);
+    \textbf{type}$\gets$\textsc{Split}.
+\Else
+    \State $\mathcal{S}\gets S_u\cup S_v$; \textbf{type}$\gets$\textsc{Merge}.
+\EndIf
+\State $\mathcal{S}^*\gets\mathcal{S}\setminus\{u,v\}$.
+\If{\textbf{type}$=$\textsc{Split}}
+    \State Initialize $\mathbf{L}_0$ by random $1/2$ assignment.
+    \For{$r=1,\dots,R$}
+        \State $(\mathbf{L}_r,\cdot)\gets\textsc{RGibbsScan}(\mathbf{L}_{r-1},\dots)$ in sampling mode.
+    \EndFor
+    \State $(\mathbf{L}^{\mathrm{fin}},\log q_{\mathrm{prop}}(\mathcal{P}\to\mathcal{P}^{\mathrm{spl}}))
+            \gets\textsc{RGibbsScan}(\mathbf{L}_R,\dots)$ in sampling mode.
+    \State Form $\mathcal{P}^{\mathrm{spl}}$ from $\mathbf{L}^{\mathrm{fin}}$;
+    set $\log q_{\mathrm{prop}}(\mathcal{P}^{\mathrm{spl}}\to\mathcal{P})=0$.
+    \State Compute $\log p_{\EPA}(\mathcal{P})$ and $\log p_{\EPA}(\mathcal{P}^{\mathrm{spl}})$.
+    \State $\log R_{\mathrm{spl}}\gets$ \eqref{eq:logR-split}.
+    \State Draw $u\sim\Unif(0,1)$; if $\log u<\log R_{\mathrm{spl}}$, accept:
+    $\mathcal{P}\gets\mathcal{P}^{\mathrm{spl}}$.
+\Else
+    \State Form $\mathcal{P}^{\mathrm{mrg}}$;
+    set $\log q_{\mathrm{prop}}(\mathcal{P}\to\mathcal{P}^{\mathrm{mrg}})=0$.
+    \State Initialize $\mathbf{L}_0^{\mathrm{rev}}\gets\{S_u,S_v\}$.
+    \For{$r=1,\dots,R$}
+        \State $(\mathbf{L}_r^{\mathrm{rev}},\cdot)\gets\textsc{RGibbsScan}(\mathbf{L}_{r-1}^{\mathrm{rev}},\dots)$ in sampling mode.
+    \EndFor
+    \State Run \textsc{RGibbsScan} from $\mathbf{L}_R^{\mathrm{rev}}$ in
+    \emph{scoring mode} forcing $L_{q^*}^{\mathrm{target}}=L_{q^*}^{\mathcal{P}}$,
+    accumulating $\log q_{\mathrm{prop}}(\mathcal{P}^{\mathrm{mrg}}\to\mathcal{P})$.
+    \State Compute $\log p_{\EPA}(\mathcal{P})$ and $\log p_{\EPA}(\mathcal{P}^{\mathrm{mrg}})$.
+    \State $\log R_{\mathrm{mrg}}\gets$ \eqref{eq:logR-merge}.
+    \State Draw $u\sim\Unif(0,1)$; if $\log u<\log R_{\mathrm{mrg}}$, accept:
+    $\mathcal{P}\gets\mathcal{P}^{\mathrm{mrg}}$.
+\EndIf
+\State \Return $\mathcal{P}$.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{One full MCMC sweep (EPA--LSIRM).}
+\small
+\begin{algorithmic}[1]
+\State \textbf{Input:} data $Y$, hyperparameters, proposal scales,
+$M_\sigma$, $M_{\mathrm{SM}}$, $R$.
+\State Update layer-specific nuisance $\xi_\ell$ (e.g.\ $\gamma_\ell$,
+$\sigma_0^2$, $\lambda_{ij}^{(\ell)}$, $\{\kappa_j\}$) by their existing
+updates.
+\For{$i=1,\dots,n$}
+    \State Propose $a_i'$ and accept/reject via \eqref{eq:a-mh-ratio}.
+\EndFor
+\For{$\ell=1,\dots,L$}
+    \For{$i=1,\dots,n$}
+        \State Propose $\alpha_i^{(\ell)\prime}$ and accept/reject via
+        \eqref{eq:alpha-mh-ratio}.
+    \EndFor
+    \For{$j=1,\dots,P_\ell$}
+        \State Propose $\beta_j^{(\ell)\prime}$ via \eqref{eq:beta-mh-ratio}
+        (or thresholds for ordinal layers, with ordering check).
+        \State Propose $b_j^{(\ell)\prime}$ and accept/reject via
+        \eqref{eq:b-mh-ratio}, including the EPA prior contribution.
+    \EndFor
+    \State Update $\sigma_{\alpha,\ell}^2$ via \eqref{eq:sigma-alpha-update}.
+\EndFor
+\State Form global item positions $z_q=b_{j(q)}^{(\ell(q))}$ and refresh
+the cached pairwise similarity matrix $\Lambda$.
+\For{$q=1,\dots,P$ in random order}
+    \State Update $\mathcal{P}$ at $q$ by single-item EPA Gibbs
+    \eqref{eq:single-item-gibbs}.
+\EndFor
+\For{$m=1,\dots,M_{\mathrm{SM}}$}
+    \State Run one Jain--Neal split--merge step (Algorithm~2).
+\EndFor
+\For{$m=1,\dots,M_\sigma$}
+    \State Random-swap MH update of $\sigma$ via \eqref{eq:sigma-mh-ratio}.
+\EndFor
+\State Log-scale MH update of $\alpha$ via \eqref{eq:alpha-hyp-mh-ratio}.
+\State Log-scale MH update of $\tau$ (analogous).
+\If{iteration is after burn-in}
+    \State Update posterior similarity counts
+    $C_{qr}^{\mathrm{raw}}\leftarrow C_{qr}^{\mathrm{raw}}+\ind(q\sim_{\mathcal{P}}r)$.
+    \State Store $\mathcal{P}$, $K=|\mathcal{P}|$, $z$, and selected LSIRM
+    parameters.
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\section{Differences from v11 at a glance}
+
+\begin{center}
+\begin{tabular}{p{0.27\textwidth} p{0.34\textwidth} p{0.33\textwidth}}
+\toprule
+Component & v11 (latent-position GMM) & v12 (EPA partition) \\
+\midrule
+Item position prior &
+$b_j^{(\ell)}\mid c_q\sim N_d(\mu_{c_q},\Sigma_{c_q})$ &
+$b_j^{(\ell)}\sim N_d(0,\sigma_b^2 I_d)$, free \\
+Clustering target &
+labels $c_q\in\{1,\dots,K^\star\}$, $\rho\sim\Dir$, $(\mu_l,\Sigma_l)\sim$NIW &
+partition $\mathcal{P}$ with EPA pmf, no component parameters \\
+Cluster scale prior &
+NIW with Wishart hyperprior on $S_0$ &
+none (no NIW); EPA uses sampled $\tau$ on raw squared distances \\
+Auxiliary state &
+$c$, $\rho$, $\{\mu_l,\Sigma_l\}$, $S_0$ &
+$\mathcal{P}$, $\sigma\in\Perm(P)$, $(\alpha,\tau)$ \\
+Allocation update &
+NIW collapsed predictive Gibbs (Student-$t$ weights) &
+EPA single-item Gibbs (\ref{eq:single-item-gibbs}) \\
+Split--merge target &
+$\pi(c\mid z)\propto\prod_l\Gamma(n_l+e_0)m(z_{\mathcal{J}_l})$ &
+$p_{\EPA}(\mathcal{P}\mid\sigma,z,\alpha,\delta,\tau)$ \\
+Split--merge variant &
+Jain--Neal conjugate (NIW marginal cancels into $m$) &
+Jain--Neal nonconjugate; LSIRM likelihood cancels by \eqref{eq:joint-decouple} \\
+$b$ MH ratio includes &
+LSIRM + mixture-prior term &
+LSIRM + free Gaussian + EPA-prior term (\ref{eq:b-mh-ratio}) \\
+Variance-inflation hack on $b$ &
+optional (v11 §\ldots) &
+not needed: no cluster covariance pulls $b$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

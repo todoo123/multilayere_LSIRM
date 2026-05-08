@@ -76,6 +76,26 @@ $K_+$ & number of occupied mixture components & $K_+=|\{l:n_l>0\}|$ \\
 \end{tabular}
 \end{center}
 
+\paragraph{Common-respondent assumption.}
+Throughout this document the typical multilayered setting with shared
+respondents is assumed: $n_\ell=n$ for all $\ell$, and the respondent latent
+position is shared across layers,
+$a_i^{(\ell)}=a_i\in\R^d$ for $i=1,\dots,n$ and $\ell=1,\dots,L$.  The
+layered notation $a_i^{(\ell)}$ is kept in the equations below for visual
+symmetry with $b_j^{(\ell)}$ but should be read as the single $a_i$.  Two
+consequences follow.  First, every $b_j^{(\ell)}$ is expressed in one
+coordinate system anchored by the shared $a$'s; the only identifiability
+ambiguity that remains is a global rigid motion of the whole configuration
+$(a,b^{(1)},\dots,b^{(L)})$, not per-layer rigid motions.  Second, the
+Metropolis--Hastings update of $a_i$ in \eqref{eq:a-mh-ratio} aggregates
+likelihood contributions across all layers that contain respondent $i$, with
+a single fixed unit-variance prior on $a_i$ (see \eqref{eq:a-prior}) rather
+than $L$ layer-specific variances.  When the assumption fails (each layer
+carries its own respondent set), the layered notation should be read
+literally; rotational invariance then becomes per layer and stronger
+alignment is required than the post-hoc step described in
+Section~\ref{sec:layer-comparability}.
+
 The observed data are denoted by
 \[
     Y^{(\ell)}=\{y_{ij}^{(\ell)}:(i,j)\in\mathcal O_\ell\},
@@ -86,60 +106,150 @@ $\mathcal O_\ell=\{1,\dots,n_\ell\}\times\{1,\dots,P_\ell\}$.
 
 \section{LSIRM likelihood}
 
-For respondent $i$ and item $j$ in layer $\ell$, define
-\begin{align}
-    a_i^{(\ell)} &\in \R^d,
-    &\text{respondent latent position,} \\
-    b_j^{(\ell)} &\in \R^d,
-    &\text{item latent position,} \\
-    \theta_i^{(\ell)} &\in \R,
-    &\text{respondent ability or activity effect,} \\
-    \beta_j^{(\ell)} &\in \R,
-    &\text{item intercept, easiness, or difficulty-related effect.}
-\end{align}
+For respondent $i$ and item $j$ in layer $\ell$, the model uses the following
+parameters:
+\begin{itemize}[leftmargin=1.5em]
+    \item $a_i\in\R^d$: shared respondent latent position (same across layers).
+    \item $b_j^{(\ell)}\in\R^d$: item latent position in layer $\ell$.
+    \item $\alpha_i^{(\ell)}\in\R$: respondent effect in layer $\ell$.
+    \item $\beta_j^{(\ell)}\in\R$: item difficulty for binary, continuous, and
+    count layers.  In ordinal layers, $\beta_j^{(\ell)}$ is replaced by an
+    item-specific threshold vector
+    $\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$, where $K_\ell$
+    is the number of categories.
+    \item $\gamma_\ell>0$: layer-specific distance weight.
+    \item $\sigma_0^2>0$: continuous-layer error scale.
+    \item $\nu_2>0$: continuous-layer Student-$t$ degrees of freedom.
+    \item $\kappa_j>0$: \emph{item-specific} count-layer overdispersion
+    (negative binomial), one per count item $j$.
+\end{itemize}
+Let $\mathcal L_{\mathrm{ord}}\subseteq\{1,\dots,L\}$ index the ordinal
+layers.
+
+\paragraph{Implementation note.}
+The general formulation above is for an arbitrary number of layers $L$.  The
+current implementation is a four-layer instance ($L=4$), with one binary, one
+continuous, one count, and one ordinal (LSGRM) layer; that is,
+$\mathcal L_{\mathrm{ord}}=\{4\}$.  The notation below is kept layer-generic.
 
 The layer-specific LSIRM linear predictor is
 \begin{equation}
     \eta_{ij}^{(\ell)}
     =
-    \theta_i^{(\ell)}
-    +\beta_j^{(\ell)}
-    -\norm{a_i^{(\ell)}-b_j^{(\ell)}}_2.
+    \alpha_i^{(\ell)}-\beta_j^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad \ell\notin\mathcal L_{\mathrm{ord}},
     \label{eq:lsirm-linear-predictor}
 \end{equation}
+with the convention that for ordinal layers $\beta_j^{(\ell)}$ does not appear
+in the linear predictor (the item thresholds enter the likelihood directly):
+\begin{equation}
+    \eta_{ij}^{(\ell)}
+    =
+    \alpha_i^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad \ell\in\mathcal L_{\mathrm{ord}}.
+    \label{eq:lsirm-linear-predictor-ord}
+\end{equation}
 
-For a binary response layer, the likelihood is
+\subsection{Per-layer observation models}
+
+\paragraph{Binary (logistic regression).}
+For a binary layer $\ell$,
+\begin{equation}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)}
+    \sim \mathrm{Bernoulli}(p_{ij}^{(\ell)}),
+    \qquad
+    \logit p_{ij}^{(\ell)}=\eta_{ij}^{(\ell)}.
+    \label{eq:lik-binary}
+\end{equation}
+
+\paragraph{Continuous (robust Student-$t$ via normal--gamma scale mixture).}
+For a continuous layer $\ell$,
 \begin{align}
-    y_{ij}^{(\ell)}\mid \theta_i^{(\ell)},\beta_j^{(\ell)},a_i^{(\ell)},b_j^{(\ell)}
-    &\sim \operatorname{Bernoulli}(p_{ij}^{(\ell)}), \\
-    \logit\{p_{ij}^{(\ell)}\}
-    &=\eta_{ij}^{(\ell)}.
-    \label{eq:bernoulli-likelihood}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\lambda_{ij}^{(\ell)}
+    &\sim N\!\left(\eta_{ij}^{(\ell)},\;\sigma_0^2/\lambda_{ij}^{(\ell)}\right),
+    \notag\\
+    \lambda_{ij}^{(\ell)}
+    &\sim \mathrm{Gamma}(\nu_2/2,\;\nu_2/2).
+    \label{eq:lik-continuous}
 \end{align}
+Marginalizing over $\lambda_{ij}^{(\ell)}$ gives
+$y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)}\sim t_{\nu_2}(\eta_{ij}^{(\ell)},\sigma_0^2)$,
+the Student-$t$ regression observation model.
 
-More generally, if different layers use different observation models or link
-functions, write
+\paragraph{Count (negative binomial regression with item-specific overdispersion).}
+For a count layer $\ell$, each item $j$ has its own overdispersion
+parameter $\kappa_j>0$:
+\begin{equation}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\kappa_j
+    \sim \mathrm{NB}\!\left(r=\tfrac{1}{\kappa_j},\;\mu=\exp\eta_{ij}^{(\ell)}\right),
+    \label{eq:lik-count}
+\end{equation}
+parameterized so that
+$E[y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)}]=\exp\eta_{ij}^{(\ell)}$ and
+$\mathrm{Var}[y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)}]=\mu+\kappa_j\mu^2$.
+The Poisson regression limit is recovered as $\kappa_j\to 0$.  The
+overdispersion is taken to be item-specific so that items with very different
+dispersion patterns are not forced to share a single $\kappa$.  We assign
+each $\kappa_j$ a log-normal prior,
+\begin{equation}
+    \log\kappa_j\sim N(\mu_{\log\kappa},\sigma_{\log\kappa}^2),
+    \label{eq:kappa-prior}
+\end{equation}
+with $(\mu_{\log\kappa},\sigma_{\log\kappa}^2)$ fixed hyperparameters.
+
+\paragraph{Ordinal (latent-space graded response model, LSGRM).}
+We follow the LSGRM specification of De~Carolis, Kang, and Jeon (2025).  For
+an ordinal layer $\ell\in\mathcal L_{\mathrm{ord}}$ with $K_\ell$ ordered
+categories ($y_{ij}^{(\ell)}\in\{1,\dots,K_\ell\}$) and item thresholds
+$\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$, the cumulative
+response probabilities are
+\begin{equation}
+    \logit
+    P\bigl(y_{ij}^{(\ell)}\geq k+1\bigm|\eta_{ij}^{(\ell)},\beta_{j,k}^{(\ell)}\bigr)
+    =
+    \eta_{ij}^{(\ell)}-\beta_{j,k}^{(\ell)}
+    =
+    \alpha_i^{(\ell)}-\beta_{j,k}^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad k=1,\dots,K_\ell-1,
+    \label{eq:lik-ordinal-cumulative}
+\end{equation}
+with the boundary conventions $P(y_{ij}^{(\ell)}\geq 1)=1$ and
+$P(y_{ij}^{(\ell)}\geq K_\ell+1)=0$.  The category probabilities are obtained
+by differencing
+\begin{equation}
+    P\bigl(y_{ij}^{(\ell)}=k\bigm|\cdot\bigr)
+    =
+    P\bigl(y_{ij}^{(\ell)}\geq k\bigm|\cdot\bigr)
+    -P\bigl(y_{ij}^{(\ell)}\geq k+1\bigm|\cdot\bigr),
+    \qquad k=1,\dots,K_\ell.
+    \label{eq:lik-ordinal}
+\end{equation}
+The threshold sign and ordering convention here matches De~Carolis et al.\
+(2025): a larger $\beta_{j,k}^{(\ell)}$ shifts more probability mass toward
+lower categories, and the ordered support prevents label-flipping between
+adjacent categories.
+
+\subsection{Compact notation}
+
+Each per-layer likelihood is summarized as
 \begin{equation}
     y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell
-    \sim f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\},
+    \sim f_\ell\bigl\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\bigr\},
     \qquad (i,j)\in\mathcal O_\ell,
     \label{eq:generic-layer-likelihood}
 \end{equation}
-where $\xi_\ell$ denotes additional layer-specific nuisance parameters, if any.
-The full LSIRM log-likelihood is
+where the layer-specific nuisance parameter $\xi_\ell$ collects, for example,
+$(\sigma_0^2,\lambda_{ij}^{(\ell)})$ in continuous layers,
+$\{\kappa_j:j=1,\dots,P_\ell\}$ in count layers, and the threshold vector
+$(\beta_{j,1}^{(\ell)},\dots,\beta_{j,K_\ell-1}^{(\ell)})$ in ordinal layers,
+together with $\gamma_\ell$ in every layer.  The full LSIRM log-likelihood is
 \begin{equation}
-    \ell_{\mathrm{LSIRM}}(\Theta_{\mathrm{LSIRM}})
+    \ell_{\mathrm{LSIRM}}
     =
     \sum_{\ell=1}^L
     \sum_{(i,j)\in\mathcal O_\ell}
-    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}.
+    \log f_\ell\bigl\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\bigr\}.
     \label{eq:lsirm-loglik}
-\end{equation}
-For the Bernoulli-logit case,
-\begin{equation}
-    \log f_\ell(y\mid \eta)
-    =
-    y\eta-\log(1+e^\eta).
 \end{equation}
 
 \section{Latent-position Gaussian mixture prior for items}
@@ -184,93 +294,157 @@ The mixture component parameters follow a Normal--Inverse-Wishart prior:
 Here $m_0\in\R^d$, $\kappa_0>0$, $\nu_0>d-1$, and
 $S_0\in\R^{d\times d}$ is positive definite.
 
+\paragraph{Data-driven cluster scale: Wishart hyperprior on $S_0$.}
+Rather than fixing $S_0$ at a calibrated value, we put a Wishart hyperprior on it,
+\begin{equation}
+    S_0\sim W(\nu_{S_0},\Lambda_{S_0}),
+    \qquad \nu_{S_0}>d-1,\;\Lambda_{S_0}\in\R^{d\times d}\;\text{positive definite},
+    \label{eq:S0-hyperprior}
+\end{equation}
+so that the cluster-covariance scale is learned from data instead of being a
+manually tuned hyperparameter.  The Wishart is conjugate for the IW scale
+matrix: combining \eqref{eq:S0-hyperprior} with
+$\Sigma_l\mid S_0\sim\IW(\nu_0,S_0)$ for $l=1,\dots,K^\star$ gives the
+closed-form full conditional
+\begin{equation}
+    S_0\mid\{\Sigma_l\}_{l=1}^{K^\star}
+    \sim
+    W\!\left(
+    \nu_{S_0}+K^\star\nu_0,\;
+    \bigl(\Lambda_{S_0}^{-1}+\sum_{l=1}^{K^\star}\Sigma_l^{-1}\bigr)^{-1}
+    \right),
+    \label{eq:S0-update}
+\end{equation}
+which we sample by ordinary Gibbs once per MCMC sweep (after the
+$(\mu_l,\Sigma_l)$ draws in \eqref{eq:sigma-posterior}--\eqref{eq:mu-posterior}).
+Defaults are weakly informative and anchored at a user-provided initial
+$S_0^{(0)}$:
+$\nu_{S_0}=d+2$ and $\Lambda_{S_0}=S_0^{(0)}/\nu_{S_0}$, yielding
+$E[S_0]=S_0^{(0)}$.  Setting $\nu_{S_0}\to\infty$ recovers the fixed-$S_0$
+behaviour as a limiting case.
+
 \paragraph{Important modeling restriction.}
 The cluster label $c_q$ is allowed to affect $z_q=b_{j(q)}^{(\ell(q))}$ only.
 There is no cluster-specific prior of the form
-$\theta_i^{(\ell)}\mid c_q$, $\beta_j^{(\ell)}\mid c_q$, or
+$\alpha_i^{(\ell)}\mid c_q$, $\beta_j^{(\ell)}\mid c_q$, or
 $\xi_\ell\mid c_q$.  Thus, clusters represent latent item geometry rather than
 marginal difficulty, ability, or layer-specific nuisance effects.
 
 \section{Priors for non-clustering LSIRM parameters}
 
-For each layer $\ell$,
-\begin{align}
-    a_i^{(\ell)}\mid \sigma_{a,\ell}^2
-    &\sim N_d(0,\sigma_{a,\ell}^2 I_d),
-    && i=1,\dots,n_\ell,
-    \label{eq:a-prior}\\
-    \theta_i^{(\ell)}\mid \sigma_{\theta,\ell}^2
-    &\sim N(0,\sigma_{\theta,\ell}^2),
-    && i=1,\dots,n_\ell,
-    \label{eq:theta-prior}\\
-    \beta_j^{(\ell)}\mid \sigma_{\beta,\ell}^2
-    &\sim N(0,\sigma_{\beta,\ell}^2),
-    && j=1,\dots,P_\ell.
+\paragraph{Respondent latent position (fixed unit variance for identifiability).}
+The shared respondent latent position is given a standard normal prior with
+fixed unit variance,
+\begin{equation}
+    a_i \sim N_d(0,I_d),\qquad i=1,\dots,n.
+    \label{eq:a-prior}
+\end{equation}
+The variance is fixed rather than sampled because the latent space has no
+intrinsic scale: with $a_i$ and $b_j^{(\ell)}$ both scalable by an arbitrary
+constant absorbed into $\gamma_\ell$, only the \emph{ratio} of position scale
+to $\gamma_\ell$ is identified.  Following the LSGRM convention of
+De~Carolis, Kang, and Jeon (2025, \S2.4), we anchor the latent-space scale by
+fixing the respondent-position prior variance to $1$, which leaves
+$\gamma_\ell$ as the free scale parameter to be estimated from data.
+
+\paragraph{Respondent effect.}
+The respondent effect is layer-specific with its own variance hyperparameter,
+\begin{equation}
+    \alpha_i^{(\ell)}\mid \sigma_{\alpha,\ell}^2
+    \sim N(0,\sigma_{\alpha,\ell}^2),
+    \qquad i=1,\dots,n,\;\ell=1,\dots,L,
+    \label{eq:alpha-prior}
+\end{equation}
+where $\sigma_{\alpha,\ell}^2$ is sampled from a layer-specific inverse-gamma
+hyperprior:
+\begin{equation}
+    \sigma_{\alpha,\ell}^2 \sim \IG(A_{\alpha,\ell},B_{\alpha,\ell}),
+    \qquad \ell=1,\dots,L.
+    \label{eq:sigma-alpha-prior}
+\end{equation}
+Allowing the variance to differ across layers reflects the fact that the
+overall scale of the respondent effect can differ between, e.g., binary and
+count layers.
+
+\paragraph{Item difficulty $\beta_j^{(\ell)}$ (fixed-effect, fixed-scale prior).}
+For non-ordinal layers, the item difficulty is treated as a fixed effect:
+\begin{equation}
+    \beta_j^{(\ell)}\sim N(0,\sigma_{\beta,\ell}^2),
+    \qquad j=1,\dots,P_\ell,\;\ell\notin\mathcal L_{\mathrm{ord}},
     \label{eq:beta-prior}
-\end{align}
+\end{equation}
+where $\sigma_{\beta,\ell}^2$ is a \emph{fixed} hyperparameter (not sampled).
+No shrinkage hierarchy is imposed, so each item's difficulty is recovered
+directly from its own data.  The current implementation uses $\sigma_{\beta,\ell}=2$
+for every non-ordinal layer (i.e.\ variance $4$).
+
+\paragraph{Ordinal thresholds (independent normals subject to ordering).}
+For ordinal layers $\ell\in\mathcal L_{\mathrm{ord}}$, each threshold is
+assigned an independent normal prior with the same fixed scale,
+\begin{equation}
+    \beta_{j,k}^{(\ell)}\sim N(0,\sigma_{\beta,\ell}^2),
+    \qquad j=1,\dots,P_\ell,\;k=1,\dots,K_\ell-1,
+    \label{eq:beta-thr-prior}
+\end{equation}
+restricted to the ordered support
+$\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$.  The scale
+$\sigma_{\beta,\ell}^2$ is again fixed (not sampled); the implementation uses
+$\sigma_{\beta,\ell}=2$ for the ordinal layer as well.  Independent normals
+with an order constraint match the LSGRM update used in the implementation,
+which proposes one threshold at a time (rejecting any move that violates the
+ordering); a joint multivariate-normal prior with the same diagonal scale
+would give an equivalent posterior.
+
 The item position $b_j^{(\ell)}$ does not receive an additional independent
-Gaussian prior.  Its prior is the mixture prior in
+Gaussian prior; its prior is the latent-position mixture prior in
 \eqref{eq:z-mixture}--\eqref{eq:mu-niw-prior}.
 
-Optional variance hyperpriors may be assigned as
-\begin{align}
-    \sigma_{a,\ell}^2 &\sim \IG(A_a,B_a),\\
-    \sigma_{\theta,\ell}^2 &\sim \IG(A_\theta,B_\theta),\\
-    \sigma_{\beta,\ell}^2 &\sim \IG(A_\beta,B_\beta).
-\end{align}
-If the variances are fixed, the corresponding inverse-gamma updates below are
-omitted.
+The remaining layer-specific nuisance parameters --- $\gamma_\ell$ (distance
+weight, all layers), $\sigma_0^2$ (continuous-layer error scale), and
+$\{\kappa_j\}$ (count-layer item-specific overdispersion, see
+\eqref{eq:kappa-prior}) --- are equipped with independent log-normal or
+inverse-gamma priors as appropriate; the precise form follows the V6/V8
+specification and does not interact with the clustering layer.
 
-\section{Layer comparability, alignment, and scale diagnostics}
+\section{Rotation and reflection invariance}
 \label{sec:layer-comparability}
 
-Because the mixture prior clusters item positions across all layers, the model
-assumes that
-\[
-    b_j^{(\ell)}\in\R^d
-\]
-is expressed in a comparable coordinate system across layers.  If layer-specific
-latent spaces differ greatly in scale, translation, or orientation, the mixture
-prior may cluster layer effects rather than phenotype-related item geometry.
-
-At each stored MCMC iteration, compute the layer-specific item-position scale
+Under the common-respondent assumption above, the entire configuration
+$(a,b^{(1)},\dots,b^{(L)})$ shares one coordinate system, so the only
+identifiability ambiguity in the latent space is a single global orthogonal
+transformation $Q\in O(d)$ together with a single global translation
+$t\in\R^d$:
 \begin{equation}
-    s_\ell
-    =
-    \left\{
-    \frac{1}{P_\ell d}
-    \sum_{j=1}^{P_\ell}
-    \norm{b_j^{(\ell)}-\bar b^{(\ell)}}_2^2
-    \right\}^{1/2},
+    a_i\mapsto Qa_i+t,
     \qquad
-    \bar b^{(\ell)}=\frac{1}{P_\ell}\sum_{j=1}^{P_\ell}b_j^{(\ell)}.
-    \label{eq:layer-scale-diagnostic}
-\end{equation}
-Then monitor
-\begin{equation}
-    R_{\mathrm{scale}}
-    =
-    \frac{\max_\ell s_\ell}{\min_\ell s_\ell}.
-\end{equation}
-Large values of $R_{\mathrm{scale}}$ indicate that cluster labels may be partly
-recovering layer-scale differences.  In that case, the model should be revised
-by imposing stronger shared-scale identification, fixing layer-specific latent
-space scales, or applying a prespecified alignment/scaling constraint during
-MCMC.  This check is part of the model diagnostic procedure, not a separate
-post-hoc clustering baseline.
-
-For translational non-identifiability, impose or monitor the centering
-constraint
-\begin{equation}
-    \sum_{i=1}^{n_\ell}a_i^{(\ell)}=0,
+    b_j^{(\ell)}\mapsto Qb_j^{(\ell)}+t,
     \qquad
-    \sum_{j=1}^{P_\ell}b_j^{(\ell)}=0,
-    \qquad \ell=1,\dots,L,
-    \label{eq:centering-constraint}
+    \mu_l\mapsto Q\mu_l+t,
+    \qquad
+    \Sigma_l\mapsto Q\Sigma_l Q\trans.
+    \label{eq:rigid-motion}
 \end{equation}
-or use an equivalent deterministic recentering step after each complete latent
-position update.  Rotational and reflection invariance may be handled by fixing
-anchors or by a deterministic Procrustes identification step when necessary.
+The LSIRM linear predictor in
+\eqref{eq:lsirm-linear-predictor}--\eqref{eq:lsirm-linear-predictor-ord}
+depends on positions only through $\norm{a_i-b_j^{(\ell)}}_2$, which is
+invariant under \eqref{eq:rigid-motion}.  With $m_0=0$ and $S_0=s_0 I_d$, the
+NIW prior on $(\mu_l,\Sigma_l)$ in
+\eqref{eq:sigma-niw-prior}--\eqref{eq:mu-niw-prior} is also invariant in
+distribution under $Q\in O(d)$.  Therefore the joint posterior on the
+clustering targets---$c$, $K_+$, the cluster sizes $n_l$, and the posterior
+similarity matrix $C_{qr}=P(c_q=c_r\mid Y)$---is invariant under
+\eqref{eq:rigid-motion}.
+
+\paragraph{Consequence for the sampler.}
+Within-MCMC orientation alignment of the latent space is \emph{not} required
+for clustering correctness.  The chain may drift in orientation from one
+iteration to the next without affecting any cluster-label-based posterior
+summary.  A post-hoc Procrustes alignment is recommended only when the
+\emph{visualization} of $a_i$ or $b_j^{(\ell)}$ must be compared to a target
+configuration (e.g.\ true positions in a simulation, or a reference set in
+applied work).  Such an alignment is a deterministic post-processing step
+applied to stored posterior draws and does not enter the MCMC update for
+$c$, $\mu_l$, $\Sigma_l$, or $\rho$.
 
 \section{Full joint posterior}
 
@@ -278,10 +452,9 @@ Let
 \begin{align*}
     \Theta_{\mathrm{LSIRM}}
     &=
-    \{a_i^{(\ell)},b_j^{(\ell)},\theta_i^{(\ell)},\beta_j^{(\ell)},
-    \xi_\ell,\sigma_{a,\ell}^2,\sigma_{\theta,\ell}^2,
-    \sigma_{\beta,\ell}^2:
-    \ell=1,\dots,L\},\\
+    \{a_i,\alpha_i^{(\ell)},b_j^{(\ell)},\beta_j^{(\ell)},\xi_\ell,
+    \sigma_{\alpha,\ell}^2:
+    i=1,\dots,n,\ \ell=1,\dots,L\},\\
     \Theta_{\mathrm{mix}}
     &=
     \{c_q,\rho,\mu_l,\Sigma_l:q=1,\dots,P,\ l=1,\dots,K^\star\}.
@@ -305,20 +478,39 @@ The full posterior is proportional to
     \ p(\rho)
 \notag\\
 &\qquad\times
+\prod_{i=1}^{n}N_d(a_i;0,I_d)
 \prod_{\ell=1}^L
 \left[
-\prod_{i=1}^{n_\ell}p(a_i^{(\ell)}\mid\sigma_{a,\ell}^2)
-\prod_{i=1}^{n_\ell}p(\theta_i^{(\ell)}\mid\sigma_{\theta,\ell}^2)
-\prod_{j=1}^{P_\ell}p(\beta_j^{(\ell)}\mid\sigma_{\beta,\ell}^2)
+\prod_{i=1}^{n}p(\alpha_i^{(\ell)}\mid\sigma_{\alpha,\ell}^2)
+\;p_\beta^{(\ell)}\bigl(\beta^{(\ell)}\bigr)
 \right]
 \notag\\
 &\qquad\times
 \prod_{\ell=1}^L
-    p(\sigma_{a,\ell}^2)p(\sigma_{\theta,\ell}^2)p(\sigma_{\beta,\ell}^2)
-    p(\xi_\ell),
+    p(\sigma_{\alpha,\ell}^2)p(\xi_\ell),
     \label{eq:full-posterior}
 \end{align}
-where $z_q=b_{j(q)}^{(\ell(q))}$.
+where $z_q=b_{j(q)}^{(\ell(q))}$ and the layer-specific item-difficulty prior
+factor is
+\[
+    p_\beta^{(\ell)}\bigl(\beta^{(\ell)}\bigr)
+    =
+    \begin{cases}
+    \displaystyle\prod_{j=1}^{P_\ell} N\!\bigl(\beta_j^{(\ell)};0,\sigma_{\beta,\ell}^2\bigr),
+    & \ell\notin\mathcal L_{\mathrm{ord}},\\[1em]
+    \displaystyle\prod_{j=1}^{P_\ell}
+    \left[
+    \prod_{k=1}^{K_\ell-1}
+    N\!\bigl(\beta_{j,k}^{(\ell)};0,\sigma_{\beta,\ell}^2\bigr)
+    \right]
+    \ind\bigl\{\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}\bigr\},
+    & \ell\in\mathcal L_{\mathrm{ord}}.
+    \end{cases}
+\]
+The respondent-position prior contributes $N_d(a_i;0,I_d)$ with fixed unit
+variance.  The item-difficulty scales $\sigma_{\beta,\ell}^2$ are fixed
+hyperparameters and enter as constants in the posterior; the implementation
+sets $\sigma_{\beta,\ell}=2$ throughout.
 
 \section{NIW posterior quantities}
 
@@ -415,6 +607,22 @@ After updating the labels, draw component parameters from their NIW posterior:
 \end{align}
 For empty components, $n_l=0$, and this reduces to a draw from the NIW prior.
 
+After all $\Sigma_l$ have been refreshed, sample the cluster-scale
+hyperparameter from its Wishart full conditional in
+\eqref{eq:S0-update}:
+\begin{equation}
+    S_0\mid\{\Sigma_l\}
+    \sim
+    W\!\left(
+    \nu_{S_0}+K^\star\nu_0,\;
+    \bigl(\Lambda_{S_0}^{-1}+\textstyle\sum_l\Sigma_l^{-1}\bigr)^{-1}
+    \right).
+    \label{eq:S0-gibbs}
+\end{equation}
+The cached log-determinant $\log|S_0|$ used in the NIW marginal likelihood
+\eqref{eq:niw-marginal} for split--merge moves must be refreshed after every
+$S_0$ draw.
+
 The mixture weights may be sampled for monitoring or storage:
 \begin{equation}
     \rho\mid c
@@ -487,20 +695,20 @@ random-walk Metropolis--Hastings.  The formulas below assume symmetric
 Gaussian random-walk proposals.  If a non-symmetric proposal is used, the
 corresponding proposal-density ratio must be added to the log acceptance ratio.
 
-\subsection{Respondent ability or activity effect $\theta_i^{(\ell)}$}
+\subsection{Respondent effect $\alpha_i^{(\ell)}$}
 
 Propose
 \[
-    \theta_i^{(\ell)\prime}
+    \alpha_i^{(\ell)\prime}
     =
-    \theta_i^{(\ell)}+\varepsilon_\theta,
+    \alpha_i^{(\ell)}+\varepsilon_\alpha,
     \qquad
-    \varepsilon_\theta\sim N(0,s_\theta^2).
+    \varepsilon_\alpha\sim N(0,s_\alpha^2).
 \]
 Let $\eta_{ij}^{(\ell)\prime}$ be the linear predictor after replacing
-$\theta_i^{(\ell)}$ by $\theta_i^{(\ell)\prime}$.  The log acceptance ratio is
+$\alpha_i^{(\ell)}$ by $\alpha_i^{(\ell)\prime}$.  The log acceptance ratio is
 \begin{align}
-    \log R_\theta
+    \log R_\alpha
     &=
     \sum_{j:(i,j)\in\mathcal O_\ell}
     \left[
@@ -511,20 +719,15 @@ $\theta_i^{(\ell)}$ by $\theta_i^{(\ell)\prime}$.  The log acceptance ratio is
     \notag\\
     &\qquad
     -
-    \frac{1}{2\sigma_{\theta,\ell}^2}
-    \left\{(\theta_i^{(\ell)\prime})^2-(\theta_i^{(\ell)})^2\right\}.
-    \label{eq:theta-mh-ratio}
+    \frac{1}{2\sigma_{\alpha,\ell}^2}
+    \left\{(\alpha_i^{(\ell)\prime})^2-(\alpha_i^{(\ell)})^2\right\}.
+    \label{eq:alpha-mh-ratio}
 \end{align}
-Accept with probability
-\begin{equation}
-    \alpha_\theta
-    =
-    \min\{1,\exp(\log R_\theta)\}.
-\end{equation}
+The proposal is accepted with probability $\min\{1,\exp(\log R_\alpha)\}$.
 
-\subsection{Item effect $\beta_j^{(\ell)}$}
+\subsection{Item difficulty $\beta_j^{(\ell)}$}
 
-Propose
+For non-ordinal layers $\ell\notin\mathcal L_{\mathrm{ord}}$, propose
 \[
     \beta_j^{(\ell)\prime}
     =
@@ -532,7 +735,7 @@ Propose
     \qquad
     \varepsilon_\beta\sim N(0,s_\beta^2).
 \]
-The log acceptance ratio is
+With the fixed-scale prior \eqref{eq:beta-prior}, the log acceptance ratio is
 \begin{align}
     \log R_\beta
     &=
@@ -544,32 +747,49 @@ The log acceptance ratio is
     \right]
     \notag\\
     &\qquad
-    -
-    \frac{1}{2\sigma_{\beta,\ell}^2}
+    -\frac{1}{2\sigma_{\beta,\ell}^2}
     \left\{(\beta_j^{(\ell)\prime})^2-(\beta_j^{(\ell)})^2\right\}.
     \label{eq:beta-mh-ratio}
 \end{align}
-Accept with probability
-\begin{equation}
-    \alpha_\beta
-    =
-    \min\{1,\exp(\log R_\beta)\}.
-\end{equation}
 
-\subsection{Respondent latent position $a_i^{(\ell)}$}
+For ordinal layers $\ell\in\mathcal L_{\mathrm{ord}}$, propose each threshold
+$\beta_{j,k}^{(\ell)}$ ($k=1,\dots,K_\ell-1$) by a Gaussian random walk with
+its own scale $s_{\beta,k}^2$.  The proposed move is rejected outright if the
+ordering $\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$ is
+violated.  Otherwise, with the fixed-scale independent-normal prior
+\eqref{eq:beta-thr-prior}, the log acceptance ratio is
+\begin{align}
+    \log R_{\beta,k}
+    &=
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \left[
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\beta_{j,\cdot}^{(\ell)\prime}\}
+    -
+    \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\beta_{j,\cdot}^{(\ell)}\}
+    \right]
+    \notag\\
+    &\qquad
+    -\frac{1}{2\sigma_{\beta,\ell}^2}
+    \left\{(\beta_{j,k}^{(\ell)\prime})^2-(\beta_{j,k}^{(\ell)})^2\right\},
+    \label{eq:beta-thr-mh-ratio}
+\end{align}
+where the layer-$\ell$ ordinal likelihood
+\eqref{eq:lik-ordinal-cumulative}--\eqref{eq:lik-ordinal} depends on the full
+threshold vector $\beta_{j,1:K_\ell-1}^{(\ell)}$ for item $j$ rather than on
+$\eta_{ij}^{(\ell)}$ alone.
 
-Propose
+\subsection{Respondent latent position $a_i$}
+
+Because $a_i$ is shared across layers, propose a single update
 \[
-    a_i^{(\ell)\prime}
-    =
-    a_i^{(\ell)}+\varepsilon_a,
-    \qquad
-    \varepsilon_a\sim N_d(0,s_a^2 I_d).
+    a_i'=a_i+\varepsilon_a,\qquad \varepsilon_a\sim N_d(0,s_a^2 I_d),
 \]
-The log acceptance ratio is
+and aggregate likelihood contributions from every layer that contains
+respondent $i$:
 \begin{align}
     \log R_a
     &=
+    \sum_{\ell=1}^L
     \sum_{j:(i,j)\in\mathcal O_\ell}
     \left[
     \log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)\prime},\xi_\ell\}
@@ -578,20 +798,12 @@ The log acceptance ratio is
     \right]
     \notag\\
     &\qquad
-    -
-    \frac{1}{2\sigma_{a,\ell}^2}
-    \left\{
-    \norm{a_i^{(\ell)\prime}}_2^2-
-    \norm{a_i^{(\ell)}}_2^2
-    \right\}.
+    -\tfrac{1}{2}\left\{\norm{a_i'}_2^2-\norm{a_i}_2^2\right\},
     \label{eq:a-mh-ratio}
 \end{align}
-Accept with probability
-\begin{equation}
-    \alpha_a
-    =
-    \min\{1,\exp(\log R_a)\}.
-\end{equation}
+where $\eta_{ij}^{(\ell)\prime}$ is the layer-$\ell$ linear predictor
+evaluated at $a_i'$.  No $\sigma_a^2$ appears because the prior variance is
+fixed at $1$ for identifiability \eqref{eq:a-prior}.
 
 \subsection{Item latent position $b_j^{(\ell)}$}
 
@@ -604,8 +816,8 @@ layer $\ell$, and let $c_q$ be its current cluster label.  Propose
     \qquad
     \varepsilon_b\sim N_d(0,s_b^2 I_d).
 \]
-The log acceptance ratio must include both the LSIRM likelihood contribution
-and the Gaussian mixture prior contribution:
+The log acceptance ratio includes both the LSIRM likelihood contribution and
+the Gaussian mixture prior contribution:
 \begin{align}
     \log R_b
     &=
@@ -623,43 +835,73 @@ and the Gaussian mixture prior contribution:
     \log N_d\{b_j^{(\ell)};\mu_{c_q},\Sigma_{c_q}\}.
     \label{eq:b-mh-ratio}
 \end{align}
-Accept with probability
+This is the main difference from a post-hoc clustering approach: the cluster
+assignment $c_q$ enters the posterior update of $b_j^{(\ell)}$ through the
+mixture prior term in \eqref{eq:b-mh-ratio}.
+
+\paragraph{Sampler-level variance inflation in the $b$ update (optional).}
+The full coupling in \eqref{eq:b-mh-ratio} ties two roles to the same cluster
+covariance $\Sigma_{c_q}$: (i) defining cluster identity (via the c, $\mu$,
+$\Sigma$ updates) and (ii) anchoring $b_j^{(\ell)}$'s LSIRM geometry.
+Tight $\Sigma_{c_q}$ (small posterior cluster covariance) gives a strong $b$
+pull toward $\mu_{c_q}$, which compresses within-cluster pairwise distances
+and elongates between-cluster distances --- visible as an S-curve distortion
+in the distance scatter.
+
+A sampler-level remedy is to inflate the $b$ MH prior covariance by a fixed
+factor $\alpha\geq 1$ \emph{only inside the $b$ update}:
 \begin{equation}
-    \alpha_b
+    \log R_b
     =
-    \min\{1,\exp(\log R_b)\}.
-    \label{eq:b-acceptance-probability}
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \bigl[\log f_\ell(\cdot\mid \eta_{ij}^{(\ell)\prime})
+        - \log f_\ell(\cdot\mid \eta_{ij}^{(\ell)})\bigr]
+    -
+    \frac{1}{2\alpha}
+    \bigl[(b_j^{(\ell)\prime}-\mu_{c_q})\trans \Sigma_{c_q}^{-1}(b_j^{(\ell)\prime}-\mu_{c_q})
+    -(b_j^{(\ell)}-\mu_{c_q})\trans \Sigma_{c_q}^{-1}(b_j^{(\ell)}-\mu_{c_q})\bigr],
+    \label{eq:b-mh-ratio-inflated}
 \end{equation}
-This is the main difference from a post-hoc clustering approach.  The cluster
-assignment affects the posterior update of $b_j^{(\ell)}$ through the mixture
-prior term in \eqref{eq:b-mh-ratio}.
+equivalent to using prior $b_j^{(\ell)}\sim N_d(\mu_{c_q},\alpha\Sigma_{c_q})$
+in the MH ratio.  All other updates ($c$, $\mu_l$, $\Sigma_l$, $S_0$) use
+the original $\Sigma_{c_q}$ ($\alpha=1$), so cluster identity, NIW posterior
+draws, and split--merge marginal likelihoods are unchanged.
+
+Limits:
+\begin{itemize}[leftmargin=1.5em]
+    \item $\alpha=1$: paper-defined fully joint posterior \eqref{eq:b-mh-ratio}.
+    \item $\alpha=+\infty$: no $b$ pull, equivalent to a one-way coupling
+    where clustering is informed by $b$ but $b$ is determined by LSIRM alone.
+    \item $\alpha\in(1,\infty)$: tunable interpolation that loosens the
+    geometry anchor while preserving cluster identity.
+\end{itemize}
+
+This is a sampler-level approximation, not a change to the joint model in
+\eqref{eq:full-posterior}.  Formally, $\alpha>1$ corresponds to running the
+$b$-block of a tempered ($1/\alpha$-power) version of the mixture prior
+contribution while keeping the rest of the chain at the unit temperature.
+Empirically it is useful when the LSIRM geometry must be reported alongside
+cluster labels, since the within-cluster compression caused by $\alpha=1$
+distorts pairwise-distance recovery without improving partition recovery.
 
 \section{Conjugate updates for variance parameters}
 
-If the layer-specific prior variances are sampled, their full conditionals are
-\begin{align}
-    \sigma_{a,\ell}^2\mid a^{(\ell)}
-    &\sim
+The only random-effect variance that is sampled is the layer-specific
+respondent-effect variance $\sigma_{\alpha,\ell}^2$, with full conditional
+\begin{equation}
+    \sigma_{\alpha,\ell}^2\mid \alpha^{(\ell)}
+    \sim
     \IG\left(
-    A_a+\frac{n_\ell d}{2},
-    B_a+\frac{1}{2}\sum_{i=1}^{n_\ell}\norm{a_i^{(\ell)}}_2^2
+    A_{\alpha,\ell}+\frac{n}{2},\;
+    B_{\alpha,\ell}+\frac{1}{2}\sum_{i=1}^{n}(\alpha_i^{(\ell)})^2
     \right),
-    \label{eq:sigma-a-update}\\
-    \sigma_{\theta,\ell}^2\mid \theta^{(\ell)}
-    &\sim
-    \IG\left(
-    A_\theta+\frac{n_\ell}{2},
-    B_\theta+\frac{1}{2}\sum_{i=1}^{n_\ell}(\theta_i^{(\ell)})^2
-    \right),
-    \label{eq:sigma-theta-update}\\
-    \sigma_{\beta,\ell}^2\mid \beta^{(\ell)}
-    &\sim
-    \IG\left(
-    A_\beta+\frac{P_\ell}{2},
-    B_\beta+\frac{1}{2}\sum_{j=1}^{P_\ell}(\beta_j^{(\ell)})^2
-    \right).
-    \label{eq:sigma-beta-update}
-\end{align}
+    \qquad \ell=1,\dots,L.
+    \label{eq:sigma-alpha-update}
+\end{equation}
+The respondent-position prior variance is fixed at $1$ \eqref{eq:a-prior} for
+latent-space identifiability and is not sampled.  The item-difficulty scales
+$\sigma_{\beta,\ell}^2$ in \eqref{eq:beta-prior}--\eqref{eq:beta-thr-prior}
+are also fixed hyperparameters.
 
 \section{Jain--Neal restricted Gibbs split--merge moves}
 
@@ -772,35 +1014,6 @@ acceptance probability is
     \label{eq:merge-acceptance}
 \end{equation}
 
-\section{Acceptance-rate monitoring}
-
-For each Metropolis--Hastings block, monitor empirical acceptance rates:
-\begin{align}
-    \widehat{\mathrm{AR}}_\theta
-    &=\frac{\#\{\theta\text{ proposals accepted}\}}
-            {\#\{\theta\text{ proposals attempted}\}},\\
-    \widehat{\mathrm{AR}}_\beta
-    &=\frac{\#\{\beta\text{ proposals accepted}\}}
-            {\#\{\beta\text{ proposals attempted}\}},\\
-    \widehat{\mathrm{AR}}_a
-    &=\frac{\#\{a\text{ proposals accepted}\}}
-            {\#\{a\text{ proposals attempted}\}},\\
-    \widehat{\mathrm{AR}}_b
-    &=\frac{\#\{b\text{ proposals accepted}\}}
-            {\#\{b\text{ proposals attempted}\}},\\
-    \widehat{\mathrm{AR}}_{\mathrm{split}}
-    &=\frac{\#\{\text{split proposals accepted}\}}
-            {\#\{\text{split proposals attempted}\}},\\
-    \widehat{\mathrm{AR}}_{\mathrm{merge}}
-    &=\frac{\#\{\text{merge proposals accepted}\}}
-            {\#\{\text{merge proposals attempted}\}}.
-\end{align}
-The single-site label update in \eqref{eq:c-update} is a Gibbs update and
-therefore has acceptance probability one.  Very low split acceptance can imply
-that the current item positions support only coarse clusters, that $S_0$ is too
-loose/tight for the scale of $z_q$, or that the restricted Gibbs split proposal
-is not sufficiently close to high-posterior split configurations.
-
 \section{Posterior cluster summaries}
 
 Because labels are not identifiable, cluster summaries should be
@@ -820,12 +1033,10 @@ During MCMC, update online by
 \end{equation}
 after burn-in.  At the end, divide by the number of saved iterations.
 
-Also monitor
+Also monitor the trace of the occupied-component count
 \begin{equation}
-    K_+^{(t)}=|\{l:n_l^{(t)}>0\}|,
+    K_+^{(t)}=|\{l:n_l^{(t)}>0\}|.
 \end{equation}
-the layer-scale diagnostic in \eqref{eq:layer-scale-diagnostic}, and the
-split/merge acceptance rates.
 
 
 \section{One full MCMC sweep}
@@ -835,22 +1046,22 @@ split/merge acceptance rates.
 \small
 \begin{algorithmic}[1]
 \State \textbf{Input:} data $Y$, layer maps $q\mapsto(\ell(q),j(q))$, hyperparameters, proposal scales, $K^\star$, and $M_{\mathrm{SM}}$.
-\State Update layer-specific nuisance parameters $\xi_\ell$, if present.
+\State Update layer-specific nuisance parameters $\xi_\ell$ (e.g.\ $\gamma_\ell$, $\sigma_0^2$, $\lambda_{ij}^{(\ell)}$ for continuous layers; $\{\kappa_j\}$ for count layers via \eqref{eq:kappa-prior} log-normal MH per item), if present.
+\For{$i=1,\dots,n$}
+    \State Propose $a_i'$ and accept/reject using \eqref{eq:a-mh-ratio} (shared across layers; prior variance fixed at $1$).
+\EndFor
 \For{$\ell=1,\dots,L$}
-    \For{$i=1,\dots,n_\ell$}
-        \State Propose $\theta_i^{(\ell)\prime}$ and accept/reject using \eqref{eq:theta-mh-ratio}.
-        \State Propose $a_i^{(\ell)\prime}$ and accept/reject using \eqref{eq:a-mh-ratio}.
+    \For{$i=1,\dots,n$}
+        \State Propose $\alpha_i^{(\ell)\prime}$ and accept/reject using \eqref{eq:alpha-mh-ratio}.
     \EndFor
     \For{$j=1,\dots,P_\ell$}
-        \State Propose $\beta_j^{(\ell)\prime}$ and accept/reject using \eqref{eq:beta-mh-ratio}.
+        \State Propose $\beta_j^{(\ell)\prime}$ via \eqref{eq:beta-mh-ratio} for non-ordinal layers, or each threshold $\beta_{j,k}^{(\ell)\prime}$ via \eqref{eq:beta-thr-mh-ratio} for ordinal layers (rejecting any proposal that violates the ordering).
         \State Let $q=q(\ell,j)$ and propose $b_j^{(\ell)\prime}$.
         \State Accept/reject $b_j^{(\ell)\prime}$ using \eqref{eq:b-mh-ratio}, including the mixture prior term.
     \EndFor
-    \State Apply deterministic centering or identification constraints if used.
-    \State Update $\sigma_{a,\ell}^2$, $\sigma_{\theta,\ell}^2$, and $\sigma_{\beta,\ell}^2$ using \eqref{eq:sigma-a-update}--\eqref{eq:sigma-beta-update}, if sampled.
+    \State Update $\sigma_{\alpha,\ell}^2$ using \eqref{eq:sigma-alpha-update} with layer-specific hyperparameters $(A_{\alpha,\ell},B_{\alpha,\ell})$.
 \EndFor
 \State Construct global item positions $z_q=b_{j(q)}^{(\ell(q))}$ for $q=1,\dots,P$.
-\State Compute and store layer-scale diagnostics $s_\ell$ and $R_{\mathrm{scale}}$.
 \For{$q=1,\dots,P$}
     \State Remove item $q$ from its current cluster.
     \State Compute NIW leave-one-out predictive weights in \eqref{eq:c-update} for $l=1,\dots,K^\star$.
@@ -876,9 +1087,10 @@ split/merge acceptance rates.
     \State Draw $\Sigma_l\mid z,c$ using \eqref{eq:sigma-posterior}.
     \State Draw $\mu_l\mid \Sigma_l,z,c$ using \eqref{eq:mu-posterior}.
 \EndFor
+\State Draw $S_0\mid\{\Sigma_l\}$ using \eqref{eq:S0-gibbs} and refresh $\log|S_0|$ cache.
 \State Optionally draw $\rho\mid c$ using \eqref{eq:rho-posterior}.
 \If{iteration is after burn-in}
-    \State Store $c$, $K_+$, $z$, selected LSIRM parameters, acceptance indicators, and layer-scale diagnostics.
+    \State Store $c$, $K_+$, $z$, and selected LSIRM parameters.
     \State Update posterior similarity counts $C_{qr}^{\mathrm{raw}}\leftarrow C_{qr}^{\mathrm{raw}}+\ind(c_q=c_r)$.
 \EndIf
 \end{algorithmic}

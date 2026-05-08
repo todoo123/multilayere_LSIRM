@@ -3,6 +3,9 @@
 .Ruserdata
 .Rproj.user/
 *.rds
+*.log
+*.json
+.claude/scheduled_tasks.lock
 .DS_Store
 Thumbs.db
 *_cache/
