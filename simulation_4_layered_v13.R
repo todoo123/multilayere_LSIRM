@@ -4,30 +4,28 @@ library(Rcpp)
 library(vegan)
 
 # =========================================================
-# 0) Compile / source v11 wrappers
+# 0) Compile / source v13 wrappers
 #
-#    v11 model (joint LSIRM + latent-position Gaussian mixture):
-#      - LSIRM block byte-identical to v10 (5 layers: bin/con/cnt/ord1/ord2,
-#        per-item kappa, robust Student-t continuous, GRM ordinal).
-#      - Mixture is placed DIRECTLY on item latent positions:
-#          z_q := b_{j(q)}^{(l(q))} in R^d,
-#          z_q | c_q = l, mu_l, Sigma_l  ~  N_d(mu_l, Sigma_l).
-#      - b_j MH ratio includes the mixture prior log-density
-#        log N_d(b_j; mu_{c_q}, Sigma_{c_q}) -- LSIRM and clustering
-#        are FULLY JOINTLY coupled.
-#      - PPCA layer (eta, Lambda, delta, sigma_eps_sq) removed.
-#      - NIW collapsed Gibbs c_q updates and Jain-Neal split-merge
-#        on the partition c, all in R^d (no PPCA factor space).
+#    v13 model (HIERARCHICAL latent-position Gaussian mixture):
+#      - LSIRM block byte-identical to v10/v11.
+#      - Mixture placed on AUXILIARY positions r_q (not z_q directly):
+#          z_q | r_q, Sigma_b           ~ N_d(r_q, Sigma_b)
+#          r_q | c_q = l, mu_l, Sigma_l ~ N_d(mu_l, Sigma_l)
+#        This decouples cluster shape (Sigma_l) from LSIRM-side anchor
+#        noise (Sigma_b), so tight clusters do not compress within-
+#        cluster z-distances.
+#      - b_j MH ratio prior term is N_d(b_j; r_q, Sigma_b).
+#      - NIW collapsed c_q on r, Jain-Neal split-merge on r,
+#        Sigma_b conjugate update (IG isotropic or IW full).
 #
-#    Simulation:
-#      - 4-layer simulation (binary / continuous / count / ordinal),
-#        identical data-generating mechanism to simulation_4_layered_v10.R
-#        so the only systematic difference is the FMC sampler.
+#    Simulation: same data-generating mechanism as v11 sim
+#    (realistic-overlap geometry: centers (+/-0.5)^2,
+#    asymmetric 12/9/6/3 sizes per layer); only the FMC sampler differs.
 # =========================================================
 data_dir <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data"
 proj_dir <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM"
 setwd(data_dir)
-source(file.path(data_dir, "my_LSIRM_FMC_cpp_v11.R"))   # joint LSIRM + latent-position FMC v11
+source(file.path(data_dir, "my_LSIRM_FMC_cpp_v13.R"))   # joint LSIRM + hierarchical FMC v13
 source(file.path(proj_dir, "utils.R"))
 
 set.seed(20260501)
@@ -47,17 +45,17 @@ K_star   <- 10L
 e0       <- 0.1
 K_true   <- 4L
 
-# NIW prior scale on within-cluster covariance Sigma_l = S0_scale * I_d.
-# Calibrated for b_j scale.  True within-cluster sd here is ~0.10-0.20
-# (isotropic clusters, sigma_meta diagonals 0.10-0.20).  With nu0=d+10=12,
-# E[Sigma_l] = S0_scale/(nu0-d-1) = S0_scale/9 per dim.
-#
-# 0505 update: previous S0_scale=1.0 -> implied per-dim sd 0.33, ~2x the
-# truth.  This let NIW marginal favor splits that produce sub-clusters
-# with smaller Sigma than prior expected, biasing K_+ upward (run with
-# K_+=5 vs true 4).  S0_scale=0.3 -> E[Sigma_l]=0.033, per-dim sd~0.18
-# matches truth -> split-induced over-cluster penalty more accurately.
+# 0509 v13-easy: revert to the original v11-friendly "easy" setting
+# (centers (+/-1)^2 corners, equal cluster sizes 8/8/7/7, varied sigma_meta).
+# This is the regime where v11 achieved ARI 0.86-0.88; if v13 still fails
+# here, it indicates a structural issue with the v13 hierarchy rather
+# than data difficulty.
 S0_scale <- 0.3
+
+# Sigma_b prior: moderately informative around 0.05, FREELY estimated.
+sigma_b_isotropic <- TRUE
+a_b <- 3.0
+b_b <- 0.10       # E[sigma_b^2] = b_b/(a_b-1) = 0.05
 
 K1       <- 5L
 
@@ -70,14 +68,13 @@ nu2_fit        <- 4
 # =========================================================
 # 2) TRUE item meta-clusters in LSIRM latent space
 # =========================================================
-# 0508 update: centers tightened from (+/-1)^2 corners to (+/-0.5)^2 to
-# bring adjacent center distance from 2.0 -> 1.0, mirroring MIDUS v11t
-# real-data overlap (silhouette ~0.6, PEAR ~0.4).
+# v11-easy: centers at (+/-1)^2 corners, adjacent center distance = 2.0
+# (clean Gaussian-mixture-friendly separation).
 centers_meta <- rbind(
-  c(-0.5,  0.5),
-  c( 0.5,  0.5),
-  c( 0.5, -0.5),
-  c(-0.5, -0.5)
+  c(-1.0,  1.0),
+  c( 1.0,  1.0),
+  c( 1.0, -1.0),
+  c(-1.0, -1.0)
 )
 stopifnot(nrow(centers_meta) == K_true, ncol(centers_meta) == d)
 
@@ -85,10 +82,9 @@ make_rot <- function(theta) {
   cs <- cos(theta); sn <- sin(theta)
   matrix(c(cs, -sn, sn, cs), 2, 2)
 }
-# Isotropic clusters; per-dim sd ranges 0.32..0.45 (sqrt of 0.10..0.20).
-# With adjacent center distance 1.0 (post-0508 shrink), center/sd ratio
-# drops from ~5..6 to ~2.4..3.1 -- realistic-overlap regime rather than
-# the previous clean Gaussian-mixture-friendly separation.
+# v11-easy: varied isotropic clusters, per-dim sd 0.32..0.45 (sqrt of
+# 0.10..0.20).  With center distance 2.0, center/sd ratio ~ 5-6 -- clean
+# separation regime.
 sigma_meta <- list(
   diag(c(0.15, 0.15)),
   diag(c(0.20, 0.20)),
@@ -96,20 +92,14 @@ sigma_meta <- list(
   diag(c(0.18, 0.18))
 )
 
-# 0508 update: asymmetric per-layer cluster sizes 12/9/6/3 (sum 30, ratio
-# 4:3:2:1).  Total per cluster across 4 layers = 48/36/24/12; smallest
-# meta-cluster only 10% of items, mirroring real-data MIDUS imbalance and
-# stressing the Jain-Neal split-merge sampler on small clusters.
-meta_sizes <- c(12L, 9L, 6L, 3L)
-stopifnot(length(meta_sizes) == K_true,
-          sum(meta_sizes) == P1, sum(meta_sizes) == P2,
-          sum(meta_sizes) == P3, sum(meta_sizes) == P4)
-assign_meta <- function(sizes) rep(seq_along(sizes), times = sizes)
+# v11-easy: equal cluster sizes (rep_len gives 8/8/7/7 per layer of P=30,
+# total 32/32/28/28 across 4 layers).
+assign_meta <- function(P, K) rep_len(seq_len(K), P)
 
-B1_meta <- assign_meta(meta_sizes)
-B2_meta <- assign_meta(meta_sizes)
-B3_meta <- assign_meta(meta_sizes)
-B4_meta <- assign_meta(meta_sizes)
+B1_meta <- assign_meta(P1, K_true)
+B2_meta <- assign_meta(P2, K_true)
+B3_meta <- assign_meta(P3, K_true)
+B4_meta <- assign_meta(P4, K_true)
 true_item_cluster <- c(B1_meta, B2_meta, B3_meta, B4_meta)
 
 centers_resp <- centers_meta * 0.7
@@ -151,7 +141,7 @@ dist_mat <- function(A, B) {
 invlogit <- function(x) 1 / (1 + exp(-x))
 
 # =========================================================
-# 4) TRUE positions
+# 4) TRUE positions  (v11-easy single-stage)
 # =========================================================
 resp_cl <- sample.int(nrow(centers_resp), n, replace = TRUE)
 A_true  <- sample_around_centers(centers_resp, resp_cl, sd_cluster_resp)
@@ -257,7 +247,7 @@ stopifnot(length(item_names_full) == P_total)
 # =========================================================
 plot_dir <- file.path(
   proj_dir, "plot",
-  sprintf("simulation_4_layered_v11_d%d_S0_%g_imbal_close", d, S0_scale)
+  sprintf("simulation_4_layered_v13_d%d_S0_%g_easy", d, S0_scale)
 )
 if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
 
@@ -391,57 +381,46 @@ common_lsirm_prop_sd <- list(
 # Reverted nu0 to d + 10: nu0 = 4 was found to collapse K_+ to 2-3 because
 # E[Sigma_l | S0=I] = S0/(nu0-d-1) = I (way larger than true ~0.18 I) lets
 # items merge into mega-clusters.  Returning to nu0 = 12 restores the
-# correct cluster scale (E[Sigma_l] = S0/9 ~ 0.11 I).
+# V13 NIW + Sigma_b hyperparameters.
 #
-# To recover LSIRM geometry without re-introducing the within-cluster
-# distance compression, we instead use option (a): variance inflation in
-# the b MH update only (b_prior_inflation = 5 below).  See modeling
-# paper sec on b update.
+# kappa0 = 1.0, nu0 = d+10 = 12 (per memory: MIDUS v11/v11t lock-in;
+#   small kappa0 inflates empty-cluster Student-t predictive sd, biasing
+#   K_+ upward).  S0_scale = 0.434 -> E[Sigma_l] ~ 0.048 * I_d.
 #
-# S0 ~ Wishart hyperprior remains auto-enabled, so S0 itself adapts to
-# data.
+# Sigma_b: isotropic with a_b=3, b_b=0.05 -> E[sigma_b^2]=0.025.
+#   In v13 Sigma_b absorbs the role of "anchor strength" that Sigma_l
+#   played in v11, so we want it small (b stays near r) but non-zero.
 #
-# 0505 update: kappa0 was 1e-3, which made the empty-cluster predictive
-# t-density extremely diffuse (sd ~ sqrt(1/kappa0) = ~32 per dim) -- the
-# mu trace showed +-30..60 spikes whenever a slot emptied.  This also
-# inflated the marginal likelihood ratio in split moves (proposed splits
-# can have a tiny new cluster whose mu prior is essentially flat over R^d,
-# so the new component "fits anywhere"), contributing to over-clustering.
-# kappa0=1.0 anchors mu more reasonably to m0=0 with sd ~ sqrt(S0/9) ~ 0.18.
+# S0 Wishart hyperprior auto-enabled by the wrapper (data-driven cluster
+# scale).
 common_fmc_hyper <- list(
   e0     = e0,
   m0     = rep(0, d),
   kappa0 = 1.0,
   nu0    = d + 10,
-  S0     = S0_scale * diag(d)
+  S0     = S0_scale * diag(d),
+  sigma_b_isotropic = sigma_b_isotropic,
+  a_b    = a_b,
+  b_b    = b_b
 )
 
-common_mcmc <- list(d = d, n_iter = 50000L, burnin = 20000L, thin = 10L)
+common_mcmc <- list(d = d, n_iter = 20000L, burnin = 8000L, thin = 5L)
 fmc_warmup_iter <- as.integer(common_mcmc$burnin / 4)
 
-# Split-merge proposals per sweep.  In v10 the PPCA layer absorbed much
-# of the partition-exploration burden, so n_split_merge=5 was enough.
-# In v11 the mixture is directly coupled to b through the MH prior term,
-# which means split-merge is the dominant mechanism that re-arranges the
-# partition once b positions have settled.  Per-attempt acceptance is
-# inherently low in v11 (~0.8% split, ~0.2% merge -- vs v10's 12% / 3%)
-# because b moves via random-walk MH (slow mixing) rather than the
-# Gaussian Gibbs step that v10's eta_j enjoyed.  Pushing n_split_merge
-# to 100 (Option A in the design discussion) is a brute-force boost:
-# 5x more attempts -> 5x more accepted moves per sweep at the same
-# acceptance rate, materially faster K_+ exploration without algorithm
-# changes.  Cost is roughly 2-3x runtime since FMC is the dominant
-# block.
+# Split-merge proposals per sweep.  v13 inherits v11's sticky-cluster
+# concern (single-site Gibbs is slow because b moves via random-walk MH
+# and r_q is pulled toward old c_q's cluster mean before c_q is
+# resampled).  model_v13.tex Section 14 recommends M_SM >= 100.
 n_split_merge   <- 100L
 
 # =========================================================
-# 11) Run v11 joint MCMC
+# 11) Run v13 joint MCMC
 # =========================================================
 cat(sprintf(
-  "\n========== simulation_4_layered_v11 (n=%d, P=%d/%d/%d/%d, K_true=%d, K*=%d, M_SM=%d, S0_scale=%g) ==========\n",
-  n, P1, P2, P3, P4, K_true, K_star, n_split_merge, S0_scale))
+  "\n========== simulation_4_layered_v13 (n=%d, P=%d/%d/%d/%d, K_true=%d, K*=%d, M_SM=%d, S0_scale=%g, Sigma_b=iso(a_b=%g,b_b=%g)) ==========\n",
+  n, P1, P2, P3, P4, K_true, K_star, n_split_merge, S0_scale, a_b, b_b))
 
-result <- lsirm_fmc_v11_cpp(
+result <- lsirm_fmc_v13_cpp(
   Y_bin   = Y_bin,
   Y_con   = Y_con,
   Y_cnt   = Y_cnt,
@@ -461,14 +440,6 @@ result <- lsirm_fmc_v11_cpp(
   compute_co_cluster_online = TRUE,
   fmc_warmup    = fmc_warmup_iter,
   n_split_merge = n_split_merge,
-  # Variance inflation alpha for b MH only.  alpha = 1 (paper-defined
-  # full joint coupling) is the right starting point now that the
-  # simulation uses isotropic Gaussian-mixture-friendly clusters
-  # (Option B above) -- cluster recovery should be clean enough that
-  # the geometry distortion observed under the previous anisotropic
-  # simulation is no longer dominant, so no sampler-level decoupling
-  # is needed.
-  b_prior_inflation = 1.0,
   verbose       = TRUE,
   fix_gamma     = FALSE,
   procrustes_target = list(a  = A_true,
@@ -755,6 +726,79 @@ matplot(n_l_trace, type = "l", lty = 1,
 legend("topright", legend = paste0("l=", 1:K_star),
        col = expand_pal(K_star, cluster_pal), lty = 1, bty = "n", cex = 0.75)
 dev.off()
+
+# =========================================================
+# 20b) v13 anchor diagnostics: sigma_b^2 trace, z vs r scatter,
+#      tr(Sigma_b)/min_l tr(Sigma_l) ratio
+# =========================================================
+if (!is.null(samps$fmc_sigma_b_sq)) {
+  pdf(file.path(plot_dir, "fmc_trace_sigma_b_sq.pdf"), width = 9, height = 5)
+  par(mar = c(4, 4, 3, 1))
+  sb_post <- samps$fmc_sigma_b_sq
+  ts.plot(sb_post,
+          main = sprintf("Anchor variance sigma_b^2  (post mean=%.4f)",
+                         mean(sb_post)),
+          ylab = expression(sigma[b]^{2*"(s)"}))
+  abline(h = c(mean(sb_post), quantile(sb_post, c(.025, .975))),
+         col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
+  dev.off()
+  cat(sprintf("\n[v13 sigma_b^2 posterior] mean=%.4f, sd=%.4f, 95%% CI=[%.4f, %.4f]\n",
+              mean(sb_post), sd(sb_post),
+              quantile(sb_post, .025), quantile(sb_post, .975)))
+} else if (!is.null(samps$fmc_Sigma_b)) {
+  pdf(file.path(plot_dir, "fmc_trace_Sigma_b.pdf"), width = 9, height = 5)
+  par(mar = c(4, 4, 3, 1))
+  trSb <- apply(samps$fmc_Sigma_b, 3, function(M) sum(diag(M)) / d)
+  ts.plot(trSb, main = expression("tr(" * Sigma[b] * ") / d"))
+  abline(h = c(mean(trSb), quantile(trSb, c(.025, .975))),
+         col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
+  dev.off()
+}
+
+# z vs r posterior-mean pairwise distance scatter (linearity is healthy)
+if (!is.null(samps$fmc_r)) {
+  z_pm <- rbind(apply(samps$b1, c(2, 3), mean),
+                apply(samps$b2, c(2, 3), mean),
+                apply(samps$b3, c(2, 3), mean),
+                apply(samps$b4, c(2, 3), mean))
+  r_pm <- apply(samps$fmc_r, c(1, 2), mean)
+  d_z  <- as.vector(dist(z_pm))
+  d_r  <- as.vector(dist(r_pm))
+  pdf(file.path(plot_dir, "fmc_z_vs_r_distances.pdf"), width = 7, height = 7)
+  par(mar = c(4, 4, 3, 1))
+  plot(d_z, d_r, pch = 16, col = rgb(0, 0, 0, 0.3), cex = 0.4,
+       xlab = "||z_q - z_r||", ylab = "||r_q - r_r||",
+       main = sprintf("v13 anchor regularity (z vs r post-mean dist), cor=%.3f",
+                      cor(d_z, d_r)))
+  abline(a = 0, b = 1, col = "red", lwd = 2)
+  dev.off()
+}
+
+# tr(Sigma_b)/min_l tr(Sigma_l) ratio (>10 -> Sigma_b absorbing cluster shape)
+if (!is.null(samps$fmc_Sigma)) {
+  n_save <- dim(samps$fmc_Sigma)[4]
+  ratio <- numeric(n_save)
+  for (s in seq_len(n_save)) {
+    n_l_s <- tabulate(samps$fmc_c[s, ], nbins = K_star)
+    occ   <- which(n_l_s > 0)
+    if (length(occ) == 0) { ratio[s] <- NA_real_; next }
+    tr_Sl <- vapply(occ, function(l) sum(diag(samps$fmc_Sigma[, , l, s])), 0)
+    tr_Sb <- if (!is.null(samps$fmc_sigma_b_sq))
+               d * samps$fmc_sigma_b_sq[s]
+             else sum(diag(samps$fmc_Sigma_b[, , s]))
+    ratio[s] <- tr_Sb / max(min(tr_Sl), .Machine$double.eps)
+  }
+  pdf(file.path(plot_dir, "fmc_trace_Sb_to_Sl_ratio.pdf"), width = 9, height = 5)
+  par(mar = c(4, 4, 3, 1))
+  ts.plot(ratio, main = expression(tr(Sigma[b]) / min[l] ~ tr(Sigma[l])))
+  abline(h = c(1, 10), col = c("gray60", "red"), lwd = 2, lty = c(2, 2))
+  legend("topright", legend = c("ratio = 1 (balanced)", "ratio = 10 (warn)"),
+         col = c("gray60", "red"), lty = 2, bty = "n", cex = 0.8)
+  dev.off()
+  cat(sprintf("\n[v13] tr(Sigma_b)/min_l tr(Sigma_l): mean=%.3f, median=%.3f, max=%.3f\n",
+              mean(ratio, na.rm = TRUE), median(ratio, na.rm = TRUE),
+              max(ratio, na.rm = TRUE)))
+}
 
 # =========================================================
 # 21) FMC clustering recovery

@@ -1,0 +1,1129 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{bm}
+\usepackage{mathtools}
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{float}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\ind}{\mathbf{1}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\trans}{^{\top}}
+\newcommand{\logit}{\mathrm{logit}}
+\newcommand{\Cat}{\mathrm{Cat}}
+\newcommand{\Dir}{\mathrm{Dir}}
+\newcommand{\IG}{\mathrm{IG}}
+\newcommand{\IW}{\mathcal{IW}}
+\newcommand{\tr}{\mathrm{tr}}
+
+\title{\textbf{model\_v14}\\
+Bayesian Joint Multilayered LSIRM with a Mixture-of-Mixtures\\
+Latent-Position Clustering Prior}
+\author{}
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+\label{sec:overview}
+
+This document specifies \emph{model\_v14}, a Bayesian joint multilayered Latent
+Space Item Response Model (LSIRM) for $L=4$ heterogeneous response layers
+(binary, continuous, count, and ordinal), augmented with a
+\emph{Mixture-of-Mixtures} (MoM) prior on the item latent positions. It
+extends \emph{model\_v13}, which used a single-level (over-fitted)
+finite Gaussian mixture with sparse Dirichlet weights to cluster the global
+item positions $z_q$. The LSIRM likelihood layer, the latent geometry, the
+respondent-side parameters, and the rotation/reflection invariance discussion
+are identical to v13. The novelty in v14 is the prior on $\{z_q\}$.
+
+\paragraph{Why a Mixture of Mixtures?}
+A single Gaussian mixture conflates two notions that are conceptually
+distinct in latent-space models:
+\begin{enumerate}[label=(\roman*)]
+\item a \emph{density basis} --- the Gaussian components needed to approximate
+       a possibly non-Gaussian density of latent item positions, and
+\item an \emph{interpretable clustering unit} --- contiguous regions of
+       latent space that correspond to substantively meaningful groups of
+       items (e.g.\ topical or methodological clusters).
+\end{enumerate}
+A flat Gaussian mixture forces a single label to do both jobs. With many
+components, every cluster becomes a single Gaussian, often producing
+over-segmentation: a single elongated or skewed cluster gets split into
+several Gaussian components, none of which is itself the cluster the user
+wants. With few components, the density fit is poor and items are forced
+into ill-fitting Gaussians.
+
+The Mixture-of-Mixtures resolves this by introducing a \emph{two-level}
+hierarchy:
+\begin{itemize}
+\item \emph{Component level} ($c_q$, label $l$): provides a flexible
+      density basis, one Gaussian per component.
+\item \emph{Cluster level} ($g_q$, label $g$): groups components into
+      interpretable clusters. Each cluster is itself a finite Gaussian
+      mixture, and so can represent non-Gaussian, multi-modal, or
+      heavy-tailed cluster shapes.
+\end{itemize}
+Components are \emph{not} shared across clusters: each cluster $g$ has its
+own component pool of size $K_g$. The prior is constructed so that the
+components belonging to a single cluster lie tightly together in latent
+space (governed by a within-cluster scale $\Sigma_l/\kappa_0$), while
+distinct cluster centres $\mu_g^*$ are spread widely (governed by a
+between-cluster scale $M_0$). This \emph{scale separation}
+$M_0 \gg \tr(\mathbb{E}[\Sigma_l])/\kappa_0$ is what gives the cluster
+labels $g_q$ their identifiability: a non-Gaussian cluster can be assembled
+from many close-together Gaussians, but components that are far apart
+cannot be glued into a single cluster.
+
+The remainder of the document follows the v13 structure: indexing and
+notation (Sec.~\ref{sec:indexing}), the LSIRM likelihood
+(Sec.~\ref{sec:lsirm}), the new MoM prior (Sec.~\ref{sec:mom-prior},
+the principal new section), the remaining priors and rotation invariance
+(Secs.~\ref{sec:other-priors}--\ref{sec:rotation}), the joint posterior
+(Sec.~\ref{sec:joint}), conditional updates including the new
+two-level allocation moves (Secs.~\ref{sec:niw}--\ref{sec:wishart}),
+the cluster-level Jain--Neal split--merge derivation
+(Sec.~\ref{sec:splitmerge}), posterior summaries
+(Sec.~\ref{sec:summaries}), and the full sweep
+(Sec.~\ref{sec:sweep}).
+
+\paragraph{Implementation note.}
+We continue to assume $L=4$ heterogeneous layers in the order
+$\ell=1$ (binary), $\ell=2$ (continuous, Student-$t$ via normal--gamma
+scale mixture), $\ell=3$ (count, Negative-Binomial with item-specific
+overdispersion), $\ell=4$ (ordinal, LSGRM cumulative logit). The MoM
+prior is on the global pool $\{z_q\}_{q=1}^P$ of all item positions
+across all layers, exactly as in v13.
+
+\paragraph{Common-respondent assumption.}
+As in v13, all $L$ layers share a common respondent set indexed by
+$i=1,\ldots,N$ with shared latent positions $a_i\in\R^d$ ($d=2$).
+Each layer has its own item set indexed by $j=1,\ldots,J_\ell$ with
+layer-specific positions $b_j^{(\ell)}\in\R^d$, and the global item
+position vector $z_q$, $q=1,\ldots,P=\sum_\ell J_\ell$, indexes all
+$(\ell,j)$ pairs jointly.
+
+\section{Indexing, dimensions, and observed data}
+\label{sec:indexing}
+
+Table~\ref{tab:notation} summarises the indices, dimensions, and key
+quantities. New v14 quantities relative to v13 are marked with
+$^{\dagger}$.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{l l l}
+\toprule
+Symbol & Range / type & Meaning \\
+\midrule
+$i$        & $1,\ldots,N$            & respondent index \\
+$\ell$     & $1,\ldots,L=4$          & response-layer index \\
+$j$        & $1,\ldots,J_\ell$       & local item index within layer $\ell$ \\
+$q$        & $1,\ldots,P=\sum_\ell J_\ell$ & global item index across all layers \\
+$d$        & $2$                     & latent-space dimension \\
+$a_i$      & $\R^d$                  & respondent latent position \\
+$b_j^{(\ell)}$ & $\R^d$              & item latent position (layer $\ell$, local $j$) \\
+$z_q$      & $\R^d$                  & global item position, $z_q = b_{j(q)}^{(\ell(q))}$ \\
+$\alpha_i^{(\ell)}$ & $\R$           & respondent ability (layer $\ell$) \\
+$\beta_j^{(\ell)}$  & $\R$           & item easiness/intercept (layer $\ell$) \\
+$\gamma_\ell$ & $\R_{>0}$            & distance scaling (layer $\ell$) \\
+$\sigma_{\alpha,\ell}^2$ & $\R_{>0}$ & ability variance (layer $\ell$) \\
+$\sigma_0^2$ & $\R_{>0}$             & continuous-layer scale (Student-$t$) \\
+$\nu_t$ & $\R_{>0}$                  & Student-$t$ degrees of freedom \\
+$\lambda_{ij}^{(\ell)}$ & $\R_{>0}$  & latent precision (continuous layer scale mixture) \\
+$\kappa_j$ & $\R_{>0}$               & Negative-Binomial overdispersion (count layer) \\
+$\tau_h^{(\ell)}$ & $\R$              & ordinal threshold $h=1,\ldots,H_\ell-1$ \\
+\midrule
+$c_q$      & $1,\ldots,K^*$          & component label of item $q$ \\
+$g_q^{\dagger}$ & $1,\ldots,G^*$     & cluster label of item $q$ \\
+$G^{*\,\dagger}$ & $\mathbb{N}$       & cluster truncation upper bound \\
+$K^*$      & $\mathbb{N}$            & per-cluster component truncation upper bound \\
+$K_g^{\dagger}$ & $\le K^*$          & nominal number of components in cluster $g$ \\
+$\mu_l$    & $\R^d$                  & component mean ($l$ indexes a $(g,k)$ pair) \\
+$\Sigma_l$ & $\R^{d\times d}$ PD     & component covariance \\
+$\mu_g^{*\,\dagger}$ & $\R^d$        & cluster mean (centre of cluster $g$) \\
+$\pi^{\dagger}$ & $\Delta^{G^*-1}$   & cluster mixture weights \\
+$w_{\cdot|g}^{\dagger}$ & $\Delta^{K_g-1}$ & within-cluster component weights \\
+$\alpha_0^{\dagger}$ & $\R_{>0}$     & cluster-level Dirichlet concentration \\
+$\alpha_w^{\dagger}$ & $\R_{>0}$     & within-cluster Dirichlet concentration \\
+$m_0$, $M_0^{\dagger}$ & $\R^d$, PD  & prior mean / covariance of cluster mean \\
+$\kappa_0$ & $\R_{>0}$               & NIW component-mean precision factor \\
+$\nu_0$, $S_0$ & $\R_{>0}$, PD       & NIW degrees of freedom / scale matrix \\
+$\nu_W,\Lambda_W$ & $\R_{>0}$, PD    & Wishart hyperprior on $S_0$ \\
+\midrule
+$Y_{ij}^{(\ell)}$ & layer-specific  & observed response \\
+$\eta_{ij}^{(\ell)}$ & $\R$         & LSIRM linear predictor \\
+\bottomrule
+\end{tabular}
+\caption{Indices, dimensions, parameters, and observed quantities. New
+v14 symbols are marked with $\dagger$.}
+\label{tab:notation}
+\end{table}
+
+The global-to-local index map is denoted $q\mapsto(\ell(q),j(q))$,
+inverse $j\mapsto q(\ell,j)$, exactly as in v13.
+
+\section{LSIRM likelihood}
+\label{sec:lsirm}
+
+Layer-$\ell$ linear predictor:
+\begin{equation}
+\eta_{ij}^{(\ell)} \;=\; \alpha_i^{(\ell)} - \beta_j^{(\ell)}
+   - \gamma_\ell \,\norm{a_i - b_j^{(\ell)}},
+\qquad i=1,\ldots,N,\;\; j=1,\ldots,J_\ell.
+\label{eq:eta}
+\end{equation}
+
+\subsection{Binary layer ($\ell=1$)}
+\begin{equation}
+Y_{ij}^{(1)}\mid\eta_{ij}^{(1)} \;\sim\; \mathrm{Bernoulli}\!\bigl(\sigma(\eta_{ij}^{(1)})\bigr),
+\qquad
+\sigma(x)=\bigl(1+e^{-x}\bigr)^{-1}.
+\label{eq:bin}
+\end{equation}
+
+\subsection{Continuous layer ($\ell=2$, Student-$t$ via scale mixture)}
+\begin{align}
+\lambda_{ij}^{(2)} &\sim \mathrm{Gamma}(\nu_t/2,\nu_t/2),\\
+Y_{ij}^{(2)}\mid\eta_{ij}^{(2)},\lambda_{ij}^{(2)},\sigma_0^2
+   &\sim \mathcal{N}\!\Bigl(\eta_{ij}^{(2)},\;\sigma_0^2/\lambda_{ij}^{(2)}\Bigr),
+\label{eq:cont}
+\end{align}
+which marginalises to $t_{\nu_t}(\eta_{ij}^{(2)},\sigma_0^2)$.
+
+\subsection{Count layer ($\ell=3$, Negative-Binomial with item overdispersion)}
+\begin{equation}
+Y_{ij}^{(3)}\mid\eta_{ij}^{(3)},\kappa_j
+   \;\sim\; \mathrm{NB}\!\bigl(\mu=\exp(\eta_{ij}^{(3)}),\;\phi=\kappa_j\bigr),
+\qquad
+\mathrm{Var}(Y) = \mu + \mu^2/\kappa_j.
+\label{eq:nb}
+\end{equation}
+
+\subsection{Ordinal layer ($\ell=4$, LSGRM cumulative logit)}
+With $H_\ell$ categories and increasing thresholds
+$-\infty=\tau_0^{(\ell)}<\tau_1^{(\ell)}<\cdots<\tau_{H_\ell-1}^{(\ell)}<\tau_{H_\ell}^{(\ell)}=+\infty$,
+\begin{equation}
+\Pr(Y_{ij}^{(4)}\le h\mid\eta_{ij}^{(4)})
+   = \sigma\!\bigl(\tau_h^{(4)} - \eta_{ij}^{(4)}\bigr),
+\quad h=1,\ldots,H_\ell-1,
+\label{eq:lsgrm}
+\end{equation}
+hence $\Pr(Y_{ij}^{(4)}=h)
+   =\sigma(\tau_h^{(4)}-\eta_{ij}^{(4)})-\sigma(\tau_{h-1}^{(4)}-\eta_{ij}^{(4)})$.
+
+\medskip
+The likelihood factor is
+\begin{equation}
+p(Y\mid\Theta_{\text{LSIRM}})
+ =\prod_{\ell=1}^{L}\prod_{i=1}^{N}\prod_{j=1}^{J_\ell}
+   p_\ell\!\bigl(Y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\cdot\bigr),
+\label{eq:fulllik}
+\end{equation}
+identical to v13.
+
+\section{Latent-position Mixture-of-Mixtures prior for items}
+\label{sec:mom-prior}
+
+\subsection{Global item position notation}
+
+Stack the per-layer item positions into one global pool:
+\begin{equation}
+z_q \;\equiv\; b_{j(q)}^{(\ell(q))} \in \R^d,
+\qquad q=1,\ldots,P,
+\label{eq:zq}
+\end{equation}
+with $P=\sum_\ell J_\ell$. The MoM prior is placed on $\{z_q\}_{q=1}^P$.
+
+\subsection{Two-level generative allocation}
+\label{sec:gen}
+
+For each item $q$, draw \emph{cluster} then \emph{component} then position:
+\begin{align}
+g_q\mid \pi               &\sim \Cat(\pi),
+   \qquad \pi=(\pi_1,\ldots,\pi_{G^*})\in\Delta^{G^*-1}, \label{eq:gq}\\
+c_q\mid g_q=g,\;w_{\cdot|g} &\sim \Cat(w_{\cdot|g}),
+   \qquad w_{\cdot|g}=(w_{1|g},\ldots,w_{K_g|g})\in\Delta^{K_g-1}, \label{eq:cq}\\
+z_q\mid c_q=l,\;\mu_l,\Sigma_l &\sim \mathcal{N}_d(\mu_l,\Sigma_l).\label{eq:zgivenc}
+\end{align}
+Component labels are scoped to a cluster: an index pair $(g,k)$ uniquely
+identifies a component, and we will write $l\equiv(g,k)$ where convenient.
+A cluster $g$ owns a private set of components
+$\mathcal{L}_g=\{(g,1),\ldots,(g,K_g)\}$ with
+$\mathcal{L}_g\cap\mathcal{L}_{g'}=\emptyset$ for $g\ne g'$.
+
+The marginal distribution of $z_q$ is the two-level Gaussian mixture
+\begin{equation}
+p(z_q\mid \pi,\{w_{\cdot|g}\},\{\mu_l,\Sigma_l\})
+ = \sum_{g=1}^{G^*}\pi_g
+   \sum_{k=1}^{K_g} w_{k|g}\,
+   \mathcal{N}_d(z_q;\mu_{(g,k)},\Sigma_{(g,k)}).
+\label{eq:marg-z}
+\end{equation}
+
+\subsection{Component-parameter prior with cluster-mean centring}
+\label{sec:nwprior}
+
+For each component $l=(g,k)$, conditional on its cluster mean $\mu_g^*$,
+\begin{align}
+\Sigma_l \mid S_0,\nu_0 &\sim \IW(\nu_0,S_0), \label{eq:Sigprior}\\
+\mu_l \mid g(l)=g,\,\mu_g^*,\,\Sigma_l,\kappa_0
+   &\sim \mathcal{N}_d\!\Bigl(\mu_g^*,\;\Sigma_l/\kappa_0\Bigr).
+\label{eq:muprior}
+\end{align}
+This is the standard Normal--Inverse-Wishart (NIW) prior, but with the
+prior \emph{mean} replaced by the cluster centre $\mu_g^*$ rather than the
+global anchor $m_0$. Conditional on $\mu_g^*$, $(\mu_l,\Sigma_l)$ is
+exactly NIW$(\mu_g^*,\kappa_0,\nu_0,S_0)$, so all the NIW machinery from
+v13 (Student-$t$ posterior predictive, marginal likelihood, etc.) applies
+verbatim within each cluster, with $\mu_g^*$ playing the role of $m_0$.
+
+\subsection{Cluster-mean prior with scale separation}
+\label{sec:cmprior}
+
+Cluster centres are independent across clusters with a wide Gaussian prior:
+\begin{equation}
+\mu_g^* \mid m_0,M_0 \;\sim\; \mathcal{N}_d(m_0,M_0),
+\qquad g=1,\ldots,G^*.
+\label{eq:must}
+\end{equation}
+We use a default isotropic $M_0 = m_{00}^2\,I_d$ with $m_0=0$, which makes
+the prior rotation/reflection invariant about the origin
+(see Sec.~\ref{sec:rotation}).
+
+\paragraph{Scale separation.} The within-cluster mean spread is governed
+by $\Sigma_l/\kappa_0$ in (\ref{eq:muprior}); marginalising
+$\Sigma_l\sim\IW(\nu_0,S_0)$ gives
+\begin{equation}
+\mathbb{E}[\Sigma_l/\kappa_0]
+ = \frac{1}{\kappa_0(\nu_0-d-1)} S_0,
+\qquad \nu_0>d+1,
+\label{eq:withinscale}
+\end{equation}
+whereas the between-cluster mean spread is $M_0=m_{00}^2 I_d$. The
+\emph{cluster identifiability} condition is
+\begin{equation}
+\boxed{\;\;
+m_{00}^2 \;\gg\; \frac{\tr(S_0)}{d\,\kappa_0(\nu_0-d-1)}.
+\;\;}
+\label{eq:scalesep}
+\end{equation}
+When this holds, the prior strongly distinguishes between
+``components close together within a cluster'' (small displacement
+$\mu_l-\mu_g^*$) and ``cluster centres spread widely'' (large
+displacement $\mu_g^*-m_0$). In practice we recommend
+$m_{00}^2/[\kappa_0(\nu_0-d-1)]^{-1}\tr(S_0)/d \;\ge\; 10^2$.
+This is the prior mechanism that allows ``many close-together components
+to form one non-Gaussian cluster'': within a cluster, the components
+are pulled tightly toward $\mu_g^*$ at the within-scale; clusters
+themselves are pulled loosely toward $m_0$ at the (much larger)
+between-scale.
+
+\subsection{Sparse Dirichlet weights at both levels}
+\label{sec:dirichlet}
+
+We use the Rousseau--Mengersen \emph{over-fitted finite mixture} setting
+at both levels. Let $G^*$ be the cluster truncation and $K^*$ the per-cluster
+component truncation (assume $K_g\equiv K^*$ for simplicity below; an
+unequal-$K_g$ extension is a trivial relabelling).
+
+\begin{align}
+\pi          &\sim \Dir\!\bigl(\alpha_0/G^*,\;\ldots,\;\alpha_0/G^*\bigr), \label{eq:pi-prior}\\
+w_{\cdot|g}  &\stackrel{\mathrm{iid}}{\sim} \Dir\!\bigl(\alpha_w/K^*,\;\ldots,\;\alpha_w/K^*\bigr),
+\quad g=1,\ldots,G^*. \label{eq:w-prior}
+\end{align}
+Choosing $\alpha_0/G^* < d/2$ and $\alpha_w/K^* < d/2$ implements the
+Rousseau--Mengersen sparse regime, in which posterior mass concentrates
+on partitions of $\{1,\ldots,P\}$ with empty redundant components/clusters.
+The number of \emph{occupied} clusters $G_+ = \#\{g:\sum_q \ind\{g_q=g\}>0\}$
+and components $K_{+,g}=\#\{k:\sum_q \ind\{c_q=(g,k)\}>0\}$ are
+posterior-identified summaries; the truncations $G^*,K^*$ are operational
+upper bounds.
+
+\subsection{Wishart hyperprior on $S_0$}
+\label{sec:wishart-prior}
+
+As in v13,
+\begin{equation}
+S_0 \sim \mathcal{W}_d(\nu_W,\Lambda_W),
+\qquad \mathbb{E}[S_0]=\nu_W\Lambda_W,
+\label{eq:wishprior}
+\end{equation}
+with $\nu_W>d-1$. This propagates uncertainty about the typical
+component scale and avoids hand-tuning $S_0$.
+
+\subsection{Cluster-identifiability mechanism: discussion}
+\label{sec:cidisc}
+
+In a flat Gaussian mixture, two components $l_1,l_2$ with similar
+$(\mu_l,\Sigma_l)$ are statistically indistinguishable (label-switching).
+In v14, the analogous label switching at the \emph{component} level is
+benign and expected: components inside a cluster are exchangeable
+density-basis atoms. What we want to identify is the \emph{cluster}
+labelling, and this is achieved precisely when the prior makes within-cluster
+component proximity overwhelmingly more probable than between-cluster
+component proximity, i.e.\ (\ref{eq:scalesep}) holds.
+
+If $m_{00}^2$ is too small (no scale separation), the model collapses
+back to a one-level mixture: cluster labels become uninformative because
+distinct clusters are no closer than two components in the same cluster.
+If $m_{00}^2$ is too large, the prior may resist allowing a single cluster
+to span an extended region of latent space, fragmenting an extended
+cluster across several $g$'s. The default $m_{00}^2$ should be chosen so
+that (\ref{eq:scalesep}) holds with a comfortable margin given the
+expected support of $\{z_q\}$ in $\R^d$ (typically a few units in
+LSIRM-Procrustes-anchored units).
+
+\section{Priors for the LSIRM (non-clustering) parameters}
+\label{sec:other-priors}
+
+These are unchanged from v13:
+\begin{align}
+a_i              &\stackrel{\mathrm{iid}}{\sim} \mathcal{N}_d(0,\sigma_a^2 I_d), \label{eq:a-prior}\\
+\alpha_i^{(\ell)}\mid \sigma_{\alpha,\ell}^2
+                 &\stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0,\sigma_{\alpha,\ell}^2),\label{eq:alpha-prior}\\
+\sigma_{\alpha,\ell}^2
+                 &\sim \IG(a_\alpha,b_\alpha),\label{eq:sigalpha-prior}\\
+\beta_j^{(\ell)} &\stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0,\sigma_\beta^2),\label{eq:beta-prior}\\
+\gamma_\ell      &\stackrel{\mathrm{iid}}{\sim} \mathrm{LogNormal}(0,\sigma_\gamma^2),\label{eq:gamma-prior}\\
+\sigma_0^2       &\sim \IG(a_\sigma,b_\sigma),\label{eq:sig0-prior}\\
+\kappa_j         &\stackrel{\mathrm{iid}}{\sim} \mathrm{Gamma}(a_\kappa,b_\kappa),\label{eq:kappa-prior}\\
+\tau_h^{(\ell)}  &= \tau_1^{(\ell)} + \sum_{r=2}^{h}\exp(\xi_r^{(\ell)}),
+   \quad \tau_1^{(\ell)},\xi_r^{(\ell)}\sim\mathcal{N}(0,\sigma_\tau^2).\label{eq:tau-prior}
+\end{align}
+The item position $b_j^{(\ell)}$ does \emph{not} have an independent
+prior; its prior is the MoM mixture (\ref{eq:marg-z}) via $z_{q(\ell,j)}=b_j^{(\ell)}$.
+
+\section{Rotation and reflection invariance}
+\label{sec:rotation}
+
+The LSIRM linear predictor (\ref{eq:eta}) depends on $a_i,b_j^{(\ell)}$
+only through $\norm{a_i - b_j^{(\ell)}}$ and so is invariant under any
+rigid motion $T(x)=Rx+t$ with $R\in O(d)$, $t\in\R^d$, applied jointly
+to all $a_i$, $b_j^{(\ell)}$. The prior on $a_i$ (centred Gaussian,
+isotropic) and the priors on
+$\mu_g^*$, $\mu_l$, $\Sigma_l$ must transform compatibly. Under
+$T$:
+\begin{align*}
+\mu_g^*&\mapsto R\mu_g^*+t,\\
+\mu_l  &\mapsto R\mu_l + t,\\
+\Sigma_l&\mapsto R\Sigma_l R\trans.
+\end{align*}
+The component-level NIW (\ref{eq:Sigprior})--(\ref{eq:muprior}) is
+$O(d)$-equivariant when $S_0\propto I_d$ (or $S_0$ itself is treated as a
+Wishart variate as in (\ref{eq:wishprior}) with $\Lambda_W\propto I_d$).
+The cluster-mean prior (\ref{eq:must}) is $O(d)$-equivariant when
+$m_0=0$ and $M_0\propto I_d$. With these isotropic choices the joint
+prior on $(\{a_i\},\{\mu_g^*\},\{\mu_l,\Sigma_l\})$, and hence the
+posterior, is invariant under joint rotations/reflections about the
+origin and translations in any direction, exactly matching v13's
+discussion. Identifiability is restored at post-processing by
+Procrustes alignment to a reference draw, which moves $\mu_g^*$ along
+with $a_i,b_j^{(\ell)}$.
+
+\section{Full joint posterior}
+\label{sec:joint}
+
+Let $\Theta_{\text{LSIRM}}=\{a_i,\alpha_i^{(\ell)},\beta_j^{(\ell)},
+\gamma_\ell,\sigma_{\alpha,\ell}^2,\sigma_0^2,\lambda_{ij}^{(2)},
+\kappa_j,\{\tau_h^{(\ell)}\}\}$ collect the LSIRM parameters and
+$\Theta_{\text{MoM}}=\{g,c,\pi,\{w_{\cdot|g}\},\{\mu_g^*\},
+\{\mu_l,\Sigma_l\},S_0\}$ collect the MoM parameters, where
+$g=(g_1,\ldots,g_P)$ and $c=(c_1,\ldots,c_P)$.
+Recall $z_q=b_{j(q)}^{(\ell(q))}$ is a function of $\Theta_{\text{LSIRM}}$.
+The joint posterior factorises as
+\begin{equation}
+\begin{aligned}
+&p(\Theta_{\text{LSIRM}},\Theta_{\text{MoM}}\mid Y) \;\propto\;
+   p(Y\mid\Theta_{\text{LSIRM}})\\
+&\quad\times \prod_{q=1}^{P}\Bigl[\pi_{g_q}\,w_{c_q\mid g_q}\,
+   \mathcal{N}_d\!\bigl(z_q;\mu_{c_q},\Sigma_{c_q}\bigr)\Bigr]\\
+&\quad\times \prod_{l}\Bigl[\mathcal{N}_d\!\bigl(\mu_l;\mu_{g(l)}^*,\Sigma_l/\kappa_0\bigr)\,
+                          \IW(\Sigma_l;\nu_0,S_0)\Bigr]\\
+&\quad\times \prod_{g=1}^{G^*}\mathcal{N}_d(\mu_g^*;m_0,M_0)\\
+&\quad\times \Dir\!\bigl(\pi;\tfrac{\alpha_0}{G^*},\ldots\bigr)\,
+             \prod_{g=1}^{G^*}\Dir\!\bigl(w_{\cdot|g};\tfrac{\alpha_w}{K^*},\ldots\bigr)\\
+&\quad\times \mathcal{W}_d(S_0;\nu_W,\Lambda_W)\;\times\;p(\Theta_{\text{LSIRM}}^{(\text{non-}b)}).
+\end{aligned}
+\label{eq:joint}
+\end{equation}
+Equation (\ref{eq:joint}) is the operational target of the sampler. Note
+the explicit \emph{joint} appearance of $g_q$ and $c_q$: the v14
+likelihood--prior product treats them both as latent random variables
+indexed at each $q$.
+
+\section{NIW posterior quantities (cluster-conditional form)}
+\label{sec:niw}
+
+Within a single cluster $g$, conditional on $\mu_g^*$, the prior on each
+component is the standard NIW, so the v13 NIW machinery applies with
+$m_0\rightarrow\mu_g^*$.
+
+\subsection{Component sufficient statistics}
+
+Let $A_l = \{q:c_q=l\}$ be the items currently assigned to component $l$,
+$n_l=|A_l|$. Define the component sufficient statistics
+\begin{equation}
+\bar z_l = \frac{1}{n_l}\sum_{q\in A_l} z_q,
+\qquad
+\mathcal{S}_l = \sum_{q\in A_l}(z_q-\bar z_l)(z_q-\bar z_l)\trans.
+\label{eq:suffstats}
+\end{equation}
+With cluster-mean prior $\mu_g^*$ (where $g=g(l)$), the conjugate NIW
+posterior parameters are
+\begin{align}
+\kappa_l^{(n)} &= \kappa_0+n_l, \label{eq:kn}\\
+\nu_l^{(n)}    &= \nu_0+n_l, \label{eq:nn}\\
+m_l^{(n)}      &= \frac{\kappa_0\,\mu_g^* + n_l\,\bar z_l}{\kappa_0+n_l}, \label{eq:mn}\\
+S_l^{(n)}      &= S_0 + \mathcal{S}_l + \frac{\kappa_0 n_l}{\kappa_0+n_l}
+                   (\bar z_l-\mu_g^*)(\bar z_l-\mu_g^*)\trans. \label{eq:Sn}
+\end{align}
+
+\subsection{Within-cluster collapsed Student-$t$ predictive}
+\label{sec:tpred}
+
+For an item $q$ with proposed component $l$, the v13 collapsed predictive
+becomes (with $m_l^{(n)},S_l^{(n)},\kappa_l^{(n)},\nu_l^{(n)}$ all
+conditioned on the current $\mu_g^*$):
+\begin{equation}
+p(z_q\mid c_q=l,\,z_{A_l},\,\mu_{g(l)}^*,S_0)
+ = t_{\nu_l^{(n)}-d+1}\!\Bigl(z_q;\,m_l^{(n)},\;
+       \tfrac{\kappa_l^{(n)}+1}{\kappa_l^{(n)}(\nu_l^{(n)}-d+1)}\,S_l^{(n)}\Bigr).
+\label{eq:tpred}
+\end{equation}
+For an empty proposed component (fresh $l$ in cluster $g$), the
+predictive uses the prior NIW with $\mu_g^*$ as prior mean:
+\begin{equation}
+p(z_q\mid c_q\!=\!l_{\mathrm{new}},\,g(l_{\mathrm{new}})=g,\,\mu_g^*,S_0)
+ = t_{\nu_0-d+1}\!\Bigl(z_q;\,\mu_g^*,\;
+   \tfrac{\kappa_0+1}{\kappa_0(\nu_0-d+1)}\,S_0\Bigr).
+\label{eq:tpred-empty}
+\end{equation}
+
+\subsection{Within-cluster marginal likelihood of a component}
+
+The marginal likelihood of the items in component $l$, with prior mean
+$\mu_g^*$, is
+\begin{equation}
+\begin{aligned}
+m_l(\mu_g^*) &\equiv p(z_{A_l}\mid \mu_g^*,S_0,\nu_0,\kappa_0)\\
+ &= \pi^{-n_l d/2}
+    \frac{\Gamma_d(\nu_l^{(n)}/2)}{\Gamma_d(\nu_0/2)}
+    \frac{|S_0|^{\nu_0/2}}{|S_l^{(n)}|^{\nu_l^{(n)}/2}}
+    \Bigl(\frac{\kappa_0}{\kappa_l^{(n)}}\Bigr)^{d/2},
+\end{aligned}
+\label{eq:marg-l}
+\end{equation}
+where $\Gamma_d$ is the multivariate gamma function. The
+\emph{cluster-marginal likelihood} (after summing over component
+allocations within the cluster) is
+\begin{equation}
+m_g(\{z_q:g_q=g\},\mu_g^*) =
+   \sum_{\text{partitions }\mathcal{P}\text{ of }\{q:g_q=g\}\text{ into }\le K^*\text{ blocks}}
+   p(\mathcal{P}\mid w_{\cdot|g},\alpha_w)\prod_{l\in\mathcal{P}} m_l(\mu_g^*),
+\label{eq:marg-g}
+\end{equation}
+which is the marginal likelihood of a finite mixture and has no closed
+form in $g$ alone. This is the obstruction that motivates the
+conditional-on-$(\mu,\Sigma,\mu^*,w,\pi)$ split--merge variant of
+Sec.~\ref{sec:splitmerge}.
+
+\section{Collapsed component-label update $c_q\mid g_q$}
+\label{sec:cupdate}
+
+Conditional on $g_q=g$ and on the rest, $c_q$ is updated by ordinary
+collapsed Gibbs \emph{within cluster $g$}, exactly as in v13 with
+$\mu_g^*$ replacing $m_0$:
+\begin{equation}
+\Pr(c_q=l \mid g_q=g,\,\mathrm{rest})
+\;\propto\;
+\bigl(n_{l,-q} + \alpha_w/K^*\bigr)\,
+p(z_q\mid c_q=l,z_{A_l\setminus\{q\}},\mu_g^*,S_0),
+\label{eq:cupdate}
+\end{equation}
+for each $l\in\mathcal{L}_g$, where $n_{l,-q}=|A_l\setminus\{q\}|$ and
+the predictive density is (\ref{eq:tpred}) (or (\ref{eq:tpred-empty})
+for an empty $l$). Normalise over $l\in\mathcal{L}_g$ and sample.
+
+This update preserves the within-cluster NIW collapsed structure exactly
+and is the workhorse component move.
+
+\section{Component-parameter posterior draws $(\mu_l,\Sigma_l)$}
+\label{sec:musig-update}
+
+For each occupied component $l$ (cluster $g=g(l)$), draw
+\begin{align}
+\Sigma_l \mid \cdot &\sim \IW\!\bigl(\nu_l^{(n)},\;S_l^{(n)}\bigr),\label{eq:Sig-draw}\\
+\mu_l \mid \Sigma_l,\cdot &\sim \mathcal{N}_d\!\Bigl(m_l^{(n)},\;\Sigma_l/\kappa_l^{(n)}\Bigr).
+\label{eq:mu-draw}
+\end{align}
+For each \emph{empty} (un-occupied) component, sample from the prior:
+\begin{equation}
+\Sigma_l\sim\IW(\nu_0,S_0),\qquad
+\mu_l\mid\Sigma_l\sim\mathcal{N}_d(\mu_{g(l)}^*,\Sigma_l/\kappa_0).
+\label{eq:emptydraw}
+\end{equation}
+
+\section{Cluster-mean posterior draw $\mu_g^*$}
+\label{sec:mustar-update}
+
+Given $\{\mu_l,\Sigma_l:g(l)=g\}$, the conditional for $\mu_g^*$ is
+Gaussian--Gaussian conjugate. The likelihood contribution of the
+components in cluster $g$ is
+\begin{equation}
+\prod_{l:g(l)=g}\mathcal{N}_d\!\bigl(\mu_l;\mu_g^*,\Sigma_l/\kappa_0\bigr)
+\propto
+\exp\!\Bigl\{-\tfrac{1}{2}\sum_{l:g(l)=g}
+ \kappa_0(\mu_l-\mu_g^*)\trans\Sigma_l^{-1}(\mu_l-\mu_g^*)\Bigr\}.
+\label{eq:mustar-lik}
+\end{equation}
+Combined with $\mathcal{N}_d(m_0,M_0)$ this yields
+\begin{equation}
+\mu_g^*\mid\cdot \sim \mathcal{N}_d\!\bigl(\hat m_g,\;\hat V_g\bigr),
+\label{eq:mustar-post}
+\end{equation}
+with
+\begin{align}
+\hat V_g &=\Bigl(M_0^{-1}+\kappa_0\!\!\sum_{l:g(l)=g}\!\!\Sigma_l^{-1}\Bigr)^{-1},
+   \label{eq:Vhat}\\
+\hat m_g &=\hat V_g\Bigl(M_0^{-1}m_0
+   +\kappa_0\!\!\sum_{l:g(l)=g}\!\!\Sigma_l^{-1}\mu_l\Bigr).
+   \label{eq:mhat}
+\end{align}
+For \emph{empty} clusters $g$ ($\sum_q\ind\{g_q=g\}=0$ and consequently
+no occupied components), draw $\mu_g^*\sim\mathcal{N}_d(m_0,M_0)$ from
+the prior.
+
+\section{Cluster-allocation update $g_q$}
+\label{sec:gupdate}
+
+Two valid Gibbs-style options:
+
+\paragraph{Option A: collapsed $g_q$ (integrating out $c_q$).}
+Marginalise $c_q$ analytically:
+\begin{equation}
+\Pr(g_q=g\mid\mathrm{rest}) \;\propto\;
+\bigl(n_{g,-q} + \alpha_0/G^*\bigr)\,
+\sum_{l\in\mathcal{L}_g}\bigl(n_{l,-q}+\alpha_w/K^*\bigr)\,
+p(z_q\mid c_q=l,z_{A_l\setminus\{q\}},\mu_g^*,S_0),
+\label{eq:goptA}
+\end{equation}
+where $n_{g,-q}=\sum_{r\ne q}\ind\{g_r=g\}$ and the predictive is
+(\ref{eq:tpred})/(\ref{eq:tpred-empty}). After sampling $g_q$, draw $c_q$
+from the within-cluster categorical (\ref{eq:cupdate}).
+
+\paragraph{Option B (recommended): joint resampling of $(g_q,c_q)$.}
+Treat the pair as a single categorical over
+$\bigsqcup_g \mathcal{L}_g$:
+\begin{equation}
+\Pr(g_q=g,\,c_q=l\mid\mathrm{rest})\;\propto\;
+(n_{g,-q}+\alpha_0/G^*)\,
+(n_{l,-q}+\alpha_w/K^*)\,
+p(z_q\mid c_q=l,z_{A_l\setminus\{q\}},\mu_{g(l)}^*,S_0).
+\label{eq:goptB}
+\end{equation}
+Sample directly from this categorical of size $\sum_g K_g$. This is
+exactly Option A followed by the conditional component draw, rolled into
+one step; it preserves the NIW collapsed structure and is the recommended
+default. We use Option B in Algorithm~\ref{alg:sweep}.
+
+\section{Sparse Dirichlet weight updates}
+\label{sec:weight-update}
+
+Standard Dirichlet--Multinomial conjugacy.
+
+\paragraph{Cluster weights.} With $n_g=\sum_q\ind\{g_q=g\}$,
+\begin{equation}
+\pi\mid g \;\sim\; \Dir\!\bigl(\alpha_0/G^*+n_1,\;\ldots,\;\alpha_0/G^*+n_{G^*}\bigr).
+\label{eq:pi-update}
+\end{equation}
+
+\paragraph{Within-cluster component weights.} With $n_{(g,k)}=\sum_q\ind\{c_q=(g,k)\}$,
+for each $g=1,\ldots,G^*$,
+\begin{equation}
+w_{\cdot|g}\mid c,g \;\sim\; \Dir\!\bigl(\alpha_w/K^*+n_{(g,1)},\;\ldots,\;\alpha_w/K^*+n_{(g,K^*)}\bigr).
+\label{eq:w-update}
+\end{equation}
+
+\section{Wishart $S_0$ update}
+\label{sec:wishart}
+
+Carrying over the v13 conjugate update, with $L_+ = $ number of currently
+existing components (occupied or not, but since empties contribute only
+prior, we restrict to occupied $l$), summing across \emph{all clusters}:
+\begin{equation}
+S_0\mid\{\Sigma_l\} \;\sim\; \mathcal{W}_d\!\Bigl(\nu_W+L_+\nu_0,\;
+   \bigl(\Lambda_W^{-1}+\sum_{l\text{ occ}}\Sigma_l^{-1}\bigr)^{-1}\Bigr).
+\label{eq:S0-update}
+\end{equation}
+
+\section{Cluster-level split--merge target}
+\label{sec:splitmerge}
+
+\subsection{The cluster-marginal target}
+
+A fully collapsed Jain--Neal split--merge on $g$ alone targets the
+marginal posterior $p(g\mid Y,\Theta_{\text{LSIRM}}, S_0,\alpha_0,\alpha_w,
+\nu_0,\kappa_0,m_0,M_0)$ obtained by integrating out
+$(c,\{w_{\cdot|g}\},\{\mu_l,\Sigma_l\},\{\mu_g^*\},\pi)$:
+\begin{equation}
+p(g\mid\cdot) \;\propto\;
+   \frac{\Gamma(\alpha_0)}{\Gamma(\alpha_0+P)}
+   \prod_{g=1}^{G^*}\frac{\Gamma(n_g+\alpha_0/G^*)}{\Gamma(\alpha_0/G^*)}
+   \cdot \prod_{g=1}^{G^*}\widetilde m_g(\{z_q:g_q=g\}),
+\label{eq:marg-target}
+\end{equation}
+where $\widetilde m_g$ is the within-cluster marginal likelihood
+$\int m_g(\{z\},\mu_g^*)\,\mathcal{N}_d(\mu_g^*;m_0,M_0)\,d\mu_g^*$
+with $m_g$ as in (\ref{eq:marg-g}). This is intractable in two ways:
+the sum over within-cluster partitions and the integral over $\mu_g^*$.
+
+\subsection{Recommended: conditional-on-$(\mu,\Sigma,\mu^*,w,\pi)$ split--merge}
+\label{sec:condSM}
+
+Rather than collapse, we condition on the latest draws of
+$(\{\mu_l,\Sigma_l\},\{\mu_g^*\},\{w_{\cdot|g}\},\pi)$ and target the joint
+\begin{equation}
+\pi(g,c \mid z,\{\mu_l,\Sigma_l\},\{\mu_g^*\},\{w_{\cdot|g}\},\pi)
+ \;\propto\;
+\prod_{q=1}^{P}\bigl[\pi_{g_q}\,w_{c_q|g_q}\,
+   \mathcal{N}_d(z_q;\mu_{c_q},\Sigma_{c_q})\bigr].
+\label{eq:joint-cond}
+\end{equation}
+This density is closed-form in $(g,c)$, and any Metropolis--Hastings move
+that proposes new $(g',c')$ and accepts with the (\ref{eq:joint-cond})
+ratio is a valid Gibbs-within-MH step targeting the correct full posterior
+(\ref{eq:joint}). This is the v14 recommended split--merge target.
+
+We also note that, when an MH move is rejected, the chain remains at
+$(g,c)$ with the marginal-stationary distribution maintained automatically;
+intractability of (\ref{eq:marg-target}) is bypassed.
+
+\section{Metropolis--Hastings updates for LSIRM parameters}
+\label{sec:mh}
+
+These are unchanged from v13. The only place the MoM prior enters is in
+the $b_j^{(\ell)}$ update, where the mixture-prior term uses the current
+$(\mu_{c_q},\Sigma_{c_q})$ for the appropriate component label $c_q$ of
+$q=q(\ell,j)$.
+
+\subsection{Respondent positions $a_i$}
+\begin{equation}
+a_i^{\mathrm{prop}} \sim \mathcal{N}_d(a_i,\Sigma_a^{\mathrm{prop}}),
+\quad
+\log r_a = \sum_{\ell,j}\log
+   \frac{p_\ell(Y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)\,\mathrm{prop}},\cdot)}
+        {p_\ell(Y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\cdot)}
+   - \frac{1}{2\sigma_a^2}\bigl(\norm{a_i^{\mathrm{prop}}}^2-\norm{a_i}^2\bigr).
+\label{eq:a-mh}
+\end{equation}
+
+\subsection{Respondent abilities $\alpha_i^{(\ell)}$}
+\begin{equation}
+\alpha_i^{(\ell)\mathrm{prop}}\sim\mathcal{N}(\alpha_i^{(\ell)},(\sigma_\alpha^{\mathrm{prop}})^2),
+\quad
+\log r_\alpha = \sum_j\log\frac{p_\ell(\cdot\mid\eta^{\mathrm{prop}})}{p_\ell(\cdot\mid\eta)}
+   - \frac{(\alpha_i^{(\ell)\mathrm{prop}})^2 - (\alpha_i^{(\ell)})^2}{2\sigma_{\alpha,\ell}^2}.
+\label{eq:alpha-mh}
+\end{equation}
+
+\subsection{Item easinesses $\beta_j^{(\ell)}$ and ordinal thresholds}
+\begin{equation}
+\beta_j^{(\ell)\mathrm{prop}}\sim\mathcal{N}(\beta_j^{(\ell)},(\sigma_\beta^{\mathrm{prop}})^2),
+\quad
+\log r_\beta = \sum_i\log\frac{p_\ell(\cdot\mid\eta^{\mathrm{prop}})}{p_\ell(\cdot\mid\eta)}
+   - \frac{(\beta_j^{(\ell)\mathrm{prop}})^2 - (\beta_j^{(\ell)})^2}{2\sigma_\beta^2}.
+\label{eq:beta-mh}
+\end{equation}
+Ordinal thresholds $\tau_h^{(4)}$ are updated through their unconstrained
+parametrisation $(\tau_1^{(4)},\xi_2^{(4)},\ldots)$ via random-walk MH on
+each component.
+
+\subsection{Item positions $b_j^{(\ell)}$ with mixture prior}
+
+This is the only LSIRM update where the MoM prior appears. Let
+$q=q(\ell,j)$ and $l=c_q$ (the current component label). With optional
+inflation $\alpha\ge 1$ (a sampler-level decoupling factor; see v13),
+the proposal is
+\begin{equation}
+b_j^{(\ell)\mathrm{prop}} \sim \mathcal{N}_d\!\bigl(b_j^{(\ell)},\;\alpha\,\Sigma_b^{\mathrm{prop}}\bigr).
+\label{eq:b-prop}
+\end{equation}
+The MH log-ratio is
+\begin{equation}
+\begin{aligned}
+\log r_b
+&= \sum_i\log\frac{p_\ell(Y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)\,\mathrm{prop}},\cdot)}
+                  {p_\ell(Y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\cdot)}\\
+&\quad
+   -\tfrac12\bigl[
+   (b_j^{(\ell)\mathrm{prop}}-\mu_{c_q})\trans\Sigma_{c_q}^{-1}(b_j^{(\ell)\mathrm{prop}}-\mu_{c_q})
+  -(b_j^{(\ell)}-\mu_{c_q})\trans\Sigma_{c_q}^{-1}(b_j^{(\ell)}-\mu_{c_q})\bigr],
+\end{aligned}
+\label{eq:b-mh}
+\end{equation}
+identical in form to v13's eq.~(31) but with $\mu_{c_q},\Sigma_{c_q}$
+drawn from the v14 two-level prior.
+
+\paragraph{The inflation factor $\alpha$.} Setting $\alpha>1$ widens the
+proposal beyond the prior scale and encourages the LSIRM geometry to be
+explored independently of the cluster identity, which empirically reduces
+posterior coupling between $(c_q,g_q)$ and $b_j^{(\ell)}$. The MH ratio
+(\ref{eq:b-mh}) does not depend on $\alpha$ since the proposal is
+symmetric.
+
+\subsection{Other LSIRM MH updates}
+$\gamma_\ell$, $\sigma_0^2$, $\lambda_{ij}^{(2)}$, $\kappa_j$ are
+updated by their v13 MH (or, for $\lambda_{ij}^{(2)}$, by direct
+Gamma conjugate Gibbs given the Student-$t$ scale-mixture
+representation):
+\begin{equation}
+\lambda_{ij}^{(2)}\mid Y_{ij}^{(2)},\eta_{ij}^{(2)},\sigma_0^2 \sim
+\mathrm{Gamma}\!\Bigl(\tfrac{\nu_t+1}{2},
+\tfrac{\nu_t}{2}+\tfrac{(Y_{ij}^{(2)}-\eta_{ij}^{(2)})^2}{2\sigma_0^2}\Bigr).
+\label{eq:lambda-update}
+\end{equation}
+
+\section{Conjugate variance updates}
+\label{sec:varupd}
+
+Carrying over the v13 inverse-gamma conjugate update for the
+ability variance:
+\begin{equation}
+\sigma_{\alpha,\ell}^2\mid\{\alpha_i^{(\ell)}\} \;\sim\;
+\IG\!\Bigl(a_\alpha+\tfrac{N}{2},\;
+   b_\alpha+\tfrac12\sum_i (\alpha_i^{(\ell)})^2\Bigr).
+\label{eq:sigalpha-update}
+\end{equation}
+Likewise, with the standard inverse-gamma--normal conjugate structure,
+\begin{equation}
+\sigma_0^2\mid\cdots \;\sim\;
+\IG\!\Bigl(a_\sigma+\tfrac{NJ_2}{2},\;
+   b_\sigma+\tfrac12\sum_{i,j}\lambda_{ij}^{(2)}\bigl(Y_{ij}^{(2)}-\eta_{ij}^{(2)}\bigr)^2\Bigr).
+\label{eq:sig0-update}
+\end{equation}
+
+\section{Jain--Neal cluster-level split--merge}
+\label{sec:jainneal}
+
+We give a complete derivation of the cluster-level split--merge
+sub-sampler, targeting (\ref{eq:joint-cond}) (the conditional-on
+$(\{\mu_l,\Sigma_l\},\{\mu_g^*\},\{w_{\cdot|g}\},\pi)$ joint of $(g,c)$).
+This is run $M_{SM}$ times per sweep.
+
+\subsection{Anchor selection}
+
+Sample anchors $u\ne v$ uniformly from $\{1,\ldots,P\}$.
+Let $A=\{q:g_q\in\{g_u,g_v\}\}$ be the set of items in the union of the
+two anchor clusters; let $A_*=A\setminus\{u,v\}$.
+\begin{itemize}
+\item If $g_u=g_v=A_0$: \emph{split} attempt. Choose a fresh empty
+   cluster label $g_b\in\{1,\ldots,G^*\}\setminus\{\text{occupied}\}$
+   (uniformly among empties; if none exists, the move is null and the
+   sweep records a no-op). Initialise $g_u\leftarrow A_0\equiv g_a$,
+   $g_v\leftarrow g_b$.
+\item If $g_u\ne g_v$: \emph{merge} attempt. Let
+   $g_a=g_u$, $g_b=g_v$. The merge proposal sends every $q\in A$ to
+   $g_a$.
+\end{itemize}
+
+\subsection{Restricted Gibbs scan (split case)}
+
+For each $q\in A_*$ (in random order), draw $g_q\in\{g_a,g_b\}$ from the
+restricted conditional under (\ref{eq:joint-cond}). Define for each
+candidate cluster $g\in\{g_a,g_b\}$ a within-cluster predictive (a finite
+Gaussian mixture using the current $\{\mu_l,\Sigma_l\}_{l\in\mathcal{L}_g}$
+and weights $\{w_{l|g}\}$):
+\begin{equation}
+f_g(z_q) \;\equiv\; \sum_{l\in\mathcal{L}_g} w_{l|g}\,
+   \mathcal{N}_d(z_q;\mu_l,\Sigma_l).
+\label{eq:fg}
+\end{equation}
+Then the restricted conditional is
+\begin{equation}
+\Pr_{\mathrm{prop}}(g_q=g\mid g_{A_*\setminus\{q\}})
+ \;\propto\;
+ (n_{g,-q}^{(A)} + \alpha_0/G^*)\,f_g(z_q),
+ \quad g\in\{g_a,g_b\},
+\label{eq:restgibbs}
+\end{equation}
+where $n_{g,-q}^{(A)}$ counts items in $A$ currently assigned to $g$
+\emph{excluding} $q$. The restricted scan produces a launch state
+$(g^{\mathrm{launch}},c^{\mathrm{launch}})$ after $T$ sweeps over $A_*$
+(typically $T=5$). For $q\in A_*$, the corresponding component label is
+also resampled: given the proposed $g_q$, draw
+\begin{equation}
+\Pr(c_q=l\mid g_q=g)\;\propto\;w_{l|g}\,\mathcal{N}_d(z_q;\mu_l,\Sigma_l),
+\quad l\in\mathcal{L}_g.
+\label{eq:csplitc}
+\end{equation}
+The forward proposal density $q_{\mathrm{fwd}}(g',c'\mid g,c)$ is the
+product over the final restricted-scan probabilities (\ref{eq:restgibbs})
+and (\ref{eq:csplitc}).
+
+\paragraph{Component re-attachment under cluster split.}
+When cluster $A_0$ splits into $g_a$ and $g_b$, the component pool
+$\mathcal{L}_{A_0}$ must be repartitioned. We re-label: each $l\in
+\mathcal{L}_{A_0}$ with at least one item in the new $g_a$ keeps a
+position in $\mathcal{L}_{g_a}$; if it also has items in $g_b$, its label
+is duplicated by a fresh slot in $\mathcal{L}_{g_b}$ initialised to the
+same $(\mu_l,\Sigma_l)$ (with $w_{l|g_b}$ initialised proportional to
+the count of its items in $g_b$). This step is deterministic given the
+final $g$-labels of the items, since component labels are recomputed
+from the within-cluster Gibbs (\ref{eq:csplitc}).
+
+\subsection{Merge case}
+
+The merge proposal is deterministic: set $g_q=g_a$ for all $q\in A$,
+and reuse component labels $c_q$ unchanged (since the component pools
+$\mathcal{L}_{g_a}$ and $\mathcal{L}_{g_b}$ are now combined into
+$\mathcal{L}_{g_a}$, this is a relabelling). The reverse-split proposal
+density is computed by running the same restricted Gibbs scan
+\emph{from} the merged state \emph{back to} the original split state,
+using the same anchors $u,v$ and the same $T$ sweeps; this is standard
+Jain--Neal.
+
+\subsection{Acceptance ratios}
+
+Let $(g,c)$ be the current state and $(g',c')$ the proposal. The MH
+acceptance probability is $\min\{1,r\}$, with
+\begin{equation}
+r = \frac{\pi(g',c'\mid z,\cdot)}{\pi(g,c\mid z,\cdot)}\cdot
+    \frac{q_{\mathrm{rev}}(g,c\mid g',c')}{q_{\mathrm{fwd}}(g',c'\mid g,c)}.
+\label{eq:r-mh}
+\end{equation}
+
+\paragraph{Split acceptance.} Substituting (\ref{eq:joint-cond}):
+\begin{equation}
+\begin{aligned}
+\log r_{\mathrm{split}}
+ &= \log\frac{\Gamma(\alpha_0/G^*+n_{g_a}^{\prime})\,\Gamma(\alpha_0/G^*+n_{g_b}^{\prime})}
+              {\Gamma(\alpha_0/G^*+n_{A_0})\,\Gamma(\alpha_0/G^*)}\\
+ &\quad + \sum_{q\in A}\Bigl[
+    \log\pi_{g'_q}+\log w_{c'_q|g'_q}+\log\mathcal{N}_d(z_q;\mu_{c'_q},\Sigma_{c'_q})\\
+ &\hspace{45pt}-\log\pi_{g_q}-\log w_{c_q|g_q}-\log\mathcal{N}_d(z_q;\mu_{c_q},\Sigma_{c_q})\Bigr]\\
+ &\quad +\log q_{\mathrm{rev}}(\text{merge}\mid\text{split})
+        -\log q_{\mathrm{fwd}}(\text{split}\mid\text{merge}).
+\end{aligned}
+\label{eq:rsplit}
+\end{equation}
+Here $n_{g_a}',n_{g_b}'$ are the post-proposal cluster sizes within $A$,
+and $n_{A_0}=n_{g_a}'+n_{g_b}'$.
+The merge-as-reverse proposal is deterministic, so
+$\log q_{\mathrm{rev}}=0$ and the only stochastic term is the forward
+restricted scan, $\log q_{\mathrm{fwd}}$.
+
+\paragraph{Merge acceptance.} The reverse split is the stochastic move,
+giving
+\begin{equation}
+\begin{aligned}
+\log r_{\mathrm{merge}}
+ &= \log\frac{\Gamma(\alpha_0/G^*+n_{g_a}^{\prime\prime})\,\Gamma(\alpha_0/G^*)}
+              {\Gamma(\alpha_0/G^*+n_{g_a})\,\Gamma(\alpha_0/G^*+n_{g_b})}\\
+ &\quad + \sum_{q\in A}\Bigl[\log\pi_{g'_q}+\log w_{c'_q|g'_q}+\log\mathcal{N}_d(z_q;\mu_{c'_q},\Sigma_{c'_q})\\
+ &\hspace{45pt}-\log\pi_{g_q}-\log w_{c_q|g_q}-\log\mathcal{N}_d(z_q;\mu_{c_q},\Sigma_{c_q})\Bigr]\\
+ &\quad +\log q_{\mathrm{rev}}(\text{split}\mid\text{merge})
+        -\log q_{\mathrm{fwd}}(\text{merge}\mid\text{split}),
+\end{aligned}
+\label{eq:rmerge}
+\end{equation}
+with $n_{g_a}^{\prime\prime}=n_{g_a}+n_{g_b}$ and
+$\log q_{\mathrm{fwd}}(\text{merge}\mid\text{split})=0$ because merge is
+deterministic. Equations (\ref{eq:rsplit}) and (\ref{eq:rmerge}) mirror
+v13's eqs.~(40) and~(43), now at the cluster level.
+
+\subsection{Validity}
+
+The move targets the conditional posterior
+$\pi(g,c\mid z,\{\mu_l,\Sigma_l\},\{\mu_g^*\},\{w_{\cdot|g}\},\pi)$,
+which is closed-form. Combined with the Gibbs scans for the conditioned
+quantities (Secs.~\ref{sec:musig-update}, \ref{sec:mustar-update},
+\ref{sec:weight-update}, \ref{sec:wishart}), this yields a valid
+Metropolis-within-Gibbs sampler with stationary distribution
+(\ref{eq:joint}). The fully-collapsed alternative (\ref{eq:marg-target})
+would require a Monte Carlo estimator of $\widetilde m_g$ (e.g.\ a Chib
+estimator or harmonic-mean variant), which we do not pursue here.
+
+\section{Posterior cluster summaries}
+\label{sec:summaries}
+
+\subsection{Cluster-level posterior similarity}
+
+The primary clustering summary is the cluster-level posterior similarity
+matrix
+\begin{equation}
+C_{qr}^{\mathrm{cluster}} \;=\; \Pr(g_q=g_r\mid Y),
+\qquad q,r=1,\ldots,P,
+\label{eq:Ccluster}
+\end{equation}
+estimated by the Monte Carlo average
+$\widehat C_{qr}^{\mathrm{cluster}}=\frac{1}{M}\sum_{m=1}^M\ind\{g_q^{(m)}=g_r^{(m)}\}$
+over post-burn-in iterations. Point clusterings are obtained by
+minimising Binder's loss or VI loss against $\widehat C^{\mathrm{cluster}}$,
+exactly as in v13.
+
+\subsection{Component-level posterior similarity}
+
+The secondary, finer-grained summary is
+\begin{equation}
+C_{qr}^{\mathrm{component}} \;=\; \Pr(c_q=c_r\mid Y),
+\label{eq:Ccomponent}
+\end{equation}
+estimated identically. Note that
+$\ind\{c_q=c_r\}\Rightarrow\ind\{g_q=g_r\}$ (components are nested in
+clusters), so $\widehat C^{\mathrm{component}}\le \widehat C^{\mathrm{cluster}}$
+elementwise.
+
+\subsection{Occupancy traces}
+
+Track the number of occupied clusters
+\begin{equation}
+G_+^{(m)} = \#\{g:\sum_q\ind\{g_q^{(m)}=g\}>0\},
+\label{eq:Gplus}
+\end{equation}
+and the per-cluster component occupancies
+\begin{equation}
+K_{+,g}^{(m)} = \#\{k:\sum_q\ind\{c_q^{(m)}=(g,k)\}>0\},
+\label{eq:Kplus}
+\end{equation}
+across iterations $m$. Posterior modes / quantiles of $G_+,K_{+,g}$
+provide a principled way to read off the effective number of clusters
+and the within-cluster density complexity, with the truncations
+$G^*,K^*$ acting only as upper bounds.
+
+\section{Full MCMC sweep}
+\label{sec:sweep}
+
+We give the algorithmic specification in two algorithm boxes:
+the LSIRM/MoM Gibbs sweep (Algorithm~\ref{alg:sweep}) and the cluster-level
+split--merge sub-routine (Algorithm~\ref{alg:sm}).
+
+\begin{algorithm}[H]
+\caption{One full sweep of the v14 MCMC sampler.}
+\label{alg:sweep}
+\begin{algorithmic}[1]
+\State \textbf{LSIRM block:}
+\For{$i=1,\ldots,N$}
+   \State Update $a_i$ via random-walk MH (eq.~\ref{eq:a-mh}).
+\EndFor
+\For{$\ell=1,\ldots,L$}
+   \For{$i=1,\ldots,N$} \State Update $\alpha_i^{(\ell)}$ via MH (eq.~\ref{eq:alpha-mh}). \EndFor
+   \For{$j=1,\ldots,J_\ell$} \State Update $\beta_j^{(\ell)}$ via MH (eq.~\ref{eq:beta-mh}). \EndFor
+   \For{$j=1,\ldots,J_\ell$}
+      \State $q\gets q(\ell,j)$;
+             update $b_j^{(\ell)}$ via MH (eq.~\ref{eq:b-mh}) using $(\mu_{c_q},\Sigma_{c_q})$.
+   \EndFor
+   \State Update $\gamma_\ell$ via MH; if $\ell=4$ update ordinal thresholds via MH.
+   \State Update $\sigma_{\alpha,\ell}^2$ via Gibbs (eq.~\ref{eq:sigalpha-update}).
+\EndFor
+\State Update $\sigma_0^2$ via Gibbs (eq.~\ref{eq:sig0-update}).
+\For{$i,j$ continuous-layer pairs}
+   \State Update $\lambda_{ij}^{(2)}$ via Gibbs (eq.~\ref{eq:lambda-update}).
+\EndFor
+\For{$j=1,\ldots,J_3$} \State Update $\kappa_j$ via MH. \EndFor
+\State \textbf{Build global pool:} for each $q$, set $z_q\gets b_{j(q)}^{(\ell(q))}$.
+\State \textbf{MoM allocation block:}
+\For{$q=1,\ldots,P$}
+   \State Sample $(g_q,c_q)$ jointly from (\ref{eq:goptB}). \Comment{Option B, recommended}
+\EndFor
+\State \textbf{Component-parameter block:}
+\For{$l$ occupied}
+   \State Compute $(\kappa_l^{(n)},\nu_l^{(n)},m_l^{(n)},S_l^{(n)})$ from (\ref{eq:kn})--(\ref{eq:Sn}) using $\mu_{g(l)}^*$.
+   \State Draw $\Sigma_l$ from (\ref{eq:Sig-draw}); draw $\mu_l$ from (\ref{eq:mu-draw}).
+\EndFor
+\State For empty $l$, sample from prior (\ref{eq:emptydraw}).
+\State \textbf{Cluster-mean block:}
+\For{$g$ with at least one occupied component}
+   \State Compute $(\hat m_g,\hat V_g)$ from (\ref{eq:Vhat})--(\ref{eq:mhat}); draw $\mu_g^*$ from (\ref{eq:mustar-post}).
+\EndFor
+\State For empty $g$, draw $\mu_g^*\sim\mathcal{N}_d(m_0,M_0)$.
+\State \textbf{Sparse Dirichlet block:}
+\State Draw $\pi$ from (\ref{eq:pi-update}); for each $g$, draw $w_{\cdot|g}$ from (\ref{eq:w-update}).
+\State \textbf{Wishart block:} draw $S_0$ from (\ref{eq:S0-update}).
+\State \textbf{Split--merge block:}
+\For{$m=1,\ldots,M_{SM}$}
+   \State Run Algorithm~\ref{alg:sm}.
+\EndFor
+\State \textbf{Storage:} store $g, c, K_+, G_+, z, \Theta_{\text{LSIRM}}$.
+\State \textbf{Online update:} update running sum
+   $\widehat C_{qr}^{\mathrm{cluster}}\!+\!\!=\ind\{g_q=g_r\}$;
+   similarly for $\widehat C^{\mathrm{component}}$.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{One Jain--Neal cluster-level split--merge step.}
+\label{alg:sm}
+\begin{algorithmic}[1]
+\State Sample anchors $u\ne v$ uniformly from $\{1,\ldots,P\}$.
+\State $A\gets\{q:g_q\in\{g_u,g_v\}\}$, $A_*\gets A\setminus\{u,v\}$.
+\If{$g_u=g_v$} \Comment{split attempt}
+   \State Pick fresh empty label $g_b$; $g_a\gets g_u$.
+   \State Initialise $g_u^{\mathrm{launch}}=g_a$, $g_v^{\mathrm{launch}}=g_b$;
+          for $q\in A_*$ pick $g_q^{\mathrm{launch}}\in\{g_a,g_b\}$ uniformly.
+   \For{$t=1,\ldots,T$}
+      \For{$q\in A_*$ in random order}
+         \State Draw $g_q^{\mathrm{launch}}$ from the restricted conditional (\ref{eq:restgibbs}).
+         \State Draw $c_q^{\mathrm{launch}}$ from (\ref{eq:csplitc}) given $g_q^{\mathrm{launch}}$.
+      \EndFor
+   \EndFor
+   \State $(g',c')\gets(g^{\mathrm{launch}},c^{\mathrm{launch}})$;
+          compute $\log q_{\mathrm{fwd}}$ as the product of (\ref{eq:restgibbs}) and (\ref{eq:csplitc})
+          probabilities of the realised draws on the \emph{final} scan.
+   \State Compute $\log r_{\mathrm{split}}$ via (\ref{eq:rsplit}).
+   \State Accept $(g',c')$ with probability $\min\{1,e^{\log r_{\mathrm{split}}}\}$.
+\Else \Comment{merge attempt}
+   \State $g_a\gets g_u$, $g_b\gets g_v$.
+   \State Set $g'_q=g_a$ for all $q\in A$; relabel components in
+          $\mathcal{L}_{g_b}$ as fresh slots in $\mathcal{L}_{g_a}$;
+          set $c'_q$ accordingly.
+   \State Run a hypothetical reverse split: starting from a launch state
+          with $g_u=g_a,g_v=g_b$ and the original split labels for
+          $q\in A_*$, run $T$ restricted-Gibbs scans and compute
+          $\log q_{\mathrm{rev}}$ as the probability of realising the
+          original split state on the final scan.
+   \State Compute $\log r_{\mathrm{merge}}$ via (\ref{eq:rmerge}).
+   \State Accept $(g',c')$ with probability $\min\{1,e^{\log r_{\mathrm{merge}}}\}$.
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\section{Closing remarks}
+
+The v14 MoM prior delivers two practical benefits over v13:
+\begin{enumerate}[label=(\roman*)]
+\item \emph{Non-Gaussian clusters by construction.} A cluster is a
+   finite mixture of Gaussians, so elongated, skewed, or multi-modal
+   clusters need no model adjustment.
+\item \emph{Identifiability of the cluster level.} The scale separation
+   (\ref{eq:scalesep}) gives the cluster labels $g_q$ an interpretation
+   that flat mixtures lack: components close in $\R^d$ form one cluster,
+   components far apart cannot.
+\end{enumerate}
+The cost is that the cluster-marginal likelihood (\ref{eq:marg-g}) is
+intractable; the recommended remedy is the conditional-on-$(\mu,\Sigma,
+\mu^*,w,\pi)$ Jain--Neal variant of Sec.~\ref{sec:condSM}, which
+sidesteps this intractability while still targeting the correct full
+posterior. With sparse Dirichlet weights at both levels, redundant
+components within a cluster and redundant clusters die out automatically;
+the truncations $G^*$ and $K^*$ play only the role of operational upper
+bounds, and the posterior summaries $G_+$ and $K_{+,g}$ are the
+substantive quantities to report.
+
+All other aspects of the model --- the LSIRM linear predictor,
+the four-layer likelihood, the respondent-side priors, the rotation/
+reflection invariance, the optional inflation factor $\alpha\ge 1$ in
+the $b_j$ MH update, and the inverse-gamma conjugate updates --- are
+inherited verbatim from v13.
+
+\end{document}

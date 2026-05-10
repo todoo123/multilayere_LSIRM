@@ -884,6 +884,95 @@ Empirically it is useful when the LSIRM geometry must be reported alongside
 cluster labels, since the within-cluster compression caused by $\alpha=1$
 distorts pairwise-distance recovery without improving partition recovery.
 
+\paragraph{Marginalized (collapsed-label) $b$ update.}
+A more principled alternative to the tempering in
+\eqref{eq:b-mh-ratio-inflated} is to integrate the cluster label $c_q$, the
+weights $\rho$, and the component parameters $(\mu_l,\Sigma_l)$ out of the
+prior factor of \eqref{eq:b-mh-ratio} entirely.  Since the NIW posterior
+predictive in \eqref{eq:niw-predictive} and the collapsed allocation weights
+in \eqref{eq:c-update} are already maintained by the chain, the leave-one-out
+mixture predictive of $z_q$ given the remaining items and labels is
+\begin{equation}
+    p(z_q\mid z_{-q},c_{-q})
+    \propto
+    \sum_{l=1}^{K^\star}
+    (n_{l,-q}+e_0)\;
+    t_{\nu_{l,-q}-d+1}\!\left(
+    z_q;\,m_{l,-q},\,
+    \frac{\kappa_{l,-q}+1}{\kappa_{l,-q}(\nu_{l,-q}-d+1)}\,S_{l,-q}
+    \right).
+    \label{eq:b-marginal-prior}
+\end{equation}
+Define
+\begin{equation}
+    A(z;c_{-q},z_{-q})
+    =
+    \log\!\sum_{l=1}^{K^\star}
+    \exp\!\Bigl[
+        \log(n_{l,-q}+e_0)
+        +\log t_{\nu_{l,-q}-d+1}\!\bigl(
+            z;\,m_{l,-q},\,
+            \tfrac{\kappa_{l,-q}+1}{\kappa_{l,-q}(\nu_{l,-q}-d+1)}\,S_{l,-q}
+        \bigr)
+    \Bigr],
+    \label{eq:b-marginal-A}
+\end{equation}
+evaluated by log-sum-exp for numerical stability.  With the same symmetric
+Gaussian random walk $b_j^{(\ell)\prime}=b_j^{(\ell)}+\varepsilon_b$,
+$\varepsilon_b\sim N_d(0,s_b^2 I_d)$, the log MH acceptance ratio replaces
+the single per-cluster Gaussian prior difference in \eqref{eq:b-mh-ratio} by
+a log-sum-exp difference of the leave-one-out mixture predictive,
+\begin{equation}
+    \log R_b^{\mathrm{coll}}
+    =
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \!\bigl[\log f_\ell(\cdot\mid \eta_{ij}^{(\ell)\prime})
+        - \log f_\ell(\cdot\mid \eta_{ij}^{(\ell)})\bigr]
+    +
+    A(z_q';c_{-q},z_{-q})
+    -
+    A(z_q;c_{-q},z_{-q}),
+    \label{eq:b-mh-ratio-marginal}
+\end{equation}
+where $z_q=b_j^{(\ell)}$ and $z_q'=b_j^{(\ell)\prime}$.  The leave-one-out
+NIW summaries $(\kappa_{l,-q},\nu_{l,-q},m_{l,-q},S_{l,-q})$ depend only on
+$(z_{-q},c_{-q})$ and are therefore computed once per item update and
+reused for both endpoints of the proposal.  Empty components ($n_{l,-q}=0$)
+contribute the NIW prior predictive at $(\kappa_0,\nu_0,m_0,S_0)$ with
+weight $e_0$.  For $l\neq c_q$ the leave-one-out summaries equal the full
+NIW posterior summaries, so only the cluster $l=c_q$ requires actual
+removal of $z_q$ from its sufficient statistics.
+
+\paragraph{Validity as a partially collapsed Gibbs move.}
+The update \eqref{eq:b-mh-ratio-marginal} integrates $(c_q,\rho,\mu,\Sigma)$
+out of the $z_q$ block while keeping $c_{-q}$ fixed, so its target is the
+marginal full conditional of $z_q$ under the \emph{same} joint posterior
+\eqref{eq:full-posterior} as $\alpha=1$ in \eqref{eq:b-mh-ratio}.  By the
+partially collapsed Gibbs construction of van~Dyk and Park (2008), the chain
+preserves the same stationary distribution provided every marginalized
+variable is refreshed from its conditional before being used downstream.
+The sweep order in Algorithms~1--2 already satisfies this: after the $b$
+update we resample $c$ via \eqref{eq:c-update}, then $(\Sigma_l,\mu_l)$ via
+\eqref{eq:sigma-posterior}--\eqref{eq:mu-posterior}, then $S_0$ via
+\eqref{eq:S0-gibbs}, and optionally $\rho$ via \eqref{eq:rho-posterior}.
+
+\paragraph{Comparison with $\alpha$-inflation.}
+Whereas \eqref{eq:b-mh-ratio-inflated} targets a tempered
+($1/\alpha$-power) version of the mixture prior contribution, the
+marginalized update \eqref{eq:b-mh-ratio-marginal} targets the original
+$\alpha=1$ posterior exactly.  The geometry-compression failure mode is
+mitigated structurally rather than by a tuning parameter: $b_j^{(\ell)}$ is
+no longer anchored to a single $\mu_{c_q}$ through a tight $\Sigma_{c_q}$
+but instead feels the full mixture predictive, whose tails are inflated by
+the Student-$t$ shape and by the between-component support.  The additional
+cost is $O(K^\star)$ Student-$t$ evaluations per $b$ MH proposal in place
+of the single Gaussian density in \eqref{eq:b-mh-ratio}, which for
+$K^\star\sim 10$ and $P\sim 30$ is a negligible fraction of the sweep cost.
+The three options for the $b$ update --- conditional \eqref{eq:b-mh-ratio},
+$\alpha$-inflated \eqref{eq:b-mh-ratio-inflated}, and marginalized
+\eqref{eq:b-mh-ratio-marginal} --- are mutually exclusive and selected by
+a sampler-level flag.
+
 \section{Conjugate updates for variance parameters}
 
 The only random-effect variance that is sampled is the layer-specific
@@ -1057,7 +1146,7 @@ Also monitor the trace of the occupied-component count
     \For{$j=1,\dots,P_\ell$}
         \State Propose $\beta_j^{(\ell)\prime}$ via \eqref{eq:beta-mh-ratio} for non-ordinal layers, or each threshold $\beta_{j,k}^{(\ell)\prime}$ via \eqref{eq:beta-thr-mh-ratio} for ordinal layers (rejecting any proposal that violates the ordering).
         \State Let $q=q(\ell,j)$ and propose $b_j^{(\ell)\prime}$.
-        \State Accept/reject $b_j^{(\ell)\prime}$ using \eqref{eq:b-mh-ratio}, including the mixture prior term.
+        \State Accept/reject $b_j^{(\ell)\prime}$ using one of: \eqref{eq:b-mh-ratio} (current-label conditional), \eqref{eq:b-mh-ratio-inflated} ($\alpha$-inflated), or \eqref{eq:b-mh-ratio-marginal} (marginalized over $c_q,\rho,\mu,\Sigma$).
     \EndFor
     \State Update $\sigma_{\alpha,\ell}^2$ using \eqref{eq:sigma-alpha-update} with layer-specific hyperparameters $(A_{\alpha,\ell},B_{\alpha,\ell})$.
 \EndFor

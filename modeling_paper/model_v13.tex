@@ -1,0 +1,980 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm,bm,mathtools}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{float}
+
+\onehalfspacing
+
+\newcommand{\R}{\mathbb R}
+\newcommand{\ind}{\mathbb I}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\trans}{^{\mathsf T}}
+\DeclareMathOperator{\logit}{logit}
+\DeclareMathOperator{\Cat}{Categorical}
+\DeclareMathOperator{\Dir}{Dirichlet}
+\DeclareMathOperator{\IG}{IG}
+\DeclareMathOperator{\IW}{IW}
+\DeclareMathOperator{\tr}{tr}
+
+\title{Joint Multilayered LSIRM with Hierarchical Latent-Position Gaussian Mixture Clustering\\
+Cluster-Aligned Auxiliary Positions and Decoupled Anchor Covariance}
+\date{Model Description}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+This document defines a joint multilayered LSIRM in which item clustering is
+performed on \emph{cluster-aligned auxiliary latent positions} that sit
+between the LSIRM item positions and the Gaussian-mixture cluster centres.
+The model is a hierarchical refinement of the latent-position mixture prior
+of De~Carolis, Kang, and Jeon (2025): instead of placing a finite Gaussian
+mixture directly on each item's LSIRM position $b_j^{(\ell)}$, we introduce
+a per-item auxiliary position $r_q\in\R^d$ for each global item $q$ and
+specify
+\[
+    b_j^{(\ell(q))}=z_q\mid r_q,\Sigma_b\sim N_d(r_q,\Sigma_b),
+    \qquad
+    r_q\mid c_q=l,\mu_l,\Sigma_l\sim N_d(\mu_l,\Sigma_l),
+\]
+with the same NIW prior on $(\mu_l,\Sigma_l)$ as before but a separate global
+within-anchor covariance $\Sigma_b$ that does \emph{not} appear in the cluster
+component definition.
+
+\paragraph{Motivation.}
+In the unhierarchical version, the cluster covariance $\Sigma_{c_q}$ plays
+two roles simultaneously: it defines cluster shape (via the mixture component
+$N(\mu_l,\Sigma_l)$) and it sets the prior precision pulling $b_j^{(\ell)}$
+toward the cluster centre in the Metropolis--Hastings update of the item
+position.  Tight clusters give small $\Sigma_l$, which compresses
+within-cluster pairwise distances among item positions, distorting the LSIRM
+geometry that downstream analyses report.  Splitting the role into a
+cluster-shape covariance $\Sigma_l$ (on $r_q$) and a global anchor
+covariance $\Sigma_b$ (between $z_q$ and $r_q$) leaves cluster shape
+heterogeneity intact while pooling anchor strength across all $P$ items, so
+that anchor pull no longer collapses with cluster tightness.
+
+\paragraph{Marginal cluster-conditional distribution.}
+Integrating $r_q$ out of the hierarchy,
+\begin{equation}
+    z_q\mid c_q=l,\mu_l,\Sigma_l,\Sigma_b\sim N_d(\mu_l,\;\Sigma_l+\Sigma_b),
+    \label{eq:z-marginal}
+\end{equation}
+which makes explicit that cluster shape heterogeneity is carried by the
+per-cluster $\Sigma_l$, while $\Sigma_b$ adds a uniform additional dispersion
+common to all clusters.  Cluster membership $c_q$ is an item-level label
+that applies equally to $r_q$ and $z_q$; visualizations and posterior
+similarity matrices over items are unchanged in interpretation.
+
+\paragraph{Modelling restriction.}
+Cluster labels affect $r_q$, and through it $z_q=b_{j(q)}^{(\ell(q))}$, but
+no cluster-specific prior is placed on respondent ability, item difficulty,
+or layer-specific nuisance parameters.
+
+\section{Indexing, dimensions, and observed data}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Symbol & Meaning & Dimension/range \\
+\midrule
+$\ell$ & layer index & $\ell=1,\dots,L$ \\
+$i$ & respondent/person index & $i=1,\dots,n_\ell$ \\
+$j$ & local item index within layer $\ell$ & $j=1,\dots,P_\ell$ \\
+$q$ & global item index across all layers & $q=1,\dots,P$, $P=\sum_{\ell=1}^L P_\ell$ \\
+$\ell(q)$ & layer containing global item $q$ & $\{1,\dots,L\}$ \\
+$j(q)$ & local item index of global item $q$ & $\{1,\dots,P_{\ell(q)}\}$ \\
+$d$ & latent space dimension & $d=2$ in the current implementation \\
+$K^\star$ & truncation level / maximum number of mixture components & positive integer \\
+$K_+$ & number of occupied mixture components & $K_+=|\{l:n_l>0\}|$ \\
+$z_q$ & global item latent position (LSIRM-side) & $z_q=b_{j(q)}^{(\ell(q))}\in\R^d$ \\
+$r_q$ & cluster-aligned auxiliary latent position & $r_q\in\R^d$ \\
+$c_q$ & cluster label of item $q$ & $c_q\in\{1,\dots,K^\star\}$ \\
+$\mu_l,\Sigma_l$ & cluster $l$ mean and shape covariance & $\mu_l\in\R^d$, $\Sigma_l\in\R^{d\times d}$ pos.\ def. \\
+$\Sigma_b$ & global anchor covariance ($z_q$ around $r_q$) & $\Sigma_b\in\R^{d\times d}$ pos.\ def. \\
+$S_0,S_b$ & NIW / IW scale matrices for $\Sigma_l,\Sigma_b$ & $\R^{d\times d}$ pos.\ def. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Common-respondent assumption.}
+As in the unhierarchical version, $n_\ell=n$ for all $\ell$, and the
+respondent latent position is shared across layers,
+$a_i^{(\ell)}=a_i\in\R^d$.  The layered notation $a_i^{(\ell)}$ is kept
+for visual symmetry with $b_j^{(\ell)}$ but should be read as the single
+$a_i$.  The Metropolis--Hastings update of $a_i$ in
+\eqref{eq:a-mh-ratio} aggregates likelihood contributions across all layers
+that contain respondent $i$, with a single fixed unit-variance prior
+\eqref{eq:a-prior}.
+
+The observed data are denoted by
+$Y^{(\ell)}=\{y_{ij}^{(\ell)}:(i,j)\in\mathcal O_\ell\}$, where
+$\mathcal O_\ell$ is the set of observed respondent--item pairs in layer
+$\ell$.  If there is no missingness, then
+$\mathcal O_\ell=\{1,\dots,n\}\times\{1,\dots,P_\ell\}$.
+
+\section{LSIRM likelihood}
+
+The LSIRM likelihood is unchanged from the unhierarchical model.  For
+respondent $i$ and item $j$ in layer $\ell$, the linear predictor is
+\begin{equation}
+    \eta_{ij}^{(\ell)}
+    =
+    \alpha_i^{(\ell)}-\beta_j^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad \ell\notin\mathcal L_{\mathrm{ord}},
+    \label{eq:lsirm-linear-predictor}
+\end{equation}
+with the convention that for ordinal layers $\beta_j^{(\ell)}$ does not appear
+in the linear predictor:
+\begin{equation}
+    \eta_{ij}^{(\ell)}
+    =
+    \alpha_i^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad \ell\in\mathcal L_{\mathrm{ord}}.
+    \label{eq:lsirm-linear-predictor-ord}
+\end{equation}
+The per-layer observation models (binary, continuous, count, ordinal LSGRM)
+are exactly as specified in the original document and are summarized
+compactly as
+\begin{equation}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell
+    \sim f_\ell\bigl\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\bigr\},
+    \qquad (i,j)\in\mathcal O_\ell,
+    \label{eq:generic-layer-likelihood}
+\end{equation}
+with the layer-specific nuisance parameter $\xi_\ell$ collecting
+$(\sigma_0^2,\lambda_{ij}^{(\ell)})$ in continuous layers,
+$\{\kappa_j\}_{j=1}^{P_\ell}$ in count layers, the threshold vector
+$(\beta_{j,1}^{(\ell)},\dots,\beta_{j,K_\ell-1}^{(\ell)})$ in ordinal layers,
+and $\gamma_\ell$ in every layer.  The full LSIRM log-likelihood is
+\begin{equation}
+    \ell_{\mathrm{LSIRM}}
+    =
+    \sum_{\ell=1}^L
+    \sum_{(i,j)\in\mathcal O_\ell}
+    \log f_\ell\bigl\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\bigr\}.
+    \label{eq:lsirm-loglik}
+\end{equation}
+The crucial dependence on the clustering machinery enters through
+$b_j^{(\ell)}=z_q$ in the distance term of
+\eqref{eq:lsirm-linear-predictor}--\eqref{eq:lsirm-linear-predictor-ord}.
+
+\section{Hierarchical latent-position mixture prior for items}
+
+\subsection{Two-level item position hierarchy}
+
+For each global item index $q=1,\dots,P$, we introduce two latent positions
+in $\R^d$:
+\begin{itemize}[leftmargin=1.5em]
+    \item $z_q=b_{j(q)}^{(\ell(q))}$, the LSIRM item position appearing in
+    \eqref{eq:lsirm-linear-predictor}--\eqref{eq:lsirm-linear-predictor-ord}.
+    \item $r_q$, an auxiliary cluster-aligned position that mediates the
+    relation between $z_q$ and the mixture component centred at $\mu_{c_q}$.
+\end{itemize}
+
+The hierarchy is
+\begin{align}
+    z_q\mid r_q,\Sigma_b
+    &\sim N_d(r_q,\Sigma_b),
+    \label{eq:z-given-r}\\
+    r_q\mid c_q=l,\mu_l,\Sigma_l
+    &\sim N_d(\mu_l,\Sigma_l),
+    \label{eq:r-given-cluster}\\
+    c_q\mid \rho
+    &\sim \Cat(\rho_1,\dots,\rho_{K^\star}),\\
+    \rho
+    &\sim \Dir(e_0,\dots,e_0).
+    \label{eq:rho-prior}
+\end{align}
+
+\subsection{NIW prior on cluster parameters and IW prior on anchor covariance}
+
+The mixture component parameters carry the same NIW prior as in the
+unhierarchical model:
+\begin{align}
+    \Sigma_l
+    &\sim \IW(\nu_0,S_0),
+    \label{eq:sigma-niw-prior}\\
+    \mu_l\mid \Sigma_l
+    &\sim N_d\!\left(m_0,\frac{1}{\kappa_0}\Sigma_l\right),
+    \qquad l=1,\dots,K^\star,
+    \label{eq:mu-niw-prior}
+\end{align}
+with $m_0\in\R^d$, $\kappa_0>0$, $\nu_0>d-1$, and $S_0\in\R^{d\times d}$
+positive definite.
+
+The new global anchor covariance has its own IW prior, independent of the
+cluster NIW:
+\begin{equation}
+    \Sigma_b\sim\IW(\nu_b,S_b),
+    \qquad \nu_b>d-1,\;S_b\in\R^{d\times d}\;\text{positive definite}.
+    \label{eq:sigma-b-prior}
+\end{equation}
+
+\paragraph{Wishart hyperpriors on $S_0$ and $S_b$.}
+Both scale matrices may be learned from data via Wishart hyperpriors:
+\begin{align}
+    S_0&\sim W(\nu_{S_0},\Lambda_{S_0}),
+    \qquad \nu_{S_0}>d-1,\;\Lambda_{S_0}\in\R^{d\times d}\;\text{positive definite},
+    \label{eq:S0-hyperprior}\\
+    S_b&\sim W(\nu_{S_b},\Lambda_{S_b}),
+    \qquad \nu_{S_b}>d-1,\;\Lambda_{S_b}\in\R^{d\times d}\;\text{positive definite}.
+    \label{eq:Sb-hyperprior}
+\end{align}
+Both are conjugate for their respective IW scale matrices and yield closed
+form Wishart full conditionals.  Defaults are weakly informative and
+anchored at user-provided initial values:
+$\nu_{S_0}=d+2$, $\Lambda_{S_0}=S_0^{(0)}/\nu_{S_0}$,
+$\nu_{S_b}=d+2$, $\Lambda_{S_b}=S_b^{(0)}/\nu_{S_b}$, yielding
+$E[S_0]=S_0^{(0)}$ and $E[S_b]=S_b^{(0)}$.
+
+\subsection{Identifiability of $\Sigma_l$ versus $\Sigma_b$}
+\label{sec:identifiability}
+
+Marginalizing $r_q$ from
+\eqref{eq:z-given-r}--\eqref{eq:r-given-cluster} gives
+\eqref{eq:z-marginal}: $z_q\mid c_q=l\sim N_d(\mu_l,\Sigma_l+\Sigma_b)$.
+Within a single cluster, only the sum $\Sigma_l+\Sigma_b$ is identifiable
+from the LSIRM likelihood through $z$ alone.  Two pieces of information
+separate $\Sigma_l$ from $\Sigma_b$ in the joint posterior:
+\begin{enumerate}[leftmargin=1.5em]
+    \item $\Sigma_b$ is global and contributes
+    $\sum_{q=1}^P\log N_d(z_q;r_q,\Sigma_b)$ to the joint, accumulating
+    information from all $P$ items.
+    \item $\Sigma_l$ is per-cluster and is informed only by the items
+    currently assigned to cluster $l$.
+\end{enumerate}
+Conditional on $r$, both are identified, and the priors
+\eqref{eq:sigma-niw-prior}, \eqref{eq:sigma-b-prior} regularize the
+decomposition.
+
+\paragraph{Identifiability in small clusters.}
+The decomposition relies on multi-cluster pooling through the global
+$\Sigma_b$.  When a cluster has very few items ($n_l\leq 2$, including
+the $K_+=1$ degenerate case), $\Sigma_l$ is informed almost entirely by
+its NIW prior, and $\Sigma_b$ can absorb most of the within-cluster
+variance without penalty from the likelihood.  The diagnostic
+$\tr(\Sigma_b)/\min_l\tr(\Sigma_l)$ should be monitored: a sustained
+divergence ($\gtrsim 10$) signals that $\Sigma_b$ is absorbing cluster
+shape rather than acting as a global LSIRM-side anchor noise term, and
+either the prior on $\Sigma_b$ should be tightened or the prior on
+$\Sigma_l$ for small clusters should be relaxed.
+
+\paragraph{Recommended default: isotropic $\Sigma_b$.}
+For maximum identifiability and ease of interpretation, we recommend
+restricting $\Sigma_b=\sigma_b^2 I_d$ as a default, deferring anisotropic
+$\Sigma_b$ to applications where it is empirically warranted.  The
+restriction lets the cluster-side $\Sigma_l$ carry all anisotropy and
+reduces $\Sigma_b$ to a scalar ``LSIRM-side noise level''.  The
+corresponding prior is
+\begin{equation}
+    \sigma_b^2\sim\IG(a_b,b_b),
+    \qquad a_b>0,\;b_b>0,
+    \label{eq:sigma-b-scalar-prior}
+\end{equation}
+with full conditional in \eqref{eq:sigma-b-scalar-update}.  All other
+clustering machinery (NIW on $(\mu_l,\Sigma_l)$, Student-$t$ predictive
+collapsed allocation, split--merge moves) is unaffected by this choice.
+The full IW form \eqref{eq:sigma-b-prior} should be used when the data
+provide strong evidence for anisotropic LSIRM-side noise.
+
+\section{Priors for non-clustering LSIRM parameters}
+
+These priors are unchanged from the unhierarchical model.
+
+\paragraph{Respondent latent position (fixed unit variance).}
+\begin{equation}
+    a_i \sim N_d(0,I_d),\qquad i=1,\dots,n.
+    \label{eq:a-prior}
+\end{equation}
+
+\paragraph{Respondent effect (layer-specific variance, sampled).}
+\begin{equation}
+    \alpha_i^{(\ell)}\mid \sigma_{\alpha,\ell}^2
+    \sim N(0,\sigma_{\alpha,\ell}^2),
+    \qquad
+    \sigma_{\alpha,\ell}^2 \sim \IG(A_{\alpha,\ell},B_{\alpha,\ell}).
+    \label{eq:alpha-prior}
+\end{equation}
+
+\paragraph{Item difficulty (fixed-scale prior).}
+For non-ordinal layers,
+$\beta_j^{(\ell)}\sim N(0,\sigma_{\beta,\ell}^2)$ with $\sigma_{\beta,\ell}^2$
+fixed.  For ordinal layers, each threshold satisfies
+$\beta_{j,k}^{(\ell)}\sim N(0,\sigma_{\beta,\ell}^2)$ subject to
+$\beta_{j,1}^{(\ell)}<\dots<\beta_{j,K_\ell-1}^{(\ell)}$.
+
+The item LSIRM position $b_j^{(\ell)}=z_q$ does not receive an
+independent Gaussian prior; its prior is the hierarchy in
+\eqref{eq:z-given-r}--\eqref{eq:r-given-cluster} together with
+\eqref{eq:sigma-niw-prior}--\eqref{eq:sigma-b-prior}.
+
+The remaining nuisance parameters --- $\gamma_\ell$, $\sigma_0^2$,
+$\{\kappa_j\}$ --- are equipped with the priors specified in the
+unhierarchical model.
+
+\section{Rotation and reflection invariance}
+\label{sec:layer-comparability}
+
+Under the common-respondent assumption, the entire configuration
+$(a,b^{(1)},\dots,b^{(L)},r)$ shares one coordinate system.  The only
+identifiability ambiguity in the latent space is a single global
+orthogonal transformation $Q\in O(d)$ together with a single global
+translation $t\in\R^d$:
+\begin{equation}
+    a_i\mapsto Qa_i+t,
+    \quad
+    b_j^{(\ell)}\mapsto Qb_j^{(\ell)}+t,
+    \quad
+    r_q\mapsto Qr_q+t,
+    \quad
+    \mu_l\mapsto Q\mu_l+t,
+    \quad
+    \Sigma_l\mapsto Q\Sigma_l Q\trans,
+    \quad
+    \Sigma_b\mapsto Q\Sigma_b Q\trans.
+    \label{eq:rigid-motion}
+\end{equation}
+The LSIRM linear predictor depends on positions only through
+$\norm{a_i-b_j^{(\ell)}}_2$, which is invariant.  With $m_0=0$,
+$S_0=s_0 I_d$, and $S_b=s_b I_d$ (or $\Sigma_b=\sigma_b^2 I_d$), the priors
+on $(\mu_l,\Sigma_l)$ and $\Sigma_b$ are also invariant in distribution
+under $Q\in O(d)$.  Therefore the joint posterior on the clustering
+targets---$c$, $K_+$, the cluster sizes $n_l$, and the posterior
+similarity matrix $C_{qr}=P(c_q=c_r\mid Y)$---is invariant under
+\eqref{eq:rigid-motion}.
+
+\section{Full joint posterior}
+
+Let
+\begin{align*}
+    \Theta_{\mathrm{LSIRM}}
+    &=\{a_i,\alpha_i^{(\ell)},b_j^{(\ell)},\beta_j^{(\ell)},\xi_\ell,
+    \sigma_{\alpha,\ell}^2:i,\ell\},\\
+    \Theta_{\mathrm{mix}}
+    &=\{r_q,c_q,\rho,\mu_l,\Sigma_l:q=1,\dots,P,\;l=1,\dots,K^\star\}\cup\{\Sigma_b\}.
+\end{align*}
+The full posterior is proportional to
+\begin{align}
+&p(\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{mix}}\mid Y)
+\notag\\
+&\quad \propto
+\prod_{\ell=1}^L
+\prod_{(i,j)\in\mathcal O_\ell}
+    f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}
+\notag\\
+&\qquad\times
+\prod_{q=1}^P
+    N_d(z_q;r_q,\Sigma_b)\,
+    N_d(r_q;\mu_{c_q},\Sigma_{c_q})\,\rho_{c_q}
+\notag\\
+&\qquad\times
+\prod_{l=1}^{K^\star}p(\mu_l\mid\Sigma_l)p(\Sigma_l)
+\;p(\rho)\;p(\Sigma_b)
+\notag\\
+&\qquad\times
+\prod_{i=1}^{n}N_d(a_i;0,I_d)
+\prod_{\ell=1}^L
+\left[
+\prod_{i=1}^{n}p(\alpha_i^{(\ell)}\mid\sigma_{\alpha,\ell}^2)
+\;p_\beta^{(\ell)}\bigl(\beta^{(\ell)}\bigr)
+\right]
+\notag\\
+&\qquad\times
+\prod_{\ell=1}^L p(\sigma_{\alpha,\ell}^2)p(\xi_\ell),
+    \label{eq:full-posterior}
+\end{align}
+where $z_q=b_{j(q)}^{(\ell(q))}$ and the layer-specific item-difficulty prior
+factor $p_\beta^{(\ell)}$ is as in the unhierarchical model.  The
+hyperpriors on $S_0,S_b$ contribute factors $p(S_0),p(S_b)$ when used.
+
+\section{NIW posterior quantities (on $r$)}
+
+For a generic set of global item indices $A\subseteq\{1,\dots,P\}$, define
+\begin{align}
+    n_A &= |A|,\\
+    \bar r_A &= \frac{1}{n_A}\sum_{q\in A}r_q,
+    \qquad n_A>0,\\
+    Q_A &= \sum_{q\in A}(r_q-\bar r_A)(r_q-\bar r_A)\trans,
+    \qquad n_A>0.
+\end{align}
+For $n_A=0$, use prior quantities directly and set $Q_A=0$.
+
+The NIW posterior parameters for the items in $A$ are
+\begin{align}
+    \kappa_A &= \kappa_0+n_A,\\
+    \nu_A &= \nu_0+n_A,\\
+    m_A &=
+    \begin{cases}
+    \dfrac{\kappa_0m_0+n_A\bar r_A}{\kappa_0+n_A}, & n_A>0,\\[1em]
+    m_0, & n_A=0,
+    \end{cases}\\
+    S_A &=
+    \begin{cases}
+    S_0+Q_A+\dfrac{\kappa_0 n_A}{\kappa_0+n_A}(\bar r_A-m_0)(\bar r_A-m_0)\trans,
+    & n_A>0,\\[1em]
+    S_0, & n_A=0.
+    \end{cases}
+    \label{eq:niw-posterior-params}
+\end{align}
+
+For component $l$, let
+\[
+    \mathcal J_l=\{q:c_q=l\},
+    \qquad n_l=|\mathcal J_l|,
+\]
+and set $(\kappa_l,\nu_l,m_l,S_l)=(\kappa_{\mathcal J_l},\nu_{\mathcal J_l},m_{\mathcal J_l},S_{\mathcal J_l})$.
+For leave-one-out calculations, $\mathcal J_{l,-q}=\{r:r\neq q,\ c_r=l\}$.
+
+\paragraph{Difference from the unhierarchical model.}
+The sufficient statistics in this section are computed from the auxiliary
+positions $r_q$ rather than the LSIRM positions $z_q$.  Because $r_q$ is a
+latent variable updated each sweep (see \eqref{eq:r-update}), the NIW
+posterior shifts respond to where the conditional distribution of $r_q$
+places mass, not directly to the LSIRM-fitted $z_q$.
+
+\section{NIW posterior predictive allocation update for $c_q$}
+
+Marginalizing $(\mu_l,\Sigma_l)$ for label allocation, the posterior
+predictive density of $r_q$ given the other members of cluster $l$ is the
+Student-$t$ density
+\begin{equation}
+    r_q\mid r_{\mathcal J_{l,-q}}
+    \sim
+    t_{\nu_{l,-q}-d+1}
+    \!\left(
+    m_{l,-q},
+    \frac{\kappa_{l,-q}+1}{\kappa_{l,-q}(\nu_{l,-q}-d+1)}S_{l,-q}
+    \right).
+    \label{eq:niw-predictive}
+\end{equation}
+The collapsed single-site label update is
+\begin{equation}
+    P(c_q=l\mid c_{-q},r)
+    \propto
+    (n_{l,-q}+e_0)\,
+    t_{\nu_{l,-q}-d+1}
+    \!\left(
+    r_q;
+    m_{l,-q},
+    \frac{\kappa_{l,-q}+1}{\kappa_{l,-q}(\nu_{l,-q}-d+1)}S_{l,-q}
+    \right),
+    \label{eq:c-update}
+\end{equation}
+for $l=1,\dots,K^\star$.  This is a Gibbs update on $r$, so the acceptance
+probability is one after sampling from the normalized probabilities in
+\eqref{eq:c-update}.
+
+\paragraph{Why $r$ and not $z$.}
+The collapsed allocation is performed on the auxiliary position $r$ because
+the cluster component is defined as $r_q\mid c_q=l\sim N_d(\mu_l,\Sigma_l)$.
+Performing the allocation on $z_q$ would require integrating $\Sigma_b$
+into the predictive, which is not per-cluster (it is global) and would
+break the partition factorization needed by split--merge moves.
+
+\section{Posterior draw of mixture component parameters}
+
+After updating the labels, draw component parameters from their NIW
+posterior on $r$:
+\begin{align}
+    \Sigma_l\mid r,c
+    &\sim \IW(\nu_l,S_l),
+    \label{eq:sigma-posterior}\\
+    \mu_l\mid \Sigma_l,r,c
+    &\sim N_d\!\left(m_l,\frac{1}{\kappa_l}\Sigma_l\right),
+    \qquad l=1,\dots,K^\star.
+    \label{eq:mu-posterior}
+\end{align}
+For empty components ($n_l=0$), this reduces to a draw from the NIW prior.
+
+After all $\Sigma_l$ have been refreshed, sample $S_0$ from its Wishart
+full conditional:
+\begin{equation}
+    S_0\mid\{\Sigma_l\}_{l=1}^{K^\star}
+    \sim
+    W\!\left(
+    \nu_{S_0}+K^\star\nu_0,\;
+    \bigl(\Lambda_{S_0}^{-1}+\textstyle\sum_{l=1}^{K^\star}\Sigma_l^{-1}\bigr)^{-1}
+    \right).
+    \label{eq:S0-gibbs}
+\end{equation}
+The cached log-determinant $\log|S_0|$ used in the NIW marginal likelihood
+\eqref{eq:niw-marginal} for split--merge moves must be refreshed after every
+$S_0$ draw.
+
+The mixture weights may be sampled for monitoring or storage:
+\begin{equation}
+    \rho\mid c\sim\Dir(e_0+n_1,\dots,e_0+n_{K^\star}).
+    \label{eq:rho-posterior}
+\end{equation}
+
+\section{Updates for the auxiliary position $r_q$ and the anchor covariance $\Sigma_b$}
+
+\subsection{Per-item conjugate update of $r_q$}
+
+Conditional on $z_q$, $\Sigma_b$, $c_q=l$, $\mu_l$, $\Sigma_l$, the auxiliary
+position $r_q$ has Gaussian likelihood from \eqref{eq:z-given-r} and Gaussian
+prior from \eqref{eq:r-given-cluster}.  The full conditional is
+$N_d(\widehat r_q,\Lambda_q^{-1})$:
+\begin{equation}
+    \Lambda_q
+    =
+    \Sigma_b^{-1}+\Sigma_{l}^{-1},
+    \qquad
+    \widehat r_q
+    =
+    \Lambda_q^{-1}\bigl(\Sigma_b^{-1}z_q+\Sigma_{l}^{-1}\mu_l\bigr),
+    \qquad l=c_q.
+    \label{eq:r-update}
+\end{equation}
+This is a per-item independent Gibbs update; all $P$ updates can be performed
+in any order.
+
+\subsection{Conjugate update of $\Sigma_b$ (full IW form)}
+
+Pooling the $z_q-r_q$ deviations across all items,
+\begin{equation}
+    W_b=\sum_{q=1}^{P}(z_q-r_q)(z_q-r_q)\trans,
+    \label{eq:Wb}
+\end{equation}
+the full conditional of $\Sigma_b$ under the IW prior \eqref{eq:sigma-b-prior}
+is
+\begin{equation}
+    \Sigma_b\mid z,r,c\sim\IW(\nu_b+P,\;S_b+W_b).
+    \label{eq:sigma-b-update}
+\end{equation}
+The degrees of freedom $\nu_b+P$ scales with the total item count, so
+$\Sigma_b$ is informed by all clusters jointly.
+
+\paragraph{Wishart hyperprior on $S_b$.}
+If \eqref{eq:Sb-hyperprior} is used, the conjugate full conditional is
+\begin{equation}
+    S_b\mid\Sigma_b
+    \sim
+    W\!\left(\nu_{S_b}+\nu_b,\;
+    (\Lambda_{S_b}^{-1}+\Sigma_b^{-1})^{-1}\right).
+    \label{eq:Sb-update}
+\end{equation}
+
+\subsection{Scalar isotropic alternative ($\Sigma_b=\sigma_b^2 I_d$)}
+
+Under the recommended default of Section~\ref{sec:identifiability}, the
+$z_q\mid r_q$ likelihood becomes $N_d(z_q;r_q,\sigma_b^2 I_d)$ and
+\eqref{eq:r-update}, \eqref{eq:sigma-b-update} simplify to
+\begin{align}
+    \Lambda_q&=\sigma_b^{-2}I_d+\Sigma_{l}^{-1},
+    \qquad
+    \widehat r_q=\Lambda_q^{-1}\bigl(\sigma_b^{-2}z_q+\Sigma_{l}^{-1}\mu_l\bigr),\\
+    \sigma_b^2\mid z,r&\sim\IG\!\left(a_b+\tfrac{Pd}{2},\;
+    b_b+\tfrac{1}{2}\sum_{q=1}^{P}\norm{z_q-r_q}_2^2\right).
+    \label{eq:sigma-b-scalar-update}
+\end{align}
+The collapsed label update \eqref{eq:c-update} and split--merge moves are
+unchanged.
+
+\section{Collapsed partition target for split--merge moves}
+
+The collapsed partition target on $r$ has the same form as in the
+unhierarchical model:
+\begin{equation}
+    \pi(c\mid r)
+    \propto
+    \prod_{l=1}^{K^\star}
+    \frac{\Gamma(n_l+e_0)}{\Gamma(e_0)}
+    m(r_{\mathcal J_l}),
+    \label{eq:collapsed-partition-target}
+\end{equation}
+where $m(r_A)=\int\prod_{q\in A}N_d(r_q;\mu,\Sigma)p(\mu,\Sigma)\,d\mu\,d\Sigma$
+is the NIW marginal likelihood evaluated on the auxiliary positions:
+\begin{align}
+    \log m(r_A)
+    &=-\frac{n_Ad}{2}\log\pi
+    +\frac{d}{2}\{\log\kappa_0-\log\kappa_A\}
+    +\frac{\nu_0}{2}\log|S_0|
+    -\frac{\nu_A}{2}\log|S_A|
+    \notag\\
+    &\qquad+\log\Gamma_d\!\left(\frac{\nu_A}{2}\right)
+    -\log\Gamma_d\!\left(\frac{\nu_0}{2}\right),
+    \label{eq:niw-marginal}
+\end{align}
+with $\log\Gamma_d(a)=\frac{d(d-1)}{4}\log\pi+\sum_{h=1}^d\log\Gamma\!\left(a+\frac{1-h}{2}\right)$.
+Therefore
+\begin{equation}
+    \log\pi(c\mid r)
+    =
+    \sum_{l=1}^{K^\star}
+    \!\left[\log\Gamma(n_l+e_0)-\log\Gamma(e_0)
+    +\log m(r_{\mathcal J_l})\right]+\mathrm{const}.
+    \label{eq:log-collapsed-partition-target}
+\end{equation}
+Split--merge moves are performed on $c$ conditional on the current $r$.
+The global covariance $\Sigma_b$ is not integrated out (it is a separate
+Gibbs step), so the partition target factorizes cleanly across clusters.
+
+\section{Metropolis--Hastings updates for LSIRM parameters}
+
+The respondent-effect, threshold, and respondent-position updates are
+unchanged from the unhierarchical model.  The only change is in the
+item-position update of $b_j^{(\ell)}=z_q$.
+
+\subsection{Respondent effect $\alpha_i^{(\ell)}$}
+
+Propose $\alpha_i^{(\ell)\prime}=\alpha_i^{(\ell)}+\varepsilon_\alpha$,
+$\varepsilon_\alpha\sim N(0,s_\alpha^2)$, with log acceptance ratio
+\begin{equation}
+    \log R_\alpha
+    =
+    \sum_{j:(i,j)\in\mathcal O_\ell}
+    \!\left[\log f_\ell\{y_{ij}^{(\ell)}\!\mid\!\eta_{ij}^{(\ell)\prime},\xi_\ell\}
+    -\log f_\ell\{y_{ij}^{(\ell)}\!\mid\!\eta_{ij}^{(\ell)},\xi_\ell\}\right]
+    -\frac{(\alpha_i^{(\ell)\prime})^2-(\alpha_i^{(\ell)})^2}{2\sigma_{\alpha,\ell}^2}.
+    \label{eq:alpha-mh-ratio}
+\end{equation}
+
+\subsection{Item difficulty $\beta_j^{(\ell)}$}
+
+Non-ordinal layers: propose
+$\beta_j^{(\ell)\prime}=\beta_j^{(\ell)}+\varepsilon_\beta$,
+$\varepsilon_\beta\sim N(0,s_\beta^2)$, with
+\begin{equation}
+    \log R_\beta
+    =
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \!\left[\log f_\ell\{\cdot'\}-\log f_\ell\{\cdot\}\right]
+    -\frac{(\beta_j^{(\ell)\prime})^2-(\beta_j^{(\ell)})^2}{2\sigma_{\beta,\ell}^2}.
+    \label{eq:beta-mh-ratio}
+\end{equation}
+
+Ordinal layers: propose each threshold by Gaussian random walk, reject any
+move violating the ordering, and otherwise use
+\begin{equation}
+    \log R_{\beta,k}
+    =
+    \sum_{i:(i,j)\in\mathcal O_\ell}\!\left[\log f_\ell\{\cdot'\}-\log f_\ell\{\cdot\}\right]
+    -\frac{(\beta_{j,k}^{(\ell)\prime})^2-(\beta_{j,k}^{(\ell)})^2}{2\sigma_{\beta,\ell}^2}.
+    \label{eq:beta-thr-mh-ratio}
+\end{equation}
+
+\subsection{Respondent latent position $a_i$}
+
+Propose $a_i'=a_i+\varepsilon_a$, $\varepsilon_a\sim N_d(0,s_a^2I_d)$, and
+aggregate likelihood contributions across all layers:
+\begin{equation}
+    \log R_a
+    =
+    \sum_{\ell=1}^L\sum_{j:(i,j)\in\mathcal O_\ell}\!\left[\log f_\ell\{\cdot'\}-\log f_\ell\{\cdot\}\right]
+    -\tfrac{1}{2}\bigl\{\norm{a_i'}_2^2-\norm{a_i}_2^2\bigr\}.
+    \label{eq:a-mh-ratio}
+\end{equation}
+
+\subsection{Item latent position $b_j^{(\ell)}=z_q$ (modified)}
+
+Let $q=q(\ell,j)$ and let $r_q$ be the current auxiliary position.  Propose
+\begin{equation}
+    z_q'=z_q+\varepsilon_z,\qquad \varepsilon_z\sim N_d(0,s_z^2 I_d).
+\end{equation}
+The log acceptance ratio combines the LSIRM likelihood contribution with the
+\emph{anchor} contribution from \eqref{eq:z-given-r}:
+\begin{equation}
+    \log R_z
+    =
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \!\left[\log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)\prime},\xi_\ell\}
+    -\log f_\ell\{y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\xi_\ell\}\right]
+    +\log N_d(z_q';r_q,\Sigma_b)-\log N_d(z_q;r_q,\Sigma_b),
+    \label{eq:z-mh-ratio}
+\end{equation}
+where $\eta_{ij}^{(\ell)\prime}$ is the layer-$\ell$ linear predictor
+evaluated at $z_q'$.
+
+\paragraph{Comparison with the unhierarchical $b$ update.}
+In the unhierarchical model, the anchor was $\bigl(\mu_{c_q},\Sigma_{c_q}\bigr)$.
+Here the anchor is $(r_q,\Sigma_b)$: the target shifts from the cluster mean
+to the item-specific latent $r_q$, and the precision is the global pooled
+$\Sigma_b^{-1}$.  Cluster identity affects the anchor only \emph{indirectly}
+through the conditional posterior of $r_q$ in \eqref{eq:r-update}, which
+itself blends $z_q$ and $\mu_{c_q}$ in a Gaussian-conjugate way.  This
+indirection is the mechanism that decouples cluster tightness from anchor
+strength.
+
+\section{Conjugate updates for variance parameters}
+
+The respondent-effect variance update is unchanged:
+\begin{equation}
+    \sigma_{\alpha,\ell}^2\mid \alpha^{(\ell)}
+    \sim\IG\!\left(A_{\alpha,\ell}+\tfrac{n}{2},\;
+    B_{\alpha,\ell}+\tfrac{1}{2}\sum_{i=1}^{n}(\alpha_i^{(\ell)})^2\right),
+    \qquad \ell=1,\dots,L.
+    \label{eq:sigma-alpha-update}
+\end{equation}
+The cluster-side scale $S_0$ is updated via \eqref{eq:S0-gibbs}.  The
+anchor covariance $\Sigma_b$ is updated via \eqref{eq:sigma-b-update} (full
+form) or \eqref{eq:sigma-b-scalar-update} (isotropic form).  The
+hyperparameter $S_b$ (full form only) is updated via \eqref{eq:Sb-update}.
+
+\section{Jain--Neal restricted Gibbs split--merge moves on $r$}
+
+Split--merge moves are Metropolis--Hastings updates on $c$ conditional on
+the current auxiliary positions $r=(r_1,\dots,r_P)$.  The target is the
+collapsed partition density in \eqref{eq:log-collapsed-partition-target}.
+The structure is identical to the unhierarchical model, with $z\to r$.
+
+\subsection{Anchor selection}
+
+Select two distinct global item indices $u$ and $v$ uniformly from
+$\{1,\dots,P\}$.  If $c_u=c_v$, attempt a split move; if $c_u\neq c_v$,
+attempt a merge move.  The anchor selection probability is symmetric and
+cancels in the Metropolis--Hastings ratio.
+
+\subsection{Split proposal}
+
+Suppose $c_u=c_v=a$ and let $A=\{q:c_q=a\}$.  Choose an empty component
+label $b\in\{l:n_l=0\}$ uniformly; if no empty component exists, skip the
+split.  Initialize two temporary clusters by forcing $c_u'=a$, $c_v'=b$.
+For each $q\in A\setminus\{u,v\}$, assign $q$ to either $a$ or $b$ via a
+restricted NIW-collapsed Gibbs scan on $r$:
+\begin{align}
+    w_q(a)&\propto(n_{a,-q}^{\mathrm{temp}}+e_0)\,p(r_q\mid r_{a,-q}^{\mathrm{temp}}),\\
+    w_q(b)&\propto(n_{b,-q}^{\mathrm{temp}}+e_0)\,p(r_q\mid r_{b,-q}^{\mathrm{temp}}),
+\end{align}
+with the predictive density given by the NIW Student-$t$ in
+\eqref{eq:niw-predictive}.  Let $p_q^{\mathrm{fwd}}$ be the normalized
+probability of the assignment selected during the forward scan; then
+\begin{equation}
+    \log q(c'\mid c)
+    =-\log E(c)+\sum_{q\in A\setminus\{u,v\}}\log p_q^{\mathrm{fwd}},
+    \label{eq:split-forward-probability}
+\end{equation}
+where $E(c)=|\{l:n_l=0\}|$.  The reverse merge is deterministic, so
+$\log q(c\mid c')=0$ and
+\begin{equation}
+    \alpha_{\mathrm{split}}
+    =\min\!\left\{1,\exp[\log\pi(c'\mid r)-\log\pi(c\mid r)-\log q(c'\mid c)]\right\}.
+    \label{eq:split-acceptance}
+\end{equation}
+
+\subsection{Merge proposal}
+
+Suppose $c_u=a$, $c_v=b$, $a\neq b$, and let $A=\{q:c_q=a\}$,
+$B=\{q:c_q=b\}$.  The proposal merges $B$ into $A$:
+$c_q'=a$ for $q\in A\cup B$, so $\log q(c'\mid c)=0$.  The reverse split
+of $A\cup B$ uses the same anchors $u,v$.  Let $p_q^{\mathrm{rev}}$ be the
+normalized probability of assigning $q$ to its original side under the
+reverse restricted Gibbs scan; then
+\begin{equation}
+    \log q(c\mid c')
+    =-\log E(c')+\sum_{q\in(A\cup B)\setminus\{u,v\}}\log p_q^{\mathrm{rev}},
+    \label{eq:merge-reverse-probability}
+\end{equation}
+where $E(c')$ is the number of empty components after the merge, and
+\begin{equation}
+    \alpha_{\mathrm{merge}}
+    =\min\!\left\{1,\exp[\log\pi(c'\mid r)-\log\pi(c\mid r)+\log q(c\mid c')]\right\}.
+    \label{eq:merge-acceptance}
+\end{equation}
+
+\section{Posterior cluster summaries}
+
+Cluster summaries are label-switching invariant.  The primary summary is the
+posterior similarity matrix
+\begin{equation}
+    C_{qr}=P(c_q=c_r\mid Y),
+    \qquad q,r=1,\dots,P,
+\end{equation}
+updated online by $C_{qr}^{\mathrm{raw}}\leftarrow C_{qr}^{\mathrm{raw}}+\ind(c_q=c_r)$
+after burn-in, then normalized by the saved-iteration count.  Also monitor
+the trace of the occupied-component count $K_+^{(t)}=|\{l:n_l^{(t)}>0\}|$.
+
+\paragraph{Item-level interpretation.}
+The label $c_q$ is an item-level cluster assignment that applies to both
+$r_q$ and $z_q$.  Visualizations of the LSIRM positions $z_q$ coloured by
+$c_q$ are valid; the cluster boundary in $z$-space is fuzzier than the
+boundary in $r$-space by an amount controlled by $\Sigma_b$, reflecting the
+LSIRM-side anchor noise that the model has explicitly accommodated.
+
+\section{One full MCMC sweep}
+
+\begin{algorithm}[H]
+\caption{One MCMC sweep: LSIRM updates and auxiliary positions}
+\small
+\begin{algorithmic}[1]
+\State \textbf{Input:} data $Y$, layer maps $q\mapsto(\ell(q),j(q))$, hyperparameters, proposal scales, $K^\star$, $M_{\mathrm{SM}}$.
+\State Update layer-specific nuisance parameters $\xi_\ell$ (e.g.\ $\gamma_\ell$, $\sigma_0^2$, $\lambda_{ij}^{(\ell)}$ for continuous layers; $\{\kappa_j\}$ for count layers), if present.
+\For{$i=1,\dots,n$}
+    \State Propose $a_i'$ and accept/reject using \eqref{eq:a-mh-ratio} (shared across layers; prior variance fixed at $1$).
+\EndFor
+\For{$\ell=1,\dots,L$}
+    \For{$i=1,\dots,n$}
+        \State Propose $\alpha_i^{(\ell)\prime}$ and accept/reject using \eqref{eq:alpha-mh-ratio}.
+    \EndFor
+    \For{$j=1,\dots,P_\ell$}
+        \State Propose $\beta_j^{(\ell)\prime}$ via \eqref{eq:beta-mh-ratio} (non-ordinal), or each threshold via \eqref{eq:beta-thr-mh-ratio} (ordinal, with order check).
+        \State Let $q=q(\ell,j)$ and propose $z_q'=b_j^{(\ell)\prime}$.
+        \State Accept/reject $z_q'$ using \eqref{eq:z-mh-ratio} with anchor $(r_q,\Sigma_b)$.
+    \EndFor
+    \State Update $\sigma_{\alpha,\ell}^2$ via \eqref{eq:sigma-alpha-update}.
+\EndFor
+\State Construct global item positions $z_q=b_{j(q)}^{(\ell(q))}$ for $q=1,\dots,P$.
+\For{$q=1,\dots,P$}
+    \State Update $r_q\mid z_q,c_q,\mu_{c_q},\Sigma_{c_q},\Sigma_b$ via the conjugate Gaussian draw \eqref{eq:r-update}.
+\EndFor
+\For{$q=1,\dots,P$}
+    \State Remove item $q$ from its current cluster.
+    \State Compute NIW leave-one-out predictive weights in \eqref{eq:c-update} using $r_q$ for $l=1,\dots,K^\star$.
+    \State Sample $c_q$ from the normalized weights.
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{One MCMC sweep: split--merge, mixture parameters, anchor covariance, storage}
+\small
+\begin{algorithmic}[1]
+\For{$m=1,\dots,M_{\mathrm{SM}}$}
+    \State Select two anchors $u,v$ uniformly at random.
+    \If{$c_u=c_v$}
+        \State Attempt a restricted-Gibbs split move on $r$ and accept/reject via \eqref{eq:split-acceptance}.
+    \Else
+        \State Attempt a merge move on $r$ and accept/reject via \eqref{eq:merge-acceptance}.
+    \EndIf
+\EndFor
+\For{$l=1,\dots,K^\star$}
+    \State Compute NIW posterior parameters $(\kappa_l,\nu_l,m_l,S_l)$ from \eqref{eq:niw-posterior-params} using $r$.
+    \State Draw $\Sigma_l\mid r,c$ via \eqref{eq:sigma-posterior}.
+    \State Draw $\mu_l\mid \Sigma_l,r,c$ via \eqref{eq:mu-posterior}.
+\EndFor
+\State Draw $S_0\mid\{\Sigma_l\}$ via \eqref{eq:S0-gibbs} and refresh $\log|S_0|$ cache.
+\State Compute $W_b=\sum_{q=1}^P (z_q-r_q)(z_q-r_q)\trans$ and draw $\Sigma_b$ via \eqref{eq:sigma-b-update} \emph{(full form)} or $\sigma_b^2$ via \eqref{eq:sigma-b-scalar-update} \emph{(isotropic form)}.
+\If{Wishart hyperprior on $S_b$ is used (full form only)}
+    \State Draw $S_b\mid \Sigma_b$ via \eqref{eq:Sb-update}.
+\EndIf
+\State Optionally draw $\rho\mid c$ via \eqref{eq:rho-posterior}.
+\If{iteration is after burn-in}
+    \State Store $c$, $K_+$, $z$, $r$, $\Sigma_b$, and selected LSIRM parameters.
+    \State Update posterior similarity counts $C_{qr}^{\mathrm{raw}}\leftarrow C_{qr}^{\mathrm{raw}}+\ind(c_q=c_r)$.
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\section{Implementation notes and recommended defaults}
+\label{sec:implementation-notes}
+
+\paragraph{Initial values.}
+\begin{itemize}[leftmargin=1.5em]
+    \item $z_q^{(0)}$: small Gaussian noise, $z_q^{(0)}\sim N_d(0,0.1\,I_d)$, or initialize from a low-rank embedding of the response matrix.
+    \item $r_q^{(0)}=z_q^{(0)}$ (start with no $z$--$r$ split; $\Sigma_b$ will learn the appropriate scale).
+    \item $c_q^{(0)}$: random assignment with each $c_q^{(0)}\sim \mathrm{Uniform}\{1,\dots,K_{\mathrm{init}}\}$ for some $K_{\mathrm{init}}\leq K^\star$.
+    \item $\Sigma_b^{(0)}=0.05\,I_d$ (or $\sigma_b^{2,(0)}=0.05$).
+\end{itemize}
+
+\paragraph{Recommended NIW and IW hyperparameters ($d=2$).}
+We recommend default values aligned with the empirically validated
+operating point of the unhierarchical model on real and simulated
+multilayer data: $\kappa_0=1.0$, $\nu_0=d+10=12$,
+$S_0^{(0)}=0.434\,I_d$ (giving
+$E[\Sigma_l]=S_0^{(0)}/(\nu_0-d-1)\approx 0.048\,I_d$, comparable to
+the within-cluster scale observed in the unhierarchical fit),
+$\nu_b=d+10=12$, $S_b^{(0)}=0.09\,I_d$ (giving
+$E[\Sigma_b]\approx 0.01\,I_d$), $e_0=0.1$.  Wishart hyperpriors as in
+\eqref{eq:S0-hyperprior}, \eqref{eq:Sb-hyperprior} with
+$\nu_{S_0}=\nu_{S_b}=d+2$, $\Lambda_{S_0}=S_0^{(0)}/\nu_{S_0}$,
+$\Lambda_{S_b}=S_b^{(0)}/\nu_{S_b}$.  Isotropic alternative
+\eqref{eq:sigma-b-scalar-prior}: $a_b=3$, $b_b=0.05$, giving
+$E[\sigma_b^2]=0.025$ with finite variance.
+
+\paragraph{Why these values.}
+A small $\kappa_0$ ($\leq 0.01$) makes the empty-cluster Student-$t$
+predictive in \eqref{eq:c-update} highly diffuse (sd
+$\propto\sqrt{1/\kappa_0}$ per dim), which inflates the marginal
+likelihood of split moves and biases $K_+$ upward; $\kappa_0=1.0$
+anchors $\mu_l$ to $m_0$ with prior sd
+$\sim\sqrt{S_0/[\kappa_0(\nu_0-d-1)]}\approx 0.22$ per dim, comparable
+to the expected within-cluster scale.  A small $\nu_0$ ($=d+2$) gives
+$E[\Sigma_l]=S_0/(\nu_0-d-1)$ with infinite variance, leaving
+$\Sigma_l$ effectively undetermined for moderate $n_l$; $\nu_0=d+10$
+sharpens the prior so that splits producing sub-clusters with
+implausibly small $\Sigma_l$ are penalized appropriately.  The
+hierarchical extension does not change the role of $\kappa_0$ or the
+predictive in \eqref{eq:c-update}, so these considerations carry over
+unchanged.
+
+\paragraph{Split--merge frequency.}
+The $r_q$ update in \eqref{eq:r-update} pulls $r_q$ toward the cluster
+mean of its currently assigned cluster $c_q^{(t-1)}$ before
+$c_q^{(t)}$ is resampled.  An incorrectly assigned item therefore
+receives a misaligned $r_q$, which biases the subsequent collapsed
+allocation \eqref{eq:c-update} toward the same misassignment,
+producing a sticky-cluster regime that single-site Gibbs alone cannot
+escape.  Empirical experience with the unhierarchical model under
+similar scale calibration suggests $M_{\mathrm{SM}}\geq 100$
+split--merge attempts per sweep are required for adequate partition
+mixing once $b$ moves via random-walk MH (rather than the conjugate
+Gibbs available in factor-augmented variants).  The same default is
+recommended here, with the per-iter $c_q$-change rate monitored as a
+sticky-cluster diagnostic.
+
+\paragraph{Diagnostics.}
+\begin{itemize}[leftmargin=1.5em]
+    \item Trace of $\tr(\Sigma_b)$ (or $\sigma_b^2$): should stabilize at a moderate non-zero level.  A near-zero $\Sigma_b$ indicates the model is collapsing to a no-anchor regime; a very large $\Sigma_b$ indicates a weakly identified anchor.
+    \item Ratio $\tr(\Sigma_b)/\min_l\tr(\Sigma_l)$: a sustained value $\gtrsim 10$ signals that $\Sigma_b$ is absorbing cluster shape rather than acting as global LSIRM-side noise, particularly when small clusters are present (Section~\ref{sec:identifiability}).
+    \item Pairwise distance scatter: plot $\norm{z_q-z_r}_2$ against $\norm{r_q-r_r}_2$.  In a healthy fit the scatter should be roughly linear; severe S-curve distortion indicates that more prior mass on larger $\Sigma_b$ may be needed.
+    \item Trace of $K_+$: should mix across plausible values; pinned behaviour indicates split--merge moves are too rarely accepted.
+    \item Per-iteration $c_q$-change rate: the fraction of items that change cluster between consecutive saved iterations.  Values near zero alongside small split--merge acceptance signal a sticky-cluster trap; consider increasing $M_{\mathrm{SM}}$ or revisiting the $\Sigma_b$ scale.
+\end{itemize}
+
+\paragraph{Numerical and post-processing notes.}
+\begin{itemize}[leftmargin=1.5em]
+    \item In \eqref{eq:r-update}, compute
+    $\Lambda_q^{-1}\bigl(\Sigma_b^{-1}z_q+\Sigma_{l}^{-1}\mu_l\bigr)$
+    via Cholesky solve rather than explicit matrix inversion; with
+    potentially ill-conditioned $\Sigma_l$ for small or empty
+    clusters, direct inversion is numerically unstable.
+    \item Cache $\Sigma_b^{-1}$ and $\log|\Sigma_b|$ once per sweep
+    after the $\Sigma_b$ Gibbs draw; both are used in the $z$-MH ratio
+    \eqref{eq:z-mh-ratio} and in the $r_q$ update for every $q$.
+    Cache per-cluster $\Sigma_l^{-1}$ similarly after each
+    $\Sigma_l$ refresh.
+    \item Procrustes alignment for posterior summaries should be
+    applied jointly to $\{a_i,b_j^{(\ell)},r_q,\mu_l\}$ under a single
+    orthogonal transformation to preserve the hierarchical
+    relationship \eqref{eq:z-given-r}--\eqref{eq:r-given-cluster}.
+    Aligning $z$ and $r$ separately would distort the $z_q-r_q$
+    deviations entering \eqref{eq:Wb} and bias the post-hoc
+    $\Sigma_b$ summary.
+\end{itemize}
+
+\paragraph{Computational cost per sweep.}
+The hierarchical extension adds (i) $P$ Gaussian conjugate draws for $\{r_q\}$, each $O(d^3)$ (Cholesky of $\Lambda_q$, $d=2$); (ii) one IW draw for $\Sigma_b$, $O(d^3)$ after computing $W_b$ in $O(Pd^2)$; (iii) optionally one Wishart draw for $S_b$.  Relative to the unhierarchical sweep these are negligible.  All other steps (NIW posterior, collapsed allocation, split--merge, LSIRM MH) have unchanged per-step cost.
+
+\section{Summary of changes from the unhierarchical model}
+
+\begin{center}
+\begin{tabular}{p{0.30\linewidth}p{0.30\linewidth}p{0.30\linewidth}}
+\toprule
+Component & Unhierarchical & Hierarchical (this document) \\
+\midrule
+Item position prior & $b_j^{(\ell)}\sim N(\mu_{c_q},\Sigma_{c_q})$ & $z_q\mid r_q\sim N(r_q,\Sigma_b)$, $r_q\mid c_q\sim N(\mu_{c_q},\Sigma_{c_q})$ \\
+Anchor in $b$ MH ratio & $(\mu_{c_q},\Sigma_{c_q})$ & $(r_q,\Sigma_b)$ \\
+Cluster allocation target & $z_q$ & $r_q$ \\
+NIW posterior data & $z$ & $r$ \\
+Split--merge target & $\pi(c\mid z)$ & $\pi(c\mid r)$ \\
+Anchor strength source & per-cluster $\Sigma_{c_q}$ & global pooled $\Sigma_b$ \\
+Cluster shape carrier & $\Sigma_{c_q}$ & $\Sigma_{c_q}$ (unchanged) \\
+Marginal $z\mid c=l$ & $N(\mu_l,\Sigma_l)$ & $N(\mu_l,\Sigma_l+\Sigma_b)$ \\
+New variables & --- & $\{r_q\}_{q=1}^P$, $\Sigma_b$ (and $S_b$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The cluster-shape heterogeneity carried by the per-cluster $\Sigma_l$ is preserved.  The anchor pull experienced by $z_q$ during its Metropolis--Hastings update is decoupled from cluster identity: it depends on $r_q$ (which adapts via \eqref{eq:r-update}) and the global $\Sigma_b$ (which pools information across all $P$ items via \eqref{eq:sigma-b-update}), neither of which collapses with cluster tightness.  All cluster-allocation machinery is identical in form to the unhierarchical model after replacing $z$ with $r$, so existing implementations can be extended with minimal structural change.
+
+\end{document}
