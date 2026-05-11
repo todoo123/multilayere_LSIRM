@@ -234,6 +234,169 @@ static inline double gig_sample(Rcpp::Function& rgig_R, double p, double a, doub
 }
 
 // =========================================================
+// STAGE 2 helpers: Telescoping (K, alpha) and empty-cluster refresh.
+// =========================================================
+
+// log BNB(K-1; alpha_lambda=1, a_pi=4, b_pi=3) = log p(K) per variants.md (3.9).
+//   p(K) = B(5, K+2) / B(4, 3)   (Gamma(K) factors cancel).
+// We omit the constant -log B(4, 3) since it drops in MH and K-sample.
+static inline double log_bnb_143_unnorm(int K) {
+  // log B(5, K+2) = lgamma(5) + lgamma(K+2) - lgamma(K+7).
+  return std::lgamma(5.0) + std::lgamma((double)K + 2.0) - std::lgamma((double)K + 7.0);
+}
+
+// log F(nu_l=6, nu_r=3) density on alpha > 0 (Eq 3.11), up to additive const.
+//   p(alpha) prop alpha^{nu_l/2 - 1} * (1 + nu_l * alpha / nu_r)^{-(nu_l+nu_r)/2}
+//          = alpha^2 * (1 + 2 alpha)^{-4.5}.
+static inline double log_F_6_3(double alpha) {
+  // Guard for numerical safety.
+  if (alpha <= 0.0) return -std::numeric_limits<double>::infinity();
+  return 2.0 * std::log(alpha) - 4.5 * std::log1p(2.0 * alpha);
+}
+
+// log p(K | C, alpha) unnormalised (Eq 3.8), evaluated at K with given
+// partition counts N_k (filled clusters only, length K_plus) and alpha.
+// Returns -inf for K < K_plus or K > K_max.
+//   log p(K | C, alpha) =
+//     log p_BNB(K)
+//     + K_plus * log(alpha) - K_plus * log(K)
+//     + lgamma(K + 1) - lgamma(K - K_plus + 1)
+//     + sum_{k=1..K_plus} [lgamma(N_k + alpha/K) - lgamma(1 + alpha/K)]
+static inline double log_p_K_given_C(int K, int K_plus, int K_max,
+                                     double alpha, const ivec& N_k_filled) {
+  if (K < 1 || K < K_plus || K > K_max) return -std::numeric_limits<double>::infinity();
+  double gamma_K = alpha / (double)K;
+  double s = log_bnb_143_unnorm(K);
+  s += (double)K_plus * std::log(alpha) - (double)K_plus * std::log((double)K);
+  s += std::lgamma((double)K + 1.0) - std::lgamma((double)(K - K_plus) + 1.0);
+  double lg_one_plus_gK = std::lgamma(1.0 + gamma_K);
+  for (int k = 0; k < K_plus; ++k) {
+    s += std::lgamma((double)N_k_filled(k) + gamma_K) - lg_one_plus_gK;
+  }
+  return s;
+}
+
+// log p(alpha | C, K) unnormalised (Eq 3.10) (excluding the F(6,3) prior;
+// caller adds log_F_6_3 separately).
+//   log p(alpha | C, K) [likelihood part] =
+//     K_plus * log(alpha) + lgamma(alpha) - lgamma(N_total + alpha)
+//     + sum_k [lgamma(N_k + alpha/K) - lgamma(1 + alpha/K)]
+static inline double log_p_alpha_likelihood(double alpha, int K, int K_plus,
+                                            int N_total, const ivec& N_k_filled) {
+  if (alpha <= 0.0) return -std::numeric_limits<double>::infinity();
+  double gamma_K = alpha / (double)K;
+  double s = (double)K_plus * std::log(alpha)
+           + std::lgamma(alpha) - std::lgamma((double)N_total + alpha);
+  double lg_one_plus_gK = std::lgamma(1.0 + gamma_K);
+  for (int k = 0; k < K_plus; ++k) {
+    s += std::lgamma((double)N_k_filled(k) + gamma_K) - lg_one_plus_gK;
+  }
+  return s;
+}
+
+// Relabel clusters so filled (N_k > 0) are at positions 0..K_plus-1 and empty
+// follow. Permutes all 11 K_max-indexed state arrays consistently and
+// recomputes S_q, N_k, N_kl.
+static inline void relabel_clusters_v14(
+    uvec& S_q, ivec& N_k, ivec& N_kl, int K_cur, int L, int /*d*/,
+    vec& eta_K, mat& w_k, mat& mu_kl,
+    cube& Sigma_kl, cube& SigmaInv_kl, vec& log_det_Sigma_kl,
+    mat& b_0k, cube& C_0k, mat& Lambda_k, mat& B_tilde_0k_diag
+) {
+  // Build permutation: filled first, then empty.
+  std::vector<int> filled_idx, empty_idx;
+  filled_idx.reserve(K_cur);
+  empty_idx.reserve(K_cur);
+  for (int k = 0; k < K_cur; ++k) {
+    if (N_k(k) > 0) filled_idx.push_back(k);
+    else empty_idx.push_back(k);
+  }
+  std::vector<int> perm; perm.reserve(K_cur);
+  for (int k : filled_idx) perm.push_back(k);
+  for (int k : empty_idx)  perm.push_back(k);
+
+  // Quick exit if identity.
+  bool identity = true;
+  for (int k = 0; k < K_cur; ++k) if (perm[k] != k) { identity = false; break; }
+  if (identity) return;
+
+  // Inverse permutation.
+  std::vector<int> inv(K_cur);
+  for (int k_new = 0; k_new < K_cur; ++k_new) inv[perm[k_new]] = k_new;
+
+  // S_q (relabel old k -> new k via inv)
+  for (uword q = 0; q < S_q.n_elem; ++q) {
+    S_q(q) = (uword) inv[(int)S_q(q)];
+  }
+  // N_k
+  ivec N_k_new(K_cur);
+  for (int k_new = 0; k_new < K_cur; ++k_new) N_k_new(k_new) = N_k(perm[k_new]);
+  for (int k = 0; k < K_cur; ++k) N_k(k) = N_k_new(k);
+  // N_kl (flat K_cur*L)
+  ivec N_kl_new(K_cur * L);
+  for (int k_new = 0; k_new < K_cur; ++k_new) {
+    int k_old = perm[k_new];
+    for (int l = 0; l < L; ++l) N_kl_new(k_new * L + l) = N_kl(k_old * L + l);
+  }
+  for (int s = 0; s < K_cur * L; ++s) N_kl(s) = N_kl_new(s);
+  // eta_K
+  vec eta_new(K_cur);
+  for (int k_new = 0; k_new < K_cur; ++k_new) eta_new(k_new) = eta_K(perm[k_new]);
+  for (int k = 0; k < K_cur; ++k) eta_K(k) = eta_new(k);
+  // w_k (K_max x L) -- only first K_cur rows
+  mat w_buf(K_cur, L);
+  for (int k_new = 0; k_new < K_cur; ++k_new)
+    for (int l = 0; l < L; ++l) w_buf(k_new, l) = w_k(perm[k_new], l);
+  for (int k = 0; k < K_cur; ++k)
+    for (int l = 0; l < L; ++l) w_k(k, l) = w_buf(k, l);
+  // mu_kl (rows; K_cur * L of them)
+  mat mu_buf(K_cur * L, mu_kl.n_cols);
+  for (int k_new = 0; k_new < K_cur; ++k_new) {
+    int k_old = perm[k_new];
+    for (int l = 0; l < L; ++l) {
+      mu_buf.row(k_new * L + l) = mu_kl.row(k_old * L + l);
+    }
+  }
+  for (int s = 0; s < K_cur * L; ++s) mu_kl.row(s) = mu_buf.row(s);
+  // Sigma_kl, SigmaInv_kl, log_det_Sigma_kl
+  cube Sig_buf(Sigma_kl.n_rows, Sigma_kl.n_cols, K_cur * L);
+  cube SigInv_buf(SigmaInv_kl.n_rows, SigmaInv_kl.n_cols, K_cur * L);
+  vec ldet_buf(K_cur * L);
+  for (int k_new = 0; k_new < K_cur; ++k_new) {
+    int k_old = perm[k_new];
+    for (int l = 0; l < L; ++l) {
+      Sig_buf.slice(k_new * L + l)    = Sigma_kl.slice(k_old * L + l);
+      SigInv_buf.slice(k_new * L + l) = SigmaInv_kl.slice(k_old * L + l);
+      ldet_buf(k_new * L + l)         = log_det_Sigma_kl(k_old * L + l);
+    }
+  }
+  for (int s = 0; s < K_cur * L; ++s) {
+    Sigma_kl.slice(s)    = Sig_buf.slice(s);
+    SigmaInv_kl.slice(s) = SigInv_buf.slice(s);
+    log_det_Sigma_kl(s)  = ldet_buf(s);
+  }
+  // b_0k (K_max x d), Lambda_k, B_tilde_0k_diag
+  mat b0_buf(K_cur, b_0k.n_cols);
+  mat lam_buf(K_cur, Lambda_k.n_cols);
+  mat bt_buf(K_cur, B_tilde_0k_diag.n_cols);
+  cube C0_buf(C_0k.n_rows, C_0k.n_cols, K_cur);
+  for (int k_new = 0; k_new < K_cur; ++k_new) {
+    int k_old = perm[k_new];
+    b0_buf.row(k_new) = b_0k.row(k_old);
+    lam_buf.row(k_new) = Lambda_k.row(k_old);
+    bt_buf.row(k_new) = B_tilde_0k_diag.row(k_old);
+    C0_buf.slice(k_new) = C_0k.slice(k_old);
+  }
+  for (int k = 0; k < K_cur; ++k) {
+    b_0k.row(k) = b0_buf.row(k);
+    Lambda_k.row(k) = lam_buf.row(k);
+    B_tilde_0k_diag.row(k) = bt_buf.row(k);
+    C_0k.slice(k) = C0_buf.slice(k);
+  }
+}
+
+
+// =========================================================
 // Main MCMC
 // =========================================================
 // [[Rcpp::export]]
@@ -249,7 +412,9 @@ List run_lsirm_fmc_v14_cpp(
     int  fmc_warmup,
     double alpha_const,
     bool telescoping_on,
-    int  b_variant
+    int  b_variant,
+    double alpha_init,      // Stage 2: initial alpha when telescoping_on
+    double s_alpha          // Stage 2: log-alpha RWMH proposal SD
 ) {
 
   // ===== Dimensions =====
@@ -266,8 +431,7 @@ List run_lsirm_fmc_v14_cpp(
   int P5 = Y_ord2.ncol();
   int P_total = P1 + P2 + P3 + P4 + P5;
 
-  if (telescoping_on) Rcpp::stop("v14 Stage 1: telescoping_on must be FALSE.");
-  if (b_variant != 1) Rcpp::stop("v14 Stage 1: b_variant must be 1 (Variant B).");
+  if (b_variant != 1) Rcpp::stop("v14 Stage 2 (current implementation): b_variant must be 1 (Variant B).");
   if (K_max < 1)      Rcpp::stop("K_max must be >= 1.");
   if (L < 1)          Rcpp::stop("L must be >= 1.");
 
@@ -294,13 +458,18 @@ List run_lsirm_fmc_v14_cpp(
       Y_ord2_0(i, j) = Y_ord2(i, j) - 1;
 
   if (verbose) {
-    Rcout << "[v14 stage1] n=" << n
+    Rcout << "[v14 " << (telescoping_on ? "stage2 (telescoping)" : "stage1 (K fixed)")
+          << "] n=" << n
           << " P1=" << P1 << " P2=" << P2 << " P3=" << P3
           << " P4=" << P4 << " P5=" << P5
           << " P_total=" << P_total
           << " K1=" << K1 << " K2=" << K2 << " nu2=" << nu2
-          << " d=" << d << " K_max=" << K_max << " L=" << L
-          << " alpha_const=" << alpha_const << "\n";
+          << " d=" << d << " K_max=" << K_max << " L=" << L;
+    if (telescoping_on)
+      Rcout << " alpha_init=" << alpha_init << " s_alpha=" << s_alpha;
+    else
+      Rcout << " alpha_const=" << alpha_const;
+    Rcout << "\n";
   }
 
   // Per-layer offsets in the global item index q.
@@ -522,9 +691,17 @@ List run_lsirm_fmc_v14_cpp(
     }
   }
 
-  int K_cur = K_max;  // Stage 1: K fixed
-  int K_plus = 0;     // recomputed each iter
-  double alpha_cur = alpha_const;
+  // K_cur: Stage 1 -> K_max (fixed); Stage 2 -> dynamic in [K_plus, K_max].
+  // Stage 2 starts at K_max so the chain has full birth slots from iter 0.
+  int K_cur = K_max;
+  int K_plus = 0;
+  double alpha_cur = telescoping_on ? alpha_init : alpha_const;
+  if (alpha_cur <= 0.0) Rcpp::stop("alpha must be > 0.");
+  if (telescoping_on && s_alpha <= 0.0) Rcpp::stop("s_alpha must be > 0 when telescoping_on.");
+
+  // Acceptance counter for alpha RWMH (Stage 2).
+  long acc_alpha_mh = 0;
+  long n_alpha_mh   = 0;
 
   // ===== Storage =====
   int n_save = (n_iter - burnin) / thin;
@@ -1253,10 +1430,25 @@ List run_lsirm_fmc_v14_cpp(
       K_plus = 0;
       for (int k = 0; k < K_cur; ++k) if (N_k(k) > 0) K_plus++;
 
+      // ---- (Stage 2 only) Relabel: filled clusters go to positions 0..K_plus-1.
+      // This is required by Steps 3.4 (which needs filled N_k in front) and
+      // 3.6 (which fills slots K_plus..K_new-1 with prior draws).
+      if (telescoping_on) {
+        relabel_clusters_v14(
+          S_q, N_k, N_kl, K_cur, L, d,
+          eta_K, w_k, mu_kl, Sigma_kl, SigmaInv_kl, log_det_Sigma_kl,
+          b_0k, C_0k, Lambda_k, B_tilde_0k_diag
+        );
+      }
+
+      // Under telescoping, only update filled clusters in Steps 3.2/3.3;
+      // empties will be fully refreshed in Step 3.6 from priors.
+      int K_update_max = telescoping_on ? K_plus : K_cur;
+
       // ---- Step 3.2: (mu_kl, Sigma_kl) update (variants.md Eq 3.3, 3.4) ----
       // For each (k, l): conditional posterior. When N_kl = 0 these reduce
       // to draws from the prior (b_0k, B_tilde_0k) and (c_0, C_0k).
-      for (int k = 0; k < K_cur; ++k) {
+      for (int k = 0; k < K_update_max; ++k) {
         // Build B_tilde_0k_inv (diagonal)
         rowvec Btilde_diag = B_tilde_0k_diag.row(k);
         for (int l = 0; l < L; ++l) {
@@ -1305,7 +1497,7 @@ List run_lsirm_fmc_v14_cpp(
       }
 
       // ---- Step 3.3: (b_0k, C_0k, Lambda_k) update (variants.md Eq 3.5, 3.6, 3.7) ----
-      for (int k = 0; k < K_cur; ++k) {
+      for (int k = 0; k < K_update_max; ++k) {
         // ----- 3.5: lambda_kj ~ GIG(p_kL, 2 nu, b_kj),  b_kj = sum_l (mu_klj - b_0kj)^2 / B_0jj
         for (int j = 0; j < d; ++j) {
           double bkj = 0.0;
@@ -1347,6 +1539,85 @@ List run_lsirm_fmc_v14_cpp(
         vec rhs = M_0_inv * m_0 + Btilde_inv * sum_mu;
         vec m_post = M_post * rhs;
         b_0k.row(k) = mvnrnd_chol(m_post, M_post).t();
+      }
+
+      // ============================================================
+      // Stage 2 telescoping block: sample K, sample alpha, refresh empties.
+      // Skipped under telescoping_on = FALSE (Stage 1: K_cur = K_max fixed).
+      // ============================================================
+      if (telescoping_on) {
+
+        // Filled N_k vector (length K_plus). After relabel, this is N_k[0..K_plus-1].
+        ivec N_k_filled(std::max(K_plus, 1));
+        for (int k = 0; k < K_plus; ++k) N_k_filled(k) = N_k(k);
+
+        // ---- Step 3.4: K | C, alpha ~ multinomial over {max(K_plus,1), ..., K_max} (Eq 3.8).
+        int K_new = K_cur;
+        {
+          int K_start = std::max(K_plus, 1);
+          int n_choices = K_max - K_start + 1;
+          vec log_pK(n_choices);
+          for (int idx = 0; idx < n_choices; ++idx) {
+            int K_try = K_start + idx;
+            log_pK(idx) = log_p_K_given_C(K_try, K_plus, K_max, alpha_cur, N_k_filled);
+          }
+          int idx_pick = sample_log_weights(log_pK);
+          K_new = K_start + idx_pick;
+        }
+
+        // ---- Step 3.5: alpha | C, K_new via log-RWMH with F(6,3) prior (Eq 3.12).
+        {
+          int N_total = P_total;
+          double log_alpha_cur_v = std::log(alpha_cur);
+          double log_alpha_prop  = R::rnorm(log_alpha_cur_v, s_alpha);
+          double alpha_prop      = std::exp(log_alpha_prop);
+
+          double lp_cur  = log_F_6_3(alpha_cur)
+                         + log_p_alpha_likelihood(alpha_cur,  K_new, K_plus, N_total, N_k_filled);
+          double lp_prop = log_F_6_3(alpha_prop)
+                         + log_p_alpha_likelihood(alpha_prop, K_new, K_plus, N_total, N_k_filled);
+          // log Jacobian: + log(alpha_prop) - log(alpha_cur).
+          double log_A = (lp_prop + log_alpha_prop) - (lp_cur + log_alpha_cur_v);
+          if (std::isfinite(log_A) && std::log(R::runif(0.0, 1.0)) < log_A) {
+            alpha_cur = alpha_prop;
+            acc_alpha_mh += 1;
+          }
+          n_alpha_mh += 1;
+        }
+
+        // ---- Step 3.6: empty-cluster refresh for k = K_plus..K_new-1 from priors.
+        // Filled clusters (0..K_plus-1) already updated in Step 3.2/3.3.
+        for (int k = K_plus; k < K_new; ++k) {
+          // (b_0k, C_0k, Lambda_k)
+          b_0k.row(k) = mvnrnd_chol(m_0, M_0).t();
+          C_0k.slice(k) = sample_wishart_fs(g_0, G_0);
+          for (int j = 0; j < d; ++j) {
+            Lambda_k(k, j) = R::rgamma(nu_gig, 1.0 / nu_gig);
+            B_tilde_0k_diag(k, j) = Lambda_k(k, j) * B_0_diag(j);
+          }
+          // (Sigma_kl, mu_kl) for l=0..L-1
+          for (int l = 0; l < L; ++l) {
+            int s = k * L + l;
+            mat SigInv = sample_wishart_fs(c_0, C_0k.slice(k));
+            SigmaInv_kl.slice(s) = SigInv;
+            mat Sig = arma::inv_sympd(SigInv + V14_EPS * arma::eye(d, d));
+            Sig = 0.5 * (Sig + Sig.t());
+            Sigma_kl.slice(s) = Sig;
+            log_det_Sigma_kl(s) = log_det_pd(Sig);
+            // mu_kl ~ N(b_0k, diag(B_tilde_0k_diag))
+            vec eps(d);
+            for (int j = 0; j < d; ++j)
+              eps(j) = R::rnorm(0.0, std::sqrt(B_tilde_0k_diag(k, j)));
+            mu_kl.row(s) = b_0k.row(k) + eps.t();
+          }
+          // N_k, N_kl for these newly-empty slots remain 0 (already cleared).
+          // w_k prior draw (Dir_L(d_0)) is done in Step 3.14 below for k>=K_plus
+          // since N_kl = 0 there reduces Dir(d_0 + 0) = Dir(d_0).
+        }
+
+        // Adopt new K_cur for the rest of this iteration's updates and the
+        // next iteration's Step 3.1.
+        K_cur = K_new;
       }
 
       // ---- Step 3.13: eta_K | K, alpha, S ~ Dir_K(alpha/K + N_k) ----
@@ -1520,6 +1791,11 @@ List run_lsirm_fmc_v14_cpp(
   out["fmc_alpha_const"]        = alpha_const;
   out["fmc_b_variant"]          = b_variant;
   out["fmc_telescoping_on"]     = telescoping_on;
+  out["fmc_alpha_init"]         = alpha_init;
+  out["fmc_s_alpha"]            = s_alpha;
+  out["fmc_alpha_mh_accept_rate"] =
+      (n_alpha_mh > 0) ? ((double)acc_alpha_mh / (double)n_alpha_mh) : 0.0;
+  out["fmc_alpha_mh_n_attempts"] = (double)n_alpha_mh;
 
   // Acceptance
   List acc;
@@ -1583,4 +1859,86 @@ arma::cube v14_wishart_fs_sanity(int n, double c_fs, arma::mat C_fs) {
     out.slice(i) = sample_wishart_fs(c_fs, C_fs);
   }
   return out;
+}
+
+// =========================================================
+// Auxiliary export: K-telescoping sampler (variants.md Eq 3.8).
+//
+// Given fixed (alpha, K_plus, K_max, N_k_filled), draws n_iter independent
+// samples of K from p(K | C, alpha) (Eq 3.8). When K_plus = 0 and
+// N_k_filled is empty, the distribution reduces to the BNB(1,4,3) prior.
+// =========================================================
+// [[Rcpp::export]]
+IntegerVector v14_K_telescope_sample(
+    int n_iter, double alpha, int K_plus, int K_max,
+    IntegerVector N_k_filled_in
+) {
+  arma::ivec N_k_filled(std::max(K_plus, 1));
+  for (int k = 0; k < K_plus; ++k) N_k_filled(k) = N_k_filled_in[k];
+  int K_start = std::max(K_plus, 1);
+  int n_choices = K_max - K_start + 1;
+  arma::vec log_pK(n_choices);
+  for (int idx = 0; idx < n_choices; ++idx) {
+    int K_try = K_start + idx;
+    log_pK(idx) = log_p_K_given_C(K_try, K_plus, K_max, alpha, N_k_filled);
+  }
+  IntegerVector out(n_iter);
+  for (int t = 0; t < n_iter; ++t) {
+    int idx_pick = sample_log_weights(log_pK);
+    out[t] = K_start + idx_pick;
+  }
+  return out;
+}
+
+// =========================================================
+// Auxiliary export: log-alpha RWMH chain (variants.md Eq 3.10-3.12).
+//
+// Runs a chain of length n_iter for alpha given (K, K_plus, N_total,
+// N_k_filled), using F(6,3) prior and log-alpha Gaussian RWMH with
+// SD s_alpha. Returns the chain plus its acceptance rate.
+//
+// Special case (N_total = 0, K_plus = 0, N_k_filled empty): the
+// likelihood part is identically 0, so the chain explores the F(6,3)
+// prior alone -- used for the KS test in test/test_v14_alpha_mh.R.
+// =========================================================
+// [[Rcpp::export]]
+List v14_alpha_mh_chain(
+    int n_iter, double alpha_init, double s_alpha,
+    int K, int K_plus, int N_total,
+    IntegerVector N_k_filled_in
+) {
+  arma::ivec N_k_filled(std::max(K_plus, 1));
+  for (int k = 0; k < K_plus; ++k) N_k_filled(k) = N_k_filled_in[k];
+  NumericVector chain(n_iter);
+  long acc = 0;
+  double alpha_cur = alpha_init;
+  for (int t = 0; t < n_iter; ++t) {
+    double log_alpha_cur_v = std::log(alpha_cur);
+    double log_alpha_prop  = R::rnorm(log_alpha_cur_v, s_alpha);
+    double alpha_prop      = std::exp(log_alpha_prop);
+
+    double lp_cur  = log_F_6_3(alpha_cur)
+                   + log_p_alpha_likelihood(alpha_cur,  K, K_plus, N_total, N_k_filled);
+    double lp_prop = log_F_6_3(alpha_prop)
+                   + log_p_alpha_likelihood(alpha_prop, K, K_plus, N_total, N_k_filled);
+    double log_A = (lp_prop + log_alpha_prop) - (lp_cur + log_alpha_cur_v);
+    if (std::isfinite(log_A) && std::log(R::runif(0.0, 1.0)) < log_A) {
+      alpha_cur = alpha_prop;
+      acc += 1;
+    }
+    chain[t] = alpha_cur;
+  }
+  return List::create(
+    _["chain"] = chain,
+    _["accept_rate"] = (double)acc / (double)n_iter
+  );
+}
+
+// =========================================================
+// Auxiliary export: log-F(6,3) density evaluation (Eq 3.11).
+// Returns up-to-constant log density at alpha.
+// =========================================================
+// [[Rcpp::export]]
+double v14_log_F_6_3(double alpha) {
+  return log_F_6_3(alpha);
 }

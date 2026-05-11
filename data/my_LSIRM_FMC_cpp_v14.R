@@ -129,10 +129,14 @@ lsirm_fmc_v14_cpp <- function(
     thin = 5,
     nu2 = 5,
 
-    # Stage 1 parameters
+    # Stage 1 / Stage 2 parameters
+    #   telescoping_on = FALSE  -> Stage 1 (K fixed = K_max, alpha = alpha_const)
+    #   telescoping_on = TRUE   -> Stage 2 (sample K from BNB(1,4,3), alpha from F(6,3))
     alpha_const     = 1.0,
     telescoping_on  = FALSE,
-    b_variant       = "B",      # "B" only in Stage 1
+    alpha_init      = 1.0,      # Stage 2: initial alpha; used only when telescoping_on
+    s_alpha         = 0.5,      # Stage 2: SD of log-alpha RWMH proposal
+    b_variant       = "B",      # "B" only in Stage 1 / Stage 2
 
     # ---- LSIRM hyperparameters (same as v13) ----
     lsirm_hyper = list(
@@ -180,11 +184,12 @@ lsirm_fmc_v14_cpp <- function(
                           "A" = 2L,
                           stop("b_variant must be 'A' or 'B'"))
 
-  # Stage 1 enforcement
-  if (isTRUE(telescoping_on))
-    stop("Stage 1 (current implementation) requires telescoping_on = FALSE")
+  # Stage 1 / Stage 2 enforcement (Stage 3 not yet implemented)
   if (b_variant_int != 1L)
-    stop("Stage 1 (current implementation) requires b_variant = 'B'")
+    stop("Stage 1/2 (current implementation) requires b_variant = 'B'")
+  if (isTRUE(telescoping_on)) {
+    stopifnot(alpha_init > 0, s_alpha > 0)
+  }
 
   # ----- Data preprocessing -----
   Y_bin  <- as.matrix(Y_bin)
@@ -311,10 +316,20 @@ lsirm_fmc_v14_cpp <- function(
   storage.mode(fmc_init$I) <- "integer"
 
   # ----- Run C++ MCMC -----
-  cat(sprintf(
-    "Running joint LSIRM + two-level MoM v14 stage1 [n=%d, P_total=%d (%d/%d/%d/%d/%d), d=%d, K_max=%d, L=%d, alpha_const=%g, variant=%s]\n",
-    n, P_total, P1, P2, P3, P4, P5, d, K_max, L, alpha_const, b_variant
-  ))
+  stage_str <- if (isTRUE(telescoping_on)) "stage2 (telescoping)" else "stage1 (K fixed)"
+  if (isTRUE(telescoping_on)) {
+    cat(sprintf(
+      "Running joint LSIRM + two-level MoM v14 %s [n=%d, P_total=%d (%d/%d/%d/%d/%d), d=%d, K_max=%d, L=%d, alpha_init=%g, s_alpha=%g, variant=%s]\n",
+      stage_str, n, P_total, P1, P2, P3, P4, P5, d, K_max, L,
+      alpha_init, s_alpha, b_variant
+    ))
+  } else {
+    cat(sprintf(
+      "Running joint LSIRM + two-level MoM v14 %s [n=%d, P_total=%d (%d/%d/%d/%d/%d), d=%d, K_max=%d, L=%d, alpha_const=%g, variant=%s]\n",
+      stage_str, n, P_total, P1, P2, P3, P4, P5, d, K_max, L,
+      alpha_const, b_variant
+    ))
+  }
   res <- run_lsirm_fmc_v14_cpp(
     Y_bin, Y_con, Y_cnt, Y_ord1, Y_ord2,
     d, n_iter, burnin, thin,
@@ -327,7 +342,9 @@ lsirm_fmc_v14_cpp <- function(
     as.integer(fmc_warmup),
     alpha_const,
     telescoping_on,
-    b_variant_int
+    b_variant_int,
+    alpha_init,
+    s_alpha
   )
 
   # ----- Procrustes match LSIRM positions -----
@@ -468,13 +485,26 @@ lsirm_fmc_v14_cpp <- function(
                           dim = c(d, d, K_max, n_save))
   }
 
+  # Stage 2 diagnostics print.
+  if (isTRUE(telescoping_on) && !is.null(res$fmc_alpha_mh_accept_rate)) {
+    cat(sprintf("[v14 stage2] alpha-MH acceptance: %.3f (n=%g attempts)\n",
+                res$fmc_alpha_mh_accept_rate, res$fmc_alpha_mh_n_attempts))
+    if (!is.null(res$fmc_K)) {
+      cat(sprintf("[v14 stage2] K trace: min=%d  median=%d  max=%d (K_max=%d)\n",
+                  as.integer(min(res$fmc_K)), as.integer(median(res$fmc_K)),
+                  as.integer(max(res$fmc_K)), K_max))
+    }
+  }
+
   res$info <- list(
     n = n, P1 = P1, P2 = P2, P3 = P3, P4 = P4, P5 = P5,
     P_total = P_total, K1 = K1, K2 = K2,
     d = d, K_max = K_max, L = L, nu2 = nu2,
-    alpha_const = alpha_const, telescoping_on = telescoping_on,
+    alpha_const = alpha_const,
+    alpha_init = alpha_init, s_alpha = s_alpha,
+    telescoping_on = telescoping_on,
     b_variant = b_variant,
-    fmc_kind = "MoM_two_level_v14_stage1",
+    fmc_kind = if (isTRUE(telescoping_on)) "MoM_two_level_v14_stage2" else "MoM_two_level_v14_stage1",
     compute_co_cluster_online = compute_co_cluster_online,
     fmc_hyper = fmc_hyper
   )
