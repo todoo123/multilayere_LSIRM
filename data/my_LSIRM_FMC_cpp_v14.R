@@ -136,7 +136,7 @@ lsirm_fmc_v14_cpp <- function(
     telescoping_on  = FALSE,
     alpha_init      = 1.0,      # Stage 2: initial alpha; used only when telescoping_on
     s_alpha         = 0.5,      # Stage 2: SD of log-alpha RWMH proposal
-    b_variant       = "B",      # "B" only in Stage 1 / Stage 2
+    b_variant       = "B",      # "B" (partial collapse, L Gaussians) or "A" (full collapse, K_cur*L Gaussians; Stage 3)
 
     # ---- LSIRM hyperparameters (same as v13) ----
     lsirm_hyper = list(
@@ -184,9 +184,9 @@ lsirm_fmc_v14_cpp <- function(
                           "A" = 2L,
                           stop("b_variant must be 'A' or 'B'"))
 
-  # Stage 1 / Stage 2 enforcement (Stage 3 not yet implemented)
-  if (b_variant_int != 1L)
-    stop("Stage 1/2 (current implementation) requires b_variant = 'B'")
+  # b_variant validation (Stage 1/2/3): "B" or "A".
+  if (!(b_variant_int %in% c(1L, 2L)))
+    stop("b_variant must be 'A' or 'B'")
   if (isTRUE(telescoping_on)) {
     stopifnot(alpha_init > 0, s_alpha > 0)
   }

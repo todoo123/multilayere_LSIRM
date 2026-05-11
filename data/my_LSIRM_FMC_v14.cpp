@@ -210,6 +210,36 @@ static inline double log_mom_prior_B(
   return M + std::log(arma::sum(arma::exp(lw - M)));
 }
 
+// Variant A prior (variants.md Eq 4.2): full marginalization over (S_q, I_q).
+//   pi_A(b) = sum_{k=1..K_cur} sum_{l=1..L} eta_k * w_{kl} * N_d(b; mu_{kl}, Sigma_{kl})
+// Cost: K_cur * L Gaussian density evaluations per call.
+// Numerical safety: single global log-sum-exp over K_cur * L terms.
+static inline double log_mom_prior_A(
+    const rowvec& b_val, int K_cur, int L, int d,
+    const vec& eta_K, const mat& w_k, const mat& mu_kl,
+    const cube& SigmaInv_kl, const vec& log_det_Sigma_kl
+) {
+  int total = K_cur * L;
+  vec lw(total);
+  int idx = 0;
+  for (int k = 0; k < K_cur; ++k) {
+    double eK = eta_K(k);
+    if (eK <= 0.0) eK = V14_EPS;
+    double log_eK = std::log(eK);
+    for (int l = 0; l < L; ++l, ++idx) {
+      int s = k * L + l;
+      double logphi = log_mvn_density_prec(
+        b_val, mu_kl.row(s), SigmaInv_kl.slice(s), log_det_Sigma_kl(s), d
+      );
+      double w = w_k(k, l);
+      if (w <= 0.0) w = V14_EPS;
+      lw(idx) = log_eK + std::log(w) + logphi;
+    }
+  }
+  double M = lw.max();
+  return M + std::log(arma::sum(arma::exp(lw - M)));
+}
+
 // =========================================================
 // GIG sampler wrapper: lambda_kj ~ GIG(p, a, b) per variants.md Eq (3.5).
 //
@@ -431,7 +461,8 @@ List run_lsirm_fmc_v14_cpp(
   int P5 = Y_ord2.ncol();
   int P_total = P1 + P2 + P3 + P4 + P5;
 
-  if (b_variant != 1) Rcpp::stop("v14 Stage 2 (current implementation): b_variant must be 1 (Variant B).");
+  if (b_variant != 1 && b_variant != 2)
+    Rcpp::stop("b_variant must be 1 (Variant B) or 2 (Variant A).");
   if (K_max < 1)      Rcpp::stop("K_max must be >= 1.");
   if (L < 1)          Rcpp::stop("L must be >= 1.");
 
@@ -792,8 +823,14 @@ List run_lsirm_fmc_v14_cpp(
 
   mat z_all(P_total, d, fill::zeros);
 
-  // Variant B prior for b_j MH (uses current S_q for item q).
-  auto mom_prior_B = [&](const rowvec& b_val, int q) {
+  // MoM prior for b_j MH. Switches between Variant B (partial collapse,
+  // L Gaussians) and Variant A (full collapse, K_cur * L Gaussians).
+  auto mom_prior = [&](const rowvec& b_val, int q) -> double {
+    if (b_variant == 2) {
+      return log_mom_prior_A(b_val, K_cur, L, d,
+                             eta_K, w_k, mu_kl,
+                             SigmaInv_kl, log_det_Sigma_kl);
+    }
     int k_star = (int) S_q(q);
     return log_mom_prior_B(b_val, k_star, L, d,
                            w_k, mu_kl, SigmaInv_kl, log_det_Sigma_kl);
@@ -1164,8 +1201,8 @@ List run_lsirm_fmc_v14_cpp(
         }
         return ll;
       };
-      double lpri_old = mom_prior_B(b_old,  q);
-      double lpri_new = mom_prior_B(b_prop, q);
+      double lpri_old = mom_prior(b_old,  q);
+      double lpri_new = mom_prior(b_prop, q);
       if (log(R::runif(0,1)) <
           (ll_f(b_prop) + lpri_new -
            (ll_f(b_old)  + lpri_old))) {
@@ -1188,8 +1225,8 @@ List run_lsirm_fmc_v14_cpp(
         }
         return ll;
       };
-      double lpri_old = mom_prior_B(b_old,  q);
-      double lpri_new = mom_prior_B(b_prop, q);
+      double lpri_old = mom_prior(b_old,  q);
+      double lpri_new = mom_prior(b_prop, q);
       if (log(R::runif(0,1)) <
           (ll_f(b_prop) + lpri_new -
            (ll_f(b_old)  + lpri_old))) {
@@ -1211,8 +1248,8 @@ List run_lsirm_fmc_v14_cpp(
         }
         return ll;
       };
-      double lpri_old = mom_prior_B(b_old,  q);
-      double lpri_new = mom_prior_B(b_prop, q);
+      double lpri_old = mom_prior(b_old,  q);
+      double lpri_new = mom_prior(b_prop, q);
       if (log(R::runif(0,1)) <
           (ll_f(b_prop) + lpri_new -
            (ll_f(b_old)  + lpri_old))) {
@@ -1233,8 +1270,8 @@ List run_lsirm_fmc_v14_cpp(
         }
         return ll;
       };
-      double lpri_old = mom_prior_B(b_old,  q);
-      double lpri_new = mom_prior_B(b_prop, q);
+      double lpri_old = mom_prior(b_old,  q);
+      double lpri_new = mom_prior(b_prop, q);
       if (log(R::runif(0,1)) <
           (ll_f(b_prop) + lpri_new -
            (ll_f(b_old)  + lpri_old))) {
@@ -1255,8 +1292,8 @@ List run_lsirm_fmc_v14_cpp(
         }
         return ll;
       };
-      double lpri_old = mom_prior_B(b_old,  q);
-      double lpri_new = mom_prior_B(b_prop, q);
+      double lpri_old = mom_prior(b_old,  q);
+      double lpri_new = mom_prior(b_prop, q);
       if (log(R::runif(0,1)) <
           (ll_f(b_prop) + lpri_new -
            (ll_f(b_old)  + lpri_old))) {
