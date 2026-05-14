@@ -6,8 +6,13 @@ library(purrr)
 ################################################################################
 # 0. 경로 설정
 ################################################################################
-data_dir <- "/Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/data"
-setwd(data_dir)
+# Run this script from the repository root.
+proj_root   <- getwd()
+r_dir       <- file.path(proj_root, "R")
+src_dir     <- file.path(proj_root, "src")
+data_dir    <- file.path(proj_root, "data")
+results_dir <- file.path(proj_root, "results", "v5")
+if (!dir.exists(results_dir)) dir.create(results_dir, recursive = TRUE)
 
 ################################################################################
 # 0-1. 데이터 준비: Wave 2 + Refresher 1 합치기
@@ -16,7 +21,7 @@ setwd(data_dir)
 # ── Wave 2 전처리 (격리 환경) ──
 cat("\n====== Wave 2 전처리 ======\n")
 env_w2 <- new.env(parent = globalenv())
-source(file.path(data_dir, "MIDUS_preprocess_v4.R"), local = env_w2)
+source(file.path(r_dir, "00_preprocess_wave2.R"), local = env_w2)
 lsirm_all_w2 <- env_w2$lsirm_all
 lsirm_p4_w2  <- env_w2$lsirm_p4
 lsirm_p3_w2  <- env_w2$lsirm_p3
@@ -24,7 +29,7 @@ lsirm_p3_w2  <- env_w2$lsirm_p3
 # ── Refresher 1 전처리 (격리 환경) ──
 cat("\n====== Refresher 1 전처리 ======\n")
 env_r1 <- new.env(parent = globalenv())
-source(file.path(data_dir, "MIDUS_preprocess_refresher_v4.R"), local = env_r1)
+source(file.path(r_dir, "01_preprocess_refresher.R"), local = env_r1)
 lsirm_all_r1 <- env_r1$lsirm_all
 lsirm_p4_r1  <- env_r1$lsirm_p4
 lsirm_p3_r1  <- env_r1$lsirm_p3
@@ -71,9 +76,8 @@ lsirm_all <- combine_lsirm(lsirm_all_w2, lsirm_all_r1, label = "P1-P3-P4")
 
 # 5-layered LSIRM (v5: GRM ordinal + robust continuous) 모델 로드
 # sourceCpp는 fork 전에 한 번만 실행해야 함
-setwd(data_dir)
-source(file.path(data_dir, "my_LSIRM_5layered_nonhierarchical_cpp_v5.R"))
-source(file.path(data_dir, "utils.R"))
+source(file.path(r_dir, "02_model_lsirm.R"))
+source(file.path(r_dir, "utils.R"))
 
 ################################################################################
 # Helper: array/matrix 가 유효한 데이터를 가지고 있는지 확인
@@ -117,7 +121,7 @@ common_mcmc <- list(d = 2, n_iter = 100000, burnin = 20000, thin = 10)
 nu2 <- 4
 
 # plot 루트 디렉토리
-plot_root <- file.path(data_dir, "plot")
+plot_root <- results_dir
 if (!dir.exists(plot_root)) dir.create(plot_root, recursive = TRUE)
 
 ################################################################################
@@ -694,139 +698,580 @@ make_biplot <- function(result, lsirm_data, title, filename, plot_dir) {
 
 
 ################################################################################
-# 5b. 3D Biplot helper (requires rgl)
+# 5c. Bhattacharyya coefficient (KDE plug-in) + Spectral clustering helper
 ################################################################################
-make_biplot_3d <- function(result, lsirm_data, title, filename, plot_dir) {
+# Sample-based estimator for BC(p_q, p_r) = ∫ √(p_q(x) p_r(x)) dx.
+# Each posterior is approximated non-parametrically by a 2-D kernel density
+# estimate (MASS::kde2d) on a common grid; the integral is then evaluated by
+# summing √(f_q · f_r) · Δx · Δy over the grid. No Gaussian assumption.
+#
+# `f1`, `f2` are normalized KDE evaluations on the same grid (matrices of
+# identical shape).  `cell` is the area of one grid cell (Δx · Δy in 2-D,
+# Δx in 1-D).
+bc_from_densities <- function(f1, f2, cell) {
+  bc <- sum(sqrt(pmax(0, f1) * pmax(0, f2))) * cell
+  pmin(1, pmax(0, bc))
+}
 
-  if (!requireNamespace("rgl", quietly = TRUE)) {
-    cat("  [SKIP] rgl package not installed — skipping 3D biplot\n")
-    return(invisible(NULL))
+# Build a KDE for one item's posterior sample on a pre-specified grid.
+# `samp` is an [n_save x d] matrix of MCMC draws.  `lims` and `grid_n` define
+# the common evaluation grid (passed in so that all items share the same
+# axis layout).  Returns the normalized density matrix on the grid.
+kde_on_grid <- function(samp, lims, grid_n, cell) {
+  d <- ncol(samp)
+  if (d == 1) {
+    dens <- stats::density(samp[, 1],
+                           from = lims[1], to = lims[2], n = grid_n)$y
+  } else if (d == 2) {
+    if (!requireNamespace("MASS", quietly = TRUE))
+      stop("MASS package required for 2-D KDE-based BC")
+    dens <- MASS::kde2d(samp[, 1], samp[, 2],
+                        n = grid_n, lims = lims)$z
+  } else {
+    stop(sprintf("Only d = 1, 2 supported (got d = %d)", d))
   }
-  library(rgl)
+  Z <- sum(dens) * cell
+  if (Z <= 0 || !is.finite(Z)) dens else dens / Z
+}
 
+# Collect raw posterior samples per item across all five layers.
+# Returns per-item [n_save x d] sample matrices plus posterior means for
+# downstream biplot use; no covariance summary (BC works on the samples
+# directly via KDE).
+collect_item_samples <- function(result, lsirm_data) {
   res <- if (is.null(result$samples)) result else result$samples
+  layers <- list(
+    list(arr = res$b1, names = lsirm_data$col_bin,  layer = "Bin"),
+    list(arr = res$b2, names = lsirm_data$col_con,  layer = "Con"),
+    list(arr = res$b3, names = lsirm_data$col_cnt,  layer = "Cnt"),
+    list(arr = res$b4, names = lsirm_data$col_ord1, layer = "Ord1"),
+    list(arr = res$b5, names = lsirm_data$col_ord2, layer = "Ord2")
+  )
+  samples <- list(); mus <- list()
+  item_names <- character(0); item_layer <- character(0)
+  for (lyr in layers) {
+    if (!has_valid(lyr$arr) || dim(lyr$arr)[2] == 0) next
+    P <- dim(lyr$arr)[2]
+    n_save <- dim(lyr$arr)[1]
+    d_lyr  <- dim(lyr$arr)[3]
+    for (j in seq_len(P)) {
+      # Keep [n_save x d] structure even when d == 1 or n_save == 1.
+      samp <- lyr$arr[, j, , drop = FALSE]
+      samp <- matrix(samp, nrow = n_save, ncol = d_lyr)
+      samples[[length(samples) + 1]] <- samp
+      mus[[length(mus) + 1]]         <- colMeans(samp)
+      nm <- if (length(lyr$names) >= j) lyr$names[j] else paste0(lyr$layer, "_j", j)
+      item_names <- c(item_names, nm)
+      item_layer <- c(item_layer, lyr$layer)
+    }
+  }
+  list(samples = samples, mus = mus,
+       names = item_names, layer = item_layer)
+}
 
-  A_hat <- apply(res$a, c(2,3), mean)
-  d <- ncol(A_hat)
-  if (d < 3) {
-    cat("  [SKIP] d < 3 — skipping 3D biplot\n")
+# ----------------------------------------------------------------------------
+# Run NJW spectral clustering for a single fixed K, produce all per-method
+# outputs (RDS, CSV, BC heatmap, cluster biplot, silhouette plot).  Shared
+# state (BC, eigendecomposition, dist_BC, items, etc.) is passed in so we
+# never recompute it.
+# ----------------------------------------------------------------------------
+.bc_spec_one_K <- function(K, method_label,
+                            ev, BC, M, d, items, result,
+                            dist_BC, prefix, plot_dir,
+                            layer_levels, layer_palette, seed) {
+  m_prefix <- paste0(prefix, "_K", method_label)
+  cluster_palette <- grDevices::hcl.colors(K, palette = "Dark 3")
+
+  # 1) Spectral embedding + kmeans
+  U <- ev$vectors[, seq_len(K), drop = FALSE]
+  row_norms <- sqrt(rowSums(U^2)); row_norms[row_norms == 0] <- 1e-12
+  U_norm <- U / row_norms
+  set.seed(seed)
+  km <- kmeans(U_norm, centers = K, nstart = 50, iter.max = 100)
+  cluster_id <- km$cluster
+
+  # 2) Silhouette (defensive: coerce cluster_id, length-check)
+  ci_int <- as.integer(unname(cluster_id))
+  sil <- NULL; avg_sil <- NA_real_
+  if (requireNamespace("cluster", quietly = TRUE) &&
+      length(ci_int) == attr(dist_BC, "Size")) {
+    sil <- tryCatch(cluster::silhouette(ci_int, dist_BC),
+                    error = function(e) {
+                      message("[BC-spec][", method_label,
+                              "] silhouette error: ", conditionMessage(e))
+                      NULL
+                    })
+    if (!is.null(sil) && is.matrix(sil)) avg_sil <- mean(sil[, "sil_width"])
+  }
+  per_item_sil <- if (!is.null(sil) && is.matrix(sil)) sil[, "sil_width"]
+                  else rep(NA_real_, M)
+  per_item_nbr <- if (!is.null(sil) && is.matrix(sil)) sil[, "neighbor"]
+                  else rep(NA_integer_, M)
+
+  # 3) Console report
+  cat(sprintf("\n────── Method: %s | K = %d | avg sil = %.4f ──────\n",
+              method_label, K, avg_sil))
+  cat("  Cluster sizes:\n"); print(table(cluster_id))
+  cm_df <- data.frame(item      = items$names,
+                      layer     = items$layer,
+                      cluster   = cluster_id,
+                      neighbor  = per_item_nbr,
+                      sil_width = per_item_sil,
+                      stringsAsFactors = FALSE)
+  cm_df <- cm_df[order(cm_df$cluster, -cm_df$sil_width, cm_df$item), ]
+  if (any(!is.na(per_item_sil))) {
+    n_boundary <- min(10, M)
+    boundary_df <- cm_df[order(cm_df$sil_width), ][seq_len(n_boundary), ]
+    cat(sprintf("  Boundary items (lowest sil_width, top %d):\n", n_boundary))
+    print(boundary_df, row.names = FALSE)
+    n_neg <- sum(per_item_sil < 0, na.rm = TRUE)
+    if (n_neg > 0)
+      cat(sprintf("  Items with sil_width < 0: %d\n", n_neg))
+  }
+
+  # 4) Persist numerics
+  saveRDS(list(K = K, method = method_label, cluster = cluster_id,
+               silhouette = sil, avg_sil = avg_sil,
+               per_item_sil = per_item_sil, per_item_nbr = per_item_nbr,
+               item_names = items$names, item_layer = items$layer),
+          file.path(plot_dir, paste0(m_prefix, "_bc_spec.rds")))
+  write.csv(cm_df,
+            file.path(plot_dir, paste0(m_prefix, "_bc_spec_membership.csv")),
+            row.names = FALSE)
+
+  # 5a) BC heatmap reordered by cluster.  Cluster annotation strips on both
+  # axes (top and right) so block structure / nesting across K is directly
+  # comparable across K-specific heatmaps.  Layer info dropped intentionally.
+  ord <- order(cluster_id, items$names)
+  BC_ord <- BC[ord, ord]
+  cl_ord <- cluster_id[ord]
+  bnd    <- which(diff(cl_ord) != 0) + 0.5
+
+  pdf(file.path(plot_dir, paste0(m_prefix, "_bc_heatmap.pdf")),
+      width = 11, height = 10)
+  par(oma = c(0, 0, 3, 0))
+  layout(matrix(c(1, 2, 3, 4), 2, 2, byrow = TRUE),
+         widths = c(8, 0.35), heights = c(0.35, 8))
+  # (1) top: cluster annotation strip (horizontal)
+  par(mar = c(0.2, 6, 1, 0.2))
+  image(seq_len(M), 1, matrix(cl_ord, ncol = 1),
+        col = cluster_palette, xaxt = "n", yaxt = "n",
+        xlab = "", ylab = "", zlim = c(1, K))
+  abline(v = bnd, col = "black", lwd = 1.5)
+  mtext("Cluster", side = 2, las = 1, line = 0.5, cex = 0.8)
+  # (2) top-right blank
+  par(mar = c(0.2, 0.2, 1, 0.5)); plot.new()
+  # (3) main heatmap
+  par(mar = c(7, 6, 0.2, 0.2))
+  pal <- colorRampPalette(c("white", "lightsteelblue", "steelblue", "navy"))(100)
+  image(seq_len(M), seq_len(M), BC_ord, col = pal, zlim = c(0, 1),
+        xlab = "", ylab = "", axes = FALSE)
+  axis(1, at = seq_len(M), labels = items$names[ord], las = 2, cex.axis = 0.55)
+  axis(2, at = seq_len(M), labels = items$names[ord], las = 2, cex.axis = 0.55)
+  abline(v = bnd, col = "black", lwd = 1.8)
+  abline(h = bnd, col = "black", lwd = 1.8)
+  box()
+  # (4) right: cluster annotation strip (vertical)
+  par(mar = c(7, 0.2, 0.2, 0.5))
+  image(1, seq_len(M), matrix(cl_ord, nrow = 1),
+        col = cluster_palette, xaxt = "n", yaxt = "n",
+        xlab = "", ylab = "", zlim = c(1, K))
+  abline(h = bnd, col = "black", lwd = 1.5)
+  mtext("Cluster", side = 1, line = 0.5, cex = 0.8)
+  title(main = sprintf("[%s] BC heatmap (M=%d, K=%d, avg sil=%.3f)",
+                       method_label, M, K, avg_sil),
+        outer = TRUE, cex.main = 1.2, line = 0.8)
+  dev.off()
+
+  # 5b) Cluster biplot (Dim1 vs Dim2)
+  if (d >= 2) {
+    res    <- if (is.null(result$samples)) result else result$samples
+    A_hat  <- apply(res$a, c(2, 3), mean)
+    item_mu <- do.call(rbind, items$mus)
+    pchs   <- c(Bin = 21, Con = 22, Cnt = 23, Ord1 = 24, Ord2 = 25)
+
+    pdf(file.path(plot_dir, paste0(m_prefix, "_bc_cluster_biplot.pdf")),
+        width = 11, height = 8)
+    par(mar = c(4, 4, 3, 1))
+    all_pts <- rbind(A_hat[, 1:2], item_mu[, 1:2])
+    xr <- range(all_pts[, 1]); yr <- range(all_pts[, 2])
+    base::plot(A_hat[, 1], A_hat[, 2],
+               pch = 21, bg = "gray85", col = "black", cex = 0.6,
+               xlab = "Dim1", ylab = "Dim2",
+               main = sprintf("[%s] Item cluster membership (K=%d, avg sil=%.3f)",
+                              method_label, K, avg_sil),
+               xlim = xr + c(-0.05, 0.05) * diff(xr),
+               ylim = yr + c(-0.05, 0.05) * diff(yr))
+    pch_items <- pchs[items$layer]
+    points(item_mu[, 1], item_mu[, 2],
+           pch = pch_items, bg = cluster_palette[cluster_id],
+           col = "black", cex = 1.5)
+    text(item_mu[, 1], item_mu[, 2], labels = items$names,
+         cex = 0.55, pos = 4, col = "gray30")
+    legend("topright", legend = paste0("Cluster ", seq_len(K)),
+           pt.bg = cluster_palette, pch = 21, col = "black",
+           bty = "n", cex = 0.85, title = "Cluster")
+    legend("bottomright", legend = layer_levels,
+           pch = pchs[layer_levels], pt.bg = "white",
+           col = "black", bty = "n", cex = 0.85, title = "Layer (shape)")
+    dev.off()
+  }
+
+  # 5c) Per-item silhouette bar plot
+  if (!is.null(sil)) {
+    sil_ord <- order(cluster_id, -per_item_sil)
+    sil_df  <- data.frame(item    = items$names[sil_ord],
+                          cluster = cluster_id[sil_ord],
+                          sil     = per_item_sil[sil_ord],
+                          stringsAsFactors = FALSE)
+    bar_cols <- ifelse(sil_df$sil < 0, "firebrick",
+                       cluster_palette[sil_df$cluster])
+    cl_bnd   <- which(diff(sil_df$cluster) != 0) + 0.5
+    cl_mid   <- tapply(seq_len(M), sil_df$cluster, mean)
+
+    pdf(file.path(plot_dir, paste0(m_prefix, "_bc_silhouette.pdf")),
+        width = 9, height = max(6, 0.18 * M))
+    par(mar = c(4, 9, 3, 1))
+    barplot(rev(sil_df$sil),
+            horiz = TRUE, las = 1,
+            col = rev(bar_cols), border = NA,
+            names.arg = rev(sil_df$item),
+            cex.names = 0.55,
+            xlim = c(min(-0.05, min(sil_df$sil, na.rm = TRUE)) * 1.05,
+                     max(0.05,  max(sil_df$sil, na.rm = TRUE)) * 1.05),
+            xlab = "silhouette width  s(q) = (b - a) / max(a, b)",
+            main = sprintf("[%s] Per-item silhouette (K = %d, avg = %.3f)",
+                           method_label, K, avg_sil))
+    abline(v = 0,       col = "black", lwd = 1)
+    abline(v = avg_sil, col = "navy",  lty = 2, lwd = 1)
+    for (b in cl_bnd) abline(h = M - b + 0.5, col = "gray60", lty = 3)
+    mtext(sprintf("C%d", as.integer(names(cl_mid))),
+          side = 2, line = 7, at = M - cl_mid + 1,
+          las = 1, cex = 0.85, font = 2,
+          col = cluster_palette[as.integer(names(cl_mid))])
+    legend("bottomright",
+           legend = c("sil_width >= 0", "sil_width < 0 (boundary)",
+                      sprintf("avg = %.3f", avg_sil)),
+           fill   = c("gray70", "firebrick", NA),
+           border = c(NA, NA, NA),
+           lty    = c(NA, NA, 2),
+           col    = c(NA, NA, "navy"),
+           bty    = "n", cex = 0.8)
+    dev.off()
+  }
+
+  invisible(list(K = K, method = method_label, cluster = cluster_id,
+                 cm_df = cm_df, sil = sil, avg_sil = avg_sil,
+                 per_item_sil = per_item_sil, per_item_nbr = per_item_nbr))
+}
+
+# ----------------------------------------------------------------------------
+# Main: BC matrix + spectral clustering for every K in K_range.  BC and the
+# L_sym eigendecomposition are computed once and reused; kmeans + silhouette
+# + plots run independently per K, with output files tagged by K (e.g.
+# `<prefix>_KK3_*`).  Also produces:
+#   * one eigengap diagnostic PDF,
+#   * one 2x2 cluster-biplot grid covering K_range,
+#   * a console / CSV summary with avg silhouette and cumulative eigenvalue
+#     ratio per K.
+# ----------------------------------------------------------------------------
+bc_spectral_clustering <- function(result, lsirm_data, prefix, plot_dir,
+                                   K_range = 2:5, seed = 42,
+                                   grid_n = 80, pad = 0.20) {
+  items <- collect_item_samples(result, lsirm_data)
+  M <- length(items$samples)
+  K_range <- sort(unique(as.integer(K_range)))
+  if (M < (max(K_range) + 1)) {
+    cat(sprintf("[BC-spec] Too few items (M = %d) for K_max = %d — skipping\n",
+                M, max(K_range)))
     return(invisible(NULL))
   }
+  d <- ncol(items$samples[[1]])
 
-  has_bin  <- length(lsirm_data$col_bin)  > 0 && has_valid(res$b1) && dim(res$b1)[2] > 0
-  has_con  <- length(lsirm_data$col_con)  > 0 && has_valid(res$b2) && dim(res$b2)[2] > 0
-  has_cnt  <- length(lsirm_data$col_cnt)  > 0 && has_valid(res$b3) && dim(res$b3)[2] > 0
-  has_ord1 <- length(lsirm_data$col_ord1) > 0 && has_valid(res$b4) && dim(res$b4)[2] > 0
-  has_ord2 <- length(lsirm_data$col_ord2) > 0 && has_valid(res$b5) && dim(res$b5)[2] > 0
-
-  B1_hat <- if (has_bin)  apply(res$b1, c(2,3), mean) else NULL
-  B2_hat <- if (has_con)  apply(res$b2, c(2,3), mean) else NULL
-  B3_hat <- if (has_cnt)  apply(res$b3, c(2,3), mean) else NULL
-  B4_hat <- if (has_ord1) apply(res$b4, c(2,3), mean) else NULL
-  B5_hat <- if (has_ord2) apply(res$b5, c(2,3), mean) else NULL
-
-  # --- Interactive 3D plot ---
-  open3d()
-  par3d(windowRect = c(50, 50, 850, 650))
-
-  # Respondents
-  plot3d(A_hat[,1], A_hat[,2], A_hat[,3],
-         xlab = "Dim1", ylab = "Dim2", zlab = "Dim3",
-         col = "gray70", size = 3, type = "s",
-         main = title)
-
-  if (has_bin) {
-    spheres3d(B1_hat[,1], B1_hat[,2], B1_hat[,3], radius = 0.08, col = "forestgreen")
-    text3d(B1_hat[,1], B1_hat[,2], B1_hat[,3], texts = lsirm_data$col_bin,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "darkgreen")
-  }
-  if (has_con) {
-    spheres3d(B2_hat[,1], B2_hat[,2], B2_hat[,3], radius = 0.08, col = "orange")
-    text3d(B2_hat[,1], B2_hat[,2], B2_hat[,3], texts = lsirm_data$col_con,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "orange4")
-  }
-  if (has_cnt) {
-    spheres3d(B3_hat[,1], B3_hat[,2], B3_hat[,3], radius = 0.08, col = "cyan3")
-    text3d(B3_hat[,1], B3_hat[,2], B3_hat[,3], texts = lsirm_data$col_cnt,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "cyan4")
-  }
-  if (has_ord1) {
-    spheres3d(B4_hat[,1], B4_hat[,2], B4_hat[,3], radius = 0.08, col = "purple")
-    text3d(B4_hat[,1], B4_hat[,2], B4_hat[,3], texts = lsirm_data$col_ord1,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "purple4")
-  }
-  if (has_ord2) {
-    spheres3d(B5_hat[,1], B5_hat[,2], B5_hat[,3], radius = 0.08, col = "deeppink")
-    text3d(B5_hat[,1], B5_hat[,2], B5_hat[,3], texts = lsirm_data$col_ord2,
-           adj = c(-0.2, 0.5), cex = 0.7, col = "deeppink4")
+  ## 1) BC matrix via KDE plug-in on a common grid -----------------------------
+  # Common axis covering all items' posterior support (with `pad` fraction
+  # of the combined range padded on each side).  Sharing the grid across
+  # items lets us evaluate each KDE once and reuse it in every pairwise BC.
+  all_samp <- do.call(rbind, items$samples)
+  rngs  <- apply(all_samp, 2, range)
+  spans <- rngs[2, ] - rngs[1, ]
+  if (d == 1) {
+    lims <- c(rngs[1, 1] - pad * spans[1], rngs[2, 1] + pad * spans[1])
+    cell <- (lims[2] - lims[1]) / (grid_n - 1)
+  } else {
+    lims <- c(rngs[1, 1] - pad * spans[1], rngs[2, 1] + pad * spans[1],
+              rngs[1, 2] - pad * spans[2], rngs[2, 2] + pad * spans[2])
+    dx <- (lims[2] - lims[1]) / (grid_n - 1)
+    dy <- (lims[4] - lims[3]) / (grid_n - 1)
+    cell <- dx * dy
   }
 
-  legend3d("topright",
-           legend = c("Respondent",
-                      if(has_bin)  "Binary (CESD)" else NULL,
-                      if(has_con)  "Continuous (bio/cog)" else NULL,
-                      if(has_cnt)  "Count (sleep/drink/cog)" else NULL,
-                      if(has_ord1) "Ordinal-5 (MASQ)" else NULL,
-                      if(has_ord2) "Ordinal-4 (PSQI)" else NULL),
-           pch = 16,
-           col = c("gray70",
-                   if(has_bin)  "forestgreen" else NULL,
-                   if(has_con)  "orange" else NULL,
-                   if(has_cnt)  "cyan3" else NULL,
-                   if(has_ord1) "purple" else NULL,
-                   if(has_ord2) "deeppink" else NULL),
-           bty = "n", cex = 0.9)
+  cat(sprintf("[BC-spec] Computing %d KDEs on a %s grid (pad = %.2f)...\n",
+              M, if (d == 1) sprintf("%d", grid_n)
+                 else sprintf("%d x %d", grid_n, grid_n), pad))
+  F_list <- vector("list", M)
+  for (k in seq_len(M)) {
+    F_list[[k]] <- kde_on_grid(items$samples[[k]], lims, grid_n, cell)
+  }
 
-  # Save as PNG snapshot
-  rgl.snapshot(file.path(plot_dir, filename), fmt = "png")
-  close3d()
-
-  # --- Also save 2D pairwise projections as PDF ---
-  pdf_file <- sub("\\.[^.]+$", "_pairs.pdf", file.path(plot_dir, filename))
-  pdf(pdf_file, width = 12, height = 4.5)
-  par(mfrow = c(1,3), mar = c(4,4,3,1))
-
-  dim_pairs <- list(c(1,2), c(1,3), c(2,3))
-  dim_labels <- c("Dim1", "Dim2", "Dim3")
-
-  for (dp in dim_pairs) {
-    d1 <- dp[1]; d2 <- dp[2]
-    all_pts <- rbind(A_hat[, c(d1,d2)], B1_hat[, c(d1,d2)], B2_hat[, c(d1,d2)],
-                     B3_hat[, c(d1,d2)], B4_hat[, c(d1,d2)], B5_hat[, c(d1,d2)])
-    xr <- range(all_pts[,1], na.rm = TRUE); yr <- range(all_pts[,2], na.rm = TRUE)
-    expand <- 0.08
-    xlim <- xr + c(-1,1) * expand * diff(xr)
-    ylim <- yr + c(-1,1) * expand * diff(yr)
-    if (diff(xr) == 0) xlim <- xr + c(-1,1)
-    if (diff(yr) == 0) ylim <- yr + c(-1,1)
-
-    base::plot(A_hat[,d1], A_hat[,d2], pch = 21, bg = "gray80", col = "black", cex = 0.8,
-         xlab = dim_labels[d1], ylab = dim_labels[d2],
-         main = paste0(dim_labels[d1], " vs ", dim_labels[d2]),
-         xlim = xlim, ylim = ylim)
-
-    if (has_bin) {
-      points(B1_hat[,d1], B1_hat[,d2], pch = 21, bg = "forestgreen", col = "forestgreen", cex = 1.2)
-      text(B1_hat[,d1], B1_hat[,d2], labels = lsirm_data$col_bin, cex = 0.6, pos = 4, col = "darkgreen")
-    }
-    if (has_con) {
-      points(B2_hat[,d1], B2_hat[,d2], pch = 21, bg = "orange", col = "orange", cex = 1.2)
-      text(B2_hat[,d1], B2_hat[,d2], labels = lsirm_data$col_con, cex = 0.6, pos = 4, col = "orange4")
-    }
-    if (has_cnt) {
-      points(B3_hat[,d1], B3_hat[,d2], pch = 21, bg = "cyan3", col = "cyan3", cex = 1.2)
-      text(B3_hat[,d1], B3_hat[,d2], labels = lsirm_data$col_cnt, cex = 0.6, pos = 4, col = "cyan4")
-    }
-    if (has_ord1) {
-      points(B4_hat[,d1], B4_hat[,d2], pch = 21, bg = "purple", col = "purple", cex = 1.2)
-      text(B4_hat[,d1], B4_hat[,d2], labels = lsirm_data$col_ord1, cex = 0.6, pos = 4, col = "purple4")
-    }
-    if (has_ord2) {
-      points(B5_hat[,d1], B5_hat[,d2], pch = 21, bg = "deeppink", col = "deeppink", cex = 1.2)
-      text(B5_hat[,d1], B5_hat[,d2], labels = lsirm_data$col_ord2, cex = 0.6, pos = 4, col = "deeppink4")
+  cat("[BC-spec] Evaluating pairwise BC integrals...\n")
+  BC <- matrix(1, nrow = M, ncol = M)
+  for (i in seq_len(M - 1)) {
+    fi <- F_list[[i]]
+    for (j in (i + 1):M) {
+      bc <- bc_from_densities(fi, F_list[[j]], cell)
+      BC[i, j] <- bc; BC[j, i] <- bc
     }
   }
+  dimnames(BC) <- list(items$names, items$names)
+
+  ## 2) Normalized Laplacian + eigendecomposition (shared across K) ----------
+  W <- BC; diag(W) <- 0
+  D_vec <- rowSums(W)
+  D_vec[D_vec <= 0] <- 1e-12
+  Dm <- diag(1 / sqrt(D_vec))
+  L_sym <- Dm %*% W %*% Dm
+  L_sym <- 0.5 * (L_sym + t(L_sym))
+  ev    <- eigen(L_sym, symmetric = TRUE)
+  vals  <- ev$values   # decreasing
+
+  ## 3) Pairwise distance for silhouette (shared) -----------------------------
+  D_mat <- pmax(0, 1 - BC)
+  dim(D_mat) <- c(M, M)
+  dimnames(D_mat) <- list(items$names, items$names)
+  D_mat <- 0.5 * (D_mat + t(D_mat))
+  diag(D_mat) <- 0
+  dist_BC <- as.dist(D_mat)
+
+  ## 4) Cumulative eigenvalue ratios for each K in K_range -------------------
+  vals_pos <- pmax(vals, 0)
+  total_pos <- sum(vals_pos)
+  cum_ratios <- if (total_pos <= 0) rep(NA_real_, length(K_range))
+                else cumsum(vals_pos)[K_range] / total_pos
+
+  ## 5) Run NJW spectral clustering for each K in K_range --------------------
+  layer_levels  <- c("Bin", "Con", "Cnt", "Ord1", "Ord2")
+  layer_palette <- c(Bin = "forestgreen", Con = "orange", Cnt = "cyan3",
+                     Ord1 = "purple", Ord2 = "deeppink")
+
+  cat(sprintf("\n────────── BC + Spectral Clustering: K = %s ──────────\n",
+              paste(K_range, collapse = ", ")))
+  cat(sprintf("  Items: %d  (dim d = %d)\n", M, d))
+  cat(sprintf("  Top eigvals: %s\n",
+              paste(sprintf("%.3f", head(vals, max(K_range) + 2)),
+                    collapse = ", ")))
+
+  per_K_results <- list()
+  for (K in K_range) {
+    per_K_results[[as.character(K)]] <- .bc_spec_one_K(
+      K            = K,
+      method_label = sprintf("K%d", K),
+      ev           = ev,
+      BC           = BC,
+      M            = M,
+      d            = d,
+      items        = items,
+      result       = result,
+      dist_BC      = dist_BC,
+      prefix       = prefix,
+      plot_dir     = plot_dir,
+      layer_levels = layer_levels,
+      layer_palette = layer_palette,
+      seed         = seed
+    )
+  }
+
+  ## 6) Summary across K -----------------------------------------------------
+  summary_df <- data.frame(
+    K                 = K_range,
+    avg_silhouette    = vapply(per_K_results, function(x) x$avg_sil,
+                                numeric(1)),
+    n_sil_negative    = vapply(per_K_results, function(x)
+                                sum(x$per_item_sil < 0, na.rm = TRUE),
+                                integer(1)),
+    cum_eigval_ratio  = cum_ratios,
+    stringsAsFactors  = FALSE,
+    row.names         = NULL
+  )
+  cat("\n────────── Summary across K ──────────\n")
+  print(summary_df, row.names = FALSE, digits = 4)
+  write.csv(summary_df,
+            file.path(plot_dir, paste0(prefix, "_K_summary.csv")),
+            row.names = FALSE)
+
+  ## 7) Eigengap diagnostic plot ---------------------------------------------
+  pdf(file.path(plot_dir, paste0(prefix, "_bc_eigengap.pdf")),
+      width = 7.5, height = 5)
+  par(mar = c(4, 4.5, 3, 1))
+  show_n <- min(max(K_range) + 2, length(vals))
+  base::plot(seq_len(show_n), vals[seq_len(show_n)],
+             type = "b", pch = 19,
+             xlab = "Index k", ylab = expression(lambda[k] ~ "(L_sym, desc.)"),
+             main = "Eigengap diagnostic")
+  # Mark each candidate K boundary
+  for (K in K_range)
+    abline(v = K + 0.5, col = "red", lty = 3, lwd = 0.9)
+  legend("topright", bty = "n", cex = 0.85,
+         legend = sprintf("K candidates: %s",
+                          paste(K_range, collapse = ", ")))
   dev.off()
+
+  ## 8) 2x2 cluster-biplot grid for K_range ----------------------------------
+  if (d >= 2 && length(K_range) == 4) {
+    res    <- if (is.null(result$samples)) result else result$samples
+    A_hat  <- apply(res$a, c(2, 3), mean)
+    item_mu <- do.call(rbind, items$mus)
+    pchs   <- c(Bin = 21, Con = 22, Cnt = 23, Ord1 = 24, Ord2 = 25)
+    pch_items <- pchs[items$layer]
+    all_pts <- rbind(A_hat[, 1:2], item_mu[, 1:2])
+    xr <- range(all_pts[, 1]); yr <- range(all_pts[, 2])
+    xlim <- xr + c(-0.05, 0.05) * diff(xr)
+    ylim <- yr + c(-0.05, 0.05) * diff(yr)
+
+    pdf(file.path(plot_dir, paste0(prefix, "_bc_clusters_grid.pdf")),
+        width = 12, height = 10)
+    par(mfrow = c(2, 2), mar = c(3.5, 3.5, 2.8, 1), oma = c(0, 0, 2.5, 0))
+    for (K in K_range) {
+      res_K <- per_K_results[[as.character(K)]]
+      cluster_palette <- grDevices::hcl.colors(K, palette = "Dark 3")
+      base::plot(A_hat[, 1], A_hat[, 2],
+                 pch = 21, bg = "gray85", col = "black", cex = 0.45,
+                 xlab = "Dim1", ylab = "Dim2",
+                 main = sprintf("K = %d   (avg sil = %.3f, cum eig = %.3f)",
+                                K, res_K$avg_sil,
+                                cum_ratios[which(K_range == K)]),
+                 xlim = xlim, ylim = ylim)
+      points(item_mu[, 1], item_mu[, 2],
+             pch = pch_items, bg = cluster_palette[res_K$cluster],
+             col = "black", cex = 1.1)
+      text(item_mu[, 1], item_mu[, 2], labels = items$names,
+           cex = 0.45, pos = 4, col = "gray30")
+    }
+    title(main = "Item cluster membership across K (2x2 grid)",
+          outer = TRUE, cex.main = 1.25, line = 0.6)
+    dev.off()
+  }
+
+  ## 9) Pairwise contingency tables across K (nesting diagnostic) ------------
+  # For every pair (K_coarse < K_fine) in K_range we cross-tabulate the two
+  # cluster assignments.  Perfect nesting (K_fine refines K_coarse) means each
+  # column of the table has nonzero entries in exactly one row.  We summarize
+  # each pair by a refinement index = sum(col-max counts) / total items, which
+  # equals 1.0 under perfect nesting and degrades smoothly with leakage.
+  nesting_summary <- NULL
+  if (length(K_range) >= 2) {
+    cat("\n────────── Pairwise contingency tables (nesting) ──────────\n")
+    K_sorted    <- sort(K_range)
+    pair_rows   <- list()
+    pair_tabs   <- list()
+
+    for (i in seq_along(K_sorted)) {
+      for (j in seq_along(K_sorted)) {
+        if (i >= j) next
+        K_low  <- K_sorted[i]
+        K_high <- K_sorted[j]
+        cl_low  <- per_K_results[[as.character(K_low)]]$cluster
+        cl_high <- per_K_results[[as.character(K_high)]]$cluster
+
+        # rows = coarse (K_low) cluster, cols = fine (K_high) cluster.
+        tab <- table(coarse = cl_low, fine = cl_high)
+
+        # Reorder cols so that fine clusters belonging to the same coarse
+        # cluster are adjacent — makes nesting visually obvious.
+        col_modal_row <- apply(tab, 2, which.max)
+        col_order     <- order(col_modal_row, -apply(tab, 2, max))
+        tab           <- tab[, col_order, drop = FALSE]
+
+        col_sums      <- colSums(tab)
+        col_modmas    <- apply(tab, 2, max)
+        refinement    <- sum(col_modmas) / sum(col_sums)  # in [0,1]
+        n_pure        <- sum(col_modmas == col_sums)       # fully-nested fine cols
+
+        pair_key   <- sprintf("K%d_K%d", K_low, K_high)
+        pair_tabs[[pair_key]] <- tab
+
+        cat(sprintf(
+          "  coarse K=%d  x  fine K=%d : refinement = %.3f,  pure fine clusters = %d / %d\n",
+          K_low, K_high, refinement, n_pure, ncol(tab)))
+        print(tab)
+        cat("\n")
+
+        write.csv(as.data.frame.matrix(tab),
+                  file.path(plot_dir,
+                            sprintf("%s_contingency_K%d_K%d.csv",
+                                    prefix, K_low, K_high)),
+                  row.names = TRUE)
+
+        pair_rows[[pair_key]] <- data.frame(
+          K_coarse        = K_low,
+          K_fine          = K_high,
+          refinement_idx  = refinement,
+          n_pure_fine     = n_pure,
+          n_fine_clusters = ncol(tab),
+          n_items         = sum(col_sums)
+        )
+      }
+    }
+
+    nesting_summary <- do.call(rbind, pair_rows)
+    write.csv(nesting_summary,
+              file.path(plot_dir, paste0(prefix, "_nesting_summary.csv")),
+              row.names = FALSE)
+    cat("Nesting summary across K-pairs:\n")
+    print(nesting_summary, row.names = FALSE, digits = 4)
+
+    # 9a) Combined PDF: one heatmap per pair, cell counts annotated.
+    n_pairs    <- length(pair_tabs)
+    n_col_grid <- min(3, n_pairs)
+    n_row_grid <- ceiling(n_pairs / n_col_grid)
+    pdf(file.path(plot_dir, paste0(prefix, "_contingency_grid.pdf")),
+        width = 4.2 * n_col_grid, height = 3.8 * n_row_grid)
+    par(mfrow = c(n_row_grid, n_col_grid),
+        mar = c(3.8, 3.8, 2.8, 0.8), oma = c(0, 0, 2.2, 0))
+    pal_blue <- grDevices::hcl.colors(40, palette = "Blues 3", rev = TRUE)
+    for (k_idx in seq_len(n_pairs)) {
+      pr  <- nesting_summary[k_idx, ]
+      tab <- pair_tabs[[k_idx]]
+      m   <- as.matrix(tab)
+      # Reverse rows for image() so row 1 sits at top of plot.
+      m_disp <- m[nrow(m):1, , drop = FALSE]
+      image(seq_len(ncol(m_disp)), seq_len(nrow(m_disp)), t(m_disp),
+            col = pal_blue, zlim = c(0, max(m)),
+            axes = FALSE, xlab = "", ylab = "",
+            main = sprintf("coarse K=%d  x  fine K=%d   (ref = %.2f)",
+                           pr$K_coarse, pr$K_fine, pr$refinement_idx))
+      axis(1, at = seq_len(ncol(m_disp)),
+           labels = colnames(m_disp), las = 1, cex.axis = 0.85)
+      axis(2, at = seq_len(nrow(m_disp)),
+           labels = rownames(m_disp), las = 2, cex.axis = 0.85)
+      box()
+      for (rr in seq_len(nrow(m_disp))) {
+        for (cc in seq_len(ncol(m_disp))) {
+          v <- m_disp[rr, cc]
+          if (v > 0) {
+            text(cc, rr, v, cex = 0.9,
+                 col = ifelse(v > 0.6 * max(m), "white", "black"))
+          }
+        }
+      }
+      mtext(sprintf("fine cluster (K=%d)",  pr$K_fine),
+            side = 1, line = 2.2, cex = 0.78)
+      mtext(sprintf("coarse cluster (K=%d)", pr$K_coarse),
+            side = 2, line = 2.2, cex = 0.78)
+    }
+    title(main = "Pairwise contingency tables across K (nesting diagnostic)",
+          outer = TRUE, cex.main = 1.2, line = 0.4)
+    dev.off()
+  }
+
+  cat(sprintf("\n  -> BC/spec outputs saved to: %s\n", plot_dir))
+  invisible(list(BC = BC, eigvals = vals,
+                 K_range = K_range,
+                 cum_eigval_ratio = setNames(cum_ratios,
+                                              paste0("K=", K_range)),
+                 summary           = summary_df,
+                 nesting_summary   = nesting_summary,
+                 results           = per_K_results))
 }
 
 ################################################################################
@@ -989,10 +1434,13 @@ for (cs in cases[1]) {
               title = paste0("MIDUS W2+R1: ", cs$label, " [", run_label, "] (GRM v5)"),
               filename = paste0(prefix, "_biplot.pdf"),
               plot_dir = case_plot_dir)
-  # make_biplot_3d(result, lsirm_data = lsirm_data,
-  #                title = paste0("MIDUS W2+R1: ", cs$label, " [", run_label, "] (GRM v5, 3D)"),
-  #                filename = paste0(prefix, "_biplot_3d.png"),
-  #                plot_dir = case_plot_dir)
+
+  # BC matrix + spectral clustering for K = 2..5 + silhouette
+  bc_spec <- bc_spectral_clustering(
+    result, lsirm_data = lsirm_data,
+    prefix = prefix, plot_dir = case_plot_dir,
+    K_range = 2:5
+  )
 
   # Save result object
   result_file <- file.path(case_plot_dir, paste0(cs$name, "_", run_label, "_result.rds"))

@@ -6,7 +6,9 @@ library(purrr)
 ################################################################################
 # 0. load — MIDUS Refresher 1 데이터
 ################################################################################
-setwd("/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data/MIDUS_refresher_1")
+# proj_root 은 03_run_and_cluster.R 에서 정의됨 (sourced into a child env).
+if (!exists("proj_root")) proj_root <- getwd()
+setwd(file.path(proj_root, "data", "raw", "MIDUS_refresher_1"))
 
 # ─── ICPSR_36532: Survey (MIDUS Refresher 1) ────────────────────────────────
 load("ICPSR_36532/DS0001/36532-0001-Data.rda")
