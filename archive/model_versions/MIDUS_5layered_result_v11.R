@@ -56,7 +56,7 @@ library(cluster)   # silhouette()
 ################################################################################
 # 0. Path setup
 ################################################################################
-data_dir <- "/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM/data"
+data_dir <- "/Users/hyunseokyoon/Desktop/학교/대학원/Research/joint_LSIRM/data"
 setwd(data_dir)
 
 ################################################################################
@@ -248,12 +248,12 @@ n_split_merge <- 100L
 # kappa0 = 0.1 gives mu_l prior sd = sqrt(0.0625 / 0.1) = 0.79, allowing
 # cluster centers to span +/- 1.5 -- matching v10 ref where centers occupy
 # +/- 1.5 in latent space.
-S0_init_scale <- 6
+S0_init_scale <- 0.5
 common_fmc_hyper <- list(
   e0     = e0,
   m0     = rep(0, d),
-  kappa0 = 0.1,                          # 1.0 -> 0.1 (allow mu_l spread)
-  nu0    = 100,                          # pin Sigma_l
+  kappa0 = 1,                            # 1.0 -> 0.1 (allow mu_l spread)
+  nu0    = 12,                           # 100(fix xigma) -> 12(loosen)
   S0     = S0_init_scale * diag(d),      # E[Sigma_l] = 6/97 ~= 0.0619 * I
   nu_S0  = NA                            # Wishart hyperprior off
 )
@@ -266,7 +266,7 @@ b_prior_inflation <- 1.0
 
 # Long chain because the LSIRM block has heavy tails; the v11 joint
 # coupling inherits the same regime.
-common_mcmc <- list(d = d, n_iter = 80000, burnin = 20000, thin = 10)
+common_mcmc <- list(d = d, n_iter = 100000, burnin = 20000, thin = 10)
 nu2 <- 4
 
 plot_root <- file.path(data_dir, "plot")

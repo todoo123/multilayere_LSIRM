@@ -248,7 +248,7 @@ common_lsirm_prop_sd <- list(
 #     visually piled on cluster centers in the biplot).
 d      <- 2L
 K_star <- 10L
-e0     <- 0.05
+e0     <- 0.1
 
 # Number of Jain-Neal split-merge proposals per Gibbs sweep.  Higher than
 # the v10 default of 5 because v11's per-attempt acceptance is lower under
@@ -279,12 +279,12 @@ n_split_merge <- 100L
 #   - within-cluster sd of b_pm           : should be a meaningful fraction of mu_l span
 # kappa0 unchanged at 0.1 (mu_l|Sigma_l ~ N(0, Sigma_l/0.1) prior allows
 # cluster-center span ~ +-1.5 at the target Sigma_l).
-S0_init_scale <- 1
+S0_init_scale <- 2
 common_fmc_hyper <- list(
   e0     = e0,
   m0     = rep(0, d),
   kappa0 = 0.1,                          # unchanged from lock-in
-  nu0    = 12,                           # 100 -> 10 (loose, data-driven Sigma_l)
+  nu0    = 8,                           # 100 -> 10 (loose, data-driven Sigma_l)
   S0     = S0_init_scale * diag(d),      # E[Sigma_l] = 0.434/7 ~= 0.062 * I (preserved)
   nu_S0  = NA                            # Wishart hyperprior on S0 still off
 )

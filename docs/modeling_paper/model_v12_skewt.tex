@@ -1,0 +1,1278 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm,bm,mathtools}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{float}
+
+\onehalfspacing
+
+\newcommand{\R}{\mathbb R}
+\newcommand{\ind}{\mathbb I}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\trans}{^{\mathsf T}}
+\DeclareMathOperator{\logit}{logit}
+\DeclareMathOperator{\Cat}{Categorical}
+\DeclareMathOperator{\Dir}{Dirichlet}
+\DeclareMathOperator{\IG}{IG}
+\DeclareMathOperator{\IW}{IW}
+\DeclareMathOperator{\tr}{tr}
+
+\title{Joint Multilayered LSIRM with Latent-Position Skew-$t$ Mixture Clustering\\
+Residual-Augmented NIW Predictive Allocation and Jain--Neal Split--Merge Moves}
+\date{Model Description (v12\_skewt)}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+This document defines a joint multilayered Latent Space Item Response Model
+(LSIRM) in which item clustering is performed directly on item latent
+positions, and the within-cluster component distribution is a multivariate
+\emph{skew-$t$} in the Sahu--Dey--Branco (SDB) parameterization.  Each item
+latent position is assigned a finite skew-$t$ mixture prior,
+\[
+    b_j^{(\ell(j))}\mid c_j=l,\mu_l,\Sigma_l,\Delta_l
+    \;\sim\; \mathrm{SkewT}_{\nu_t}(\mu_l,\Sigma_l,\Delta_l),
+    \qquad d=2,
+\]
+where $c_j$ is the item cluster label, $(\mu_l,\Sigma_l)$ are the
+cluster location and scatter, $\Delta_l\in\R^d$ is the per-cluster
+\emph{skew direction}, and $\nu_t$ is a fixed Student-$t$ degrees-of-freedom
+hyperparameter.  Setting $\Delta_l=0$ recovers an elliptical Student-$t$
+component; letting $\nu_t\to\infty$ further recovers a Gaussian component.
+The mixture prior is imposed only on the item latent positions; no
+cluster-specific prior is placed on respondent ability, item difficulty, or
+layer-specific nuisance parameters.
+
+The model is fully joint: item cluster labels affect the posterior of item
+positions through the mixture prior, and item positions affect the response
+likelihood through the LSIRM distance term.  Two latent variables per item
+make SDB skew-$t$ tractable as a Gaussian location--scale mixture:
+\begin{itemize}[leftmargin=1.5em]
+    \item a positive scale latent $w_q\sim\mathrm{Gamma}(\nu_t/2,\nu_t/2)$,
+    inherited from the elliptical Student-$t$ representation
+    of Lange, Little, and Taylor (1989);
+    \item a positive location latent $U_q\mid w_q\sim N_+(0,1/w_q)$,
+    a half-normal that drives the asymmetric mean shift of SDB skew-$t$.
+\end{itemize}
+Conditional on $(U_q,w_q)$, each $b_q$ is exactly Gaussian, so all
+conjugate Normal--Inverse-Wishart (NIW) machinery for $(\mu_l,\Sigma_l)$
+carries over verbatim once $b_q$ is replaced by the residual
+$r_q=b_q-\Delta_{c_q}U_q$ in the weighted sufficient statistics.  The skew
+direction $\Delta_l$ is updated by an additional multivariate Gaussian
+regression Gibbs step.
+
+The motivation for the skew extension is that LSIRM latent positions in
+layers with asymmetric item difficulty distributions (e.g.\ count layers
+with right-skewed dispersion, continuous layers with bounded support, ordinal
+layers with non-uniform thresholds) cannot be captured by elliptical
+components without inflating the cluster covariance and dragging the
+cluster identification.  Allowing $\Delta_l\neq 0$ lets one cluster carry
+both a center and a direction of asymmetric spread without splitting into
+two sub-clusters.
+
+\section{Indexing, dimensions, and observed data}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Symbol & Meaning & Dimension/range \\
+\midrule
+$\ell$ & layer index & $\ell=1,\dots,L$ \\
+$i$ & respondent index & $i=1,\dots,n$ \\
+$j$ & local item index within layer $\ell$ & $j=1,\dots,P_\ell$ \\
+$q$ & global item index across all layers & $q=1,\dots,P$, $P=\sum_\ell P_\ell$ \\
+$\ell(q)$ & layer containing global item $q$ & $\{1,\dots,L\}$ \\
+$j(q)$ & local item index of global item $q$ & $\{1,\dots,P_{\ell(q)}\}$ \\
+$d$ & latent space dimension & $d=2$ in implementation \\
+$K^\star$ & truncation level (maximum mixture components) & positive integer \\
+$K_+$ & number of occupied components & $K_+=|\{l:n_l>0\}|$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Common-respondent assumption.}
+The typical multilayered setting is assumed: every layer shares the same
+$n$ respondents, and the respondent latent position $a_i\in\R^d$ is shared
+across layers.  The layered notation $a_i^{(\ell)}$ is therefore understood
+as a single $a_i$.  The only identifiability ambiguity that remains in the
+latent space is a single global rigid motion of the whole configuration
+$(a,b^{(1)},\dots,b^{(L)})$ together with $(\mu_l,\Sigma_l,\Delta_l)$.
+
+The observed data are
+\[
+    Y^{(\ell)}=\{y_{ij}^{(\ell)}:(i,j)\in\mathcal O_\ell\},
+    \qquad \ell=1,\dots,L,
+\]
+with $\mathcal O_\ell$ the set of observed respondent--item pairs in layer
+$\ell$.
+
+\section{LSIRM likelihood}
+
+For respondent $i$ and item $j$ in layer $\ell$, the model uses the
+following parameters:
+\begin{itemize}[leftmargin=1.5em]
+    \item $a_i\in\R^d$: shared respondent latent position.
+    \item $b_j^{(\ell)}\in\R^d$: item latent position in layer $\ell$.
+    \item $\alpha_i^{(\ell)}\in\R$: respondent effect in layer $\ell$.
+    \item $\beta_j^{(\ell)}\in\R$: item difficulty for binary, continuous,
+    and count layers.  For ordinal layers $\beta_j^{(\ell)}$ is replaced by
+    an item-specific threshold vector
+    $\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$ with
+    $K_\ell$ ordered categories.
+    \item $\gamma_\ell>0$: layer-specific distance weight.
+    \item $\sigma_0^2>0$: continuous-layer error scale.
+    \item $\nu_2>0$: continuous-layer Student-$t$ degrees of freedom.
+    \item $\kappa_j>0$: item-specific count-layer overdispersion (negative
+    binomial), one per count item $j$.
+\end{itemize}
+Let $\mathcal L_{\mathrm{ord}}\subseteq\{1,\dots,L\}$ index the ordinal
+layers.
+
+The layer-specific LSIRM linear predictor is
+\begin{equation}
+    \eta_{ij}^{(\ell)}
+    =
+    \alpha_i^{(\ell)}-\beta_j^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad \ell\notin\mathcal L_{\mathrm{ord}},
+    \label{eq:lsirm-eta}
+\end{equation}
+with the convention that for ordinal layers item difficulty enters via the
+threshold vector, not the linear predictor:
+\begin{equation}
+    \eta_{ij}^{(\ell)}
+    =
+    \alpha_i^{(\ell)}-\gamma_\ell\norm{a_i-b_j^{(\ell)}}_2,
+    \qquad \ell\in\mathcal L_{\mathrm{ord}}.
+    \label{eq:lsirm-eta-ord}
+\end{equation}
+
+\subsection{Per-layer observation models}
+
+\paragraph{Binary (logistic regression).}
+For a binary layer $\ell$,
+\begin{equation}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)}\sim\mathrm{Bernoulli}(p_{ij}^{(\ell)}),
+    \qquad
+    \logit p_{ij}^{(\ell)}=\eta_{ij}^{(\ell)}.
+    \label{eq:lik-binary}
+\end{equation}
+
+\paragraph{Continuous (robust Student-$t$ via normal--gamma scale mixture).}
+For a continuous layer $\ell$,
+\begin{align}
+    y_{ij}^{(\ell)}\mid \eta_{ij}^{(\ell)},\lambda_{ij}^{(\ell)}
+    &\sim N\!\left(\eta_{ij}^{(\ell)},\;\sigma_0^2/\lambda_{ij}^{(\ell)}\right),
+    \notag\\
+    \lambda_{ij}^{(\ell)} &\sim\mathrm{Gamma}(\nu_2/2,\nu_2/2).
+    \label{eq:lik-continuous}
+\end{align}
+Marginalizing over $\lambda_{ij}^{(\ell)}$ yields
+$y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)}\sim t_{\nu_2}(\eta_{ij}^{(\ell)},\sigma_0^2)$.
+
+\paragraph{Count (negative binomial regression with item-specific overdispersion).}
+For a count layer $\ell$ with item-specific overdispersion $\kappa_j>0$,
+\begin{equation}
+    y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\kappa_j
+    \sim\mathrm{NB}\!\left(r=1/\kappa_j,\,\mu=\exp\eta_{ij}^{(\ell)}\right),
+    \label{eq:lik-count}
+\end{equation}
+parameterized so that $E[y]=\mu$ and $\mathrm{Var}[y]=\mu+\kappa_j\mu^2$.
+The Poisson limit is $\kappa_j\to 0$.  Each $\kappa_j$ has a log-normal
+prior:
+\begin{equation}
+    \log\kappa_j\sim N(\mu_{\log\kappa},\sigma_{\log\kappa}^2),
+    \qquad j=1,\dots,P_\ell.
+    \label{eq:kappa-prior}
+\end{equation}
+
+\paragraph{Ordinal (latent-space graded response model, LSGRM).}
+For an ordinal layer $\ell\in\mathcal L_{\mathrm{ord}}$ with $K_\ell$
+ordered categories and item thresholds
+$\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$,
+\begin{equation}
+    \logit
+    P(y_{ij}^{(\ell)}\geq k+1\mid\eta_{ij}^{(\ell)},\beta_{j,k}^{(\ell)})
+    =\eta_{ij}^{(\ell)}-\beta_{j,k}^{(\ell)},
+    \qquad k=1,\dots,K_\ell-1,
+    \label{eq:lik-ord-cum}
+\end{equation}
+with $P(y\geq 1)=1$ and $P(y\geq K_\ell+1)=0$.  Category probabilities are
+obtained by differencing:
+\begin{equation}
+    P(y_{ij}^{(\ell)}=k\mid\cdot)=P(y\geq k\mid\cdot)-P(y\geq k+1\mid\cdot).
+    \label{eq:lik-ord}
+\end{equation}
+
+\subsection{Compact notation}
+
+Each per-layer likelihood is summarized as
+\begin{equation}
+    y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\xi_\ell
+    \sim f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\xi_\ell\},
+    \label{eq:lik-generic}
+\end{equation}
+with $\xi_\ell$ collecting all layer-specific nuisance parameters
+($\sigma_0^2,\lambda_{ij}^{(\ell)}$ in continuous layers; $\{\kappa_j\}$ in
+count layers; threshold vectors in ordinal layers; $\gamma_\ell$ in all
+layers).  The full LSIRM log-likelihood is
+\begin{equation}
+    \ell_{\mathrm{LSIRM}}=
+    \sum_{\ell=1}^L\sum_{(i,j)\in\mathcal O_\ell}
+    \log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\xi_\ell\}.
+    \label{eq:lsirm-loglik}
+\end{equation}
+
+\section{Latent-position skew-$t$ mixture prior for items}
+\label{sec:skewt-mixture}
+
+\subsection{Global item position notation}
+
+The global item latent position is
+\begin{equation}
+    z_q=b_{j(q)}^{(\ell(q))}\in\R^d,
+    \qquad q=1,\dots,P.
+\end{equation}
+The clustering model is placed directly on $z_q$.
+
+\subsection{SDB skew-$t$ hierarchical representation}
+
+For $q=1,\dots,P$ and $l=1,\dots,K^\star$, the skew-$t$ mixture component is
+expressed as a Gaussian location--scale mixture in two stages.  First the
+scale latent and the location latent are introduced:
+\begin{align}
+    w_q
+    &\sim\mathrm{Gamma}\!\bigl(\nu_t/2,\nu_t/2\bigr),
+    \label{eq:w-prior}\\
+    U_q\mid w_q
+    &\sim N_+\!\bigl(0,1/w_q\bigr),
+    \label{eq:U-prior}
+\end{align}
+where $N_+(0,1/w_q)$ denotes the half-normal distribution with density
+$\sqrt{2w_q/\pi}\exp(-w_q U^2/2)$ on $U>0$.  Both latents are
+\emph{item-specific}, indexed by the global item index $q$.
+
+Conditional on the cluster label, the scale, and the location latent, the
+item position is Gaussian:
+\begin{equation}
+    z_q\mid c_q=l,w_q,U_q,\mu_l,\Sigma_l,\Delta_l
+    \sim
+    N_d\!\bigl(\mu_l+\Delta_l U_q,\;\Sigma_l/w_q\bigr).
+    \label{eq:z-given-latents}
+\end{equation}
+Marginalizing $U_q$ first gives the skew-Normal conditional on $w_q$;
+marginalizing also $w_q$ gives the SDB skew-$t$ marginal,
+\begin{equation}
+    z_q\mid c_q=l,\mu_l,\Sigma_l,\Delta_l
+    \sim
+    \mathrm{SkewT}_{\nu_t}\!\bigl(\mu_l,\Sigma_l,\Delta_l\bigr).
+    \label{eq:skewt-marginal}
+\end{equation}
+The cluster label and the mixture weights follow the standard finite-mixture
+prior with a symmetric Dirichlet hyperprior:
+\begin{align}
+    c_q\mid\rho &\sim\Cat(\rho_1,\dots,\rho_{K^\star}),
+    \label{eq:c-prior}\\
+    \rho &\sim\Dir(e_0,\dots,e_0).
+    \label{eq:rho-prior}
+\end{align}
+
+\paragraph{Limiting cases.}
+The representation \eqref{eq:w-prior}--\eqref{eq:z-given-latents} contains
+two ``recovery'' limits that are useful diagnostics:
+\begin{itemize}[leftmargin=1.5em]
+    \item $\Delta_l\to 0$:  the location latent $U_q$ drops out of the
+    conditional mean, and \eqref{eq:skewt-marginal} reduces to the
+    elliptical Student-$t$ distribution $t_{\nu_t}(\mu_l,\Sigma_l)$.
+    \item $\nu_t\to\infty$:  the scale latent $w_q\to 1$ in probability and
+    \eqref{eq:skewt-marginal} reduces to the skew-Normal distribution of
+    Azzalini and Dalla Valle (1996), or further to $N_d(\mu_l,\Sigma_l)$ if
+    also $\Delta_l\to 0$.
+\end{itemize}
+
+\subsection{Cluster-level priors}
+
+The cluster location and scatter follow a Normal--Inverse-Wishart (NIW)
+prior:
+\begin{align}
+    \Sigma_l
+    &\sim\IW(\nu_0,S_0),
+    \label{eq:Sigma-prior}\\
+    \mu_l\mid\Sigma_l
+    &\sim N_d\!\left(m_0,\;\frac{1}{\kappa_0}\Sigma_l\right),
+    \qquad l=1,\dots,K^\star,
+    \label{eq:mu-prior}
+\end{align}
+with hyperparameters $m_0\in\R^d$, $\kappa_0>0$, $\nu_0>d-1$, and
+$S_0\in\R^{d\times d}$ positive definite.
+
+The skew direction has an independent zero-mean isotropic Gaussian prior:
+\begin{equation}
+    \Delta_l\sim N_d\!\bigl(0,\,\tau_\Delta^2\,I_d\bigr),
+    \qquad l=1,\dots,K^\star.
+    \label{eq:Delta-prior}
+\end{equation}
+The prior scale $\tau_\Delta>0$ shrinks $\Delta_l$ toward zero; in the
+limit $\tau_\Delta\to 0$ the model reduces to the elliptical
+Student-$t$ mixture, so the prior \eqref{eq:Delta-prior} provides a natural
+nested-model regularization.
+
+\paragraph{Data-driven cluster scale: Wishart hyperprior on $S_0$.}
+The NIW scale matrix $S_0$ is itself given a Wishart hyperprior so that the
+cluster-covariance scale is learned from data rather than tuned:
+\begin{equation}
+    S_0\sim W(\nu_{S_0},\Lambda_{S_0}),
+    \qquad \nu_{S_0}>d-1,\;\Lambda_{S_0}\succ 0.
+    \label{eq:S0-hyperprior}
+\end{equation}
+With $\Sigma_l\mid S_0\sim\IW(\nu_0,S_0)$ for $l=1,\dots,K^\star$ this gives
+a conjugate Wishart full conditional,
+\begin{equation}
+    S_0\mid\{\Sigma_l\}
+    \sim
+    W\!\left(
+    \nu_{S_0}+K^\star\nu_0,\;
+    \bigl(\Lambda_{S_0}^{-1}+\sum_{l=1}^{K^\star}\Sigma_l^{-1}\bigr)^{-1}
+    \right),
+    \label{eq:S0-update}
+\end{equation}
+sampled once per MCMC sweep after the $(\mu_l,\Sigma_l)$ draws.  Setting
+$\nu_{S_0}\to\infty$ holds $S_0$ fixed at $E[S_0]$.
+
+\paragraph{Modeling restriction.}
+The cluster label $c_q$ enters only the prior for $z_q=b_{j(q)}^{(\ell(q))}$.
+There is no cluster-specific prior on $\alpha_i^{(\ell)}$,
+$\beta_j^{(\ell)}$, $\xi_\ell$, or any other parameter.  Cluster labels
+therefore represent latent item geometry only.
+
+\section{Priors for non-clustering LSIRM parameters}
+
+\paragraph{Respondent latent position (fixed unit variance).}
+For identifiability of the latent-space scale,
+\begin{equation}
+    a_i\sim N_d(0,I_d),\qquad i=1,\dots,n.
+    \label{eq:a-prior}
+\end{equation}
+The unit variance is not sampled: the latent space has no intrinsic scale
+because $a_i$ and $b_j^{(\ell)}$ can both be rescaled by an arbitrary
+constant absorbed into $\gamma_\ell$.  Anchoring the respondent prior
+variance at $1$ leaves $\gamma_\ell$ as the free scale parameter to be
+estimated from data.
+
+\paragraph{Respondent effect.}
+Each layer's respondent effect has its own variance hyperparameter:
+\begin{align}
+    \alpha_i^{(\ell)}\mid\sigma_{\alpha,\ell}^2
+    &\sim N(0,\sigma_{\alpha,\ell}^2),
+    \qquad i=1,\dots,n,\,\ell=1,\dots,L,
+    \label{eq:alpha-prior}\\
+    \sigma_{\alpha,\ell}^2
+    &\sim\IG(A_{\alpha,\ell},B_{\alpha,\ell}),
+    \label{eq:sigma-alpha-prior}
+\end{align}
+allowing the respondent-effect scale to differ across layers (e.g.\ binary
+versus count layers).
+
+\paragraph{Item difficulty (fixed-scale prior).}
+For non-ordinal layers,
+\begin{equation}
+    \beta_j^{(\ell)}\sim N(0,\sigma_{\beta,\ell}^2),
+    \qquad j=1,\dots,P_\ell,\,\ell\notin\mathcal L_{\mathrm{ord}},
+    \label{eq:beta-prior}
+\end{equation}
+with $\sigma_{\beta,\ell}^2$ a fixed hyperparameter (not sampled).  No
+across-item shrinkage is imposed; each item's difficulty is recovered
+directly from its own data.  The implementation uses
+$\sigma_{\beta,\ell}=2$ (variance $4$).
+
+\paragraph{Ordinal thresholds.}
+For ordinal layers,
+\begin{equation}
+    \beta_{j,k}^{(\ell)}\sim N(0,\sigma_{\beta,\ell}^2),
+    \qquad
+    j=1,\dots,P_\ell,\,k=1,\dots,K_\ell-1,
+    \label{eq:beta-thr-prior}
+\end{equation}
+restricted to $\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$.
+The scale $\sigma_{\beta,\ell}^2$ is fixed; the implementation uses
+$\sigma_{\beta,\ell}=2$.
+
+\paragraph{Layer-specific nuisance parameters.}
+The distance weight $\gamma_\ell>0$ in all layers is parameterized through
+$\log\gamma_\ell\sim N(\mu_{\log\gamma_\ell},\sigma_{\log\gamma_\ell}^2)$
+with fixed hyperparameters.  The continuous-layer error scale
+$\sigma_0^2$ has an inverse-gamma prior $\IG(a_{\sigma_0},b_{\sigma_0})$;
+$\nu_2$ is fixed.  The count-layer overdispersions $\{\kappa_j\}$ follow
+the log-normal prior \eqref{eq:kappa-prior}.
+
+The item latent position $b_j^{(\ell)}$ receives no additional independent
+Gaussian prior beyond the skew-$t$ mixture prior in
+\eqref{eq:z-given-latents}--\eqref{eq:rho-prior},
+\eqref{eq:Sigma-prior}--\eqref{eq:Delta-prior}.
+
+\section{Rotation and reflection invariance}
+\label{sec:rotation-invariance}
+
+Under the common-respondent assumption, the entire configuration
+$(a,b^{(1)},\dots,b^{(L)})$ shares one coordinate system.  The only
+identifiability ambiguity in the latent space is a single global orthogonal
+transformation $Q\in O(d)$ together with a global translation $t\in\R^d$:
+\begin{equation}
+    a_i\mapsto Qa_i+t,
+    \quad
+    b_j^{(\ell)}\mapsto Qb_j^{(\ell)}+t,
+    \quad
+    \mu_l\mapsto Q\mu_l+t,
+    \quad
+    \Sigma_l\mapsto Q\Sigma_l Q\trans,
+    \quad
+    \Delta_l\mapsto Q\Delta_l.
+    \label{eq:rigid-motion}
+\end{equation}
+The skew direction transforms as a free vector (rotation only, no
+translation) because it captures the direction of within-cluster spread.
+The half-normal latent $U_q$ is rotation-invariant (it is a scalar).
+
+The LSIRM linear predictor in \eqref{eq:lsirm-eta}--\eqref{eq:lsirm-eta-ord}
+depends on positions only through the Euclidean norm
+$\norm{a_i-b_j^{(\ell)}}_2$, which is invariant under
+\eqref{eq:rigid-motion}.  With $m_0=0$ and $S_0=s_0 I_d$, the NIW prior on
+$(\mu_l,\Sigma_l)$ and the isotropic Gaussian prior on $\Delta_l$ in
+\eqref{eq:Delta-prior} are also invariant in distribution under
+$Q\in O(d)$.  Therefore the joint posterior on the clustering targets
+($c$, $K_+$, the cluster sizes, the posterior similarity matrix
+$C_{qr}=P(c_q=c_r\mid Y)$) is invariant under \eqref{eq:rigid-motion}.
+
+\paragraph{Consequence for the sampler.}
+Within-MCMC orientation alignment is not required for clustering
+correctness.  A post-hoc Procrustes alignment is recommended only for
+visualization or comparison with an external target configuration.  Such an
+alignment is a deterministic post-processing step applied to stored
+posterior draws; $\Delta_l$ is co-rotated as in \eqref{eq:rigid-motion}.
+
+\section{Full joint posterior}
+
+Collect the parameters as
+\begin{align*}
+    \Theta_{\mathrm{LSIRM}}
+    &=\{a_i,\alpha_i^{(\ell)},b_j^{(\ell)},\beta_j^{(\ell)},\xi_\ell,
+        \sigma_{\alpha,\ell}^2:i,\ell,j\},\\
+    \Theta_{\mathrm{mix}}
+    &=\{c_q,\rho,\mu_l,\Sigma_l,\Delta_l,w_q,U_q,S_0:q,l\}.
+\end{align*}
+Using the hierarchical representation \eqref{eq:w-prior}--\eqref{eq:rho-prior},
+the full joint posterior factors as
+\begin{align}
+&p(\Theta_{\mathrm{LSIRM}},\Theta_{\mathrm{mix}}\mid Y)
+\notag\\
+&\quad\propto
+\prod_{\ell=1}^L\prod_{(i,j)\in\mathcal O_\ell}
+    f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\xi_\ell\}
+\notag\\
+&\qquad\times
+\prod_{q=1}^P
+    N_d\!\bigl(z_q;\mu_{c_q}+\Delta_{c_q}U_q,\Sigma_{c_q}/w_q\bigr)
+    \,\rho_{c_q}
+    \,\mathrm{Gamma}(w_q;\nu_t/2,\nu_t/2)
+    \,N_+(U_q;0,1/w_q)
+\notag\\
+&\qquad\times
+\prod_{l=1}^{K^\star}
+    p(\mu_l\mid\Sigma_l,S_0)\,p(\Sigma_l\mid S_0)\,
+    N_d(\Delta_l;0,\tau_\Delta^2 I_d)
+    \;p(\rho)\;p(S_0)
+\notag\\
+&\qquad\times
+\prod_{i=1}^n N_d(a_i;0,I_d)
+\prod_{\ell=1}^L\Bigl[\prod_{i=1}^n p(\alpha_i^{(\ell)}\mid\sigma_{\alpha,\ell}^2)\,
+    p_\beta^{(\ell)}(\beta^{(\ell)})\Bigr]
+\notag\\
+&\qquad\times
+\prod_{\ell=1}^L p(\sigma_{\alpha,\ell}^2)\,p(\xi_\ell),
+\label{eq:full-posterior}
+\end{align}
+where $z_q=b_{j(q)}^{(\ell(q))}$ and $p_\beta^{(\ell)}$ is the
+layer-specific item-difficulty prior factor (Gaussian for non-ordinal
+layers; product of order-restricted Gaussians for ordinal layers).
+
+\section{Residual augmentation}
+\label{sec:residual}
+
+The cornerstone of the SDB skew-$t$ sampler is the observation that
+\emph{conditional on} $(\Delta_l,U_q)$, the model reduces to the
+elliptical Student-$t$ mixture of the previous version on the residual
+\begin{equation}
+    r_q:=z_q-\Delta_{c_q}U_q.
+    \label{eq:residual}
+\end{equation}
+Indeed, substituting $z_q=r_q+\Delta_{c_q}U_q$ in
+\eqref{eq:z-given-latents} gives
+\begin{equation}
+    r_q\mid c_q=l,\mu_l,\Sigma_l,w_q
+    \sim
+    N_d\!\bigl(\mu_l,\;\Sigma_l/w_q\bigr),
+    \label{eq:residual-Gaussian}
+\end{equation}
+which is the v11-style Gaussian scale mixture.  All NIW conjugate
+machinery for $(\mu_l,\Sigma_l)$ -- weighted sufficient statistics,
+posterior predictive density, collapsed allocation weights, NIW marginal
+likelihood -- therefore carries over verbatim once $z_q$ is replaced by
+$r_q$.
+
+\section{NIW posterior on residuals}
+\label{sec:niw-residual}
+
+For any set $A\subseteq\{1,\dots,P\}$ of global item indices with current
+residuals $\{r_q:q\in A\}$ and current scale weights $\{w_q:q\in A\}$,
+define the weighted sufficient statistics
+\begin{align}
+    W_A &= \sum_{q\in A}w_q,
+    \\
+    \bar r_A^{\,w} &=
+    \frac{1}{W_A}\sum_{q\in A}w_q\,r_q,
+    \qquad W_A>0,
+    \\
+    S_A^{\,w} &= \sum_{q\in A}w_q\,
+    (r_q-\bar r_A^{\,w})(r_q-\bar r_A^{\,w})\trans.
+\end{align}
+The weighted NIW posterior parameters for the items in $A$ are
+\begin{align}
+    \kappa_A &= \kappa_0+W_A,
+    \label{eq:kappa-post}\\
+    \nu_A &= \nu_0+|A|,
+    \label{eq:nu-post}\\
+    m_A &=
+    \begin{cases}
+    \dfrac{\kappa_0 m_0+W_A\bar r_A^{\,w}}{\kappa_0+W_A},
+    & |A|>0,\\[1em]
+    m_0, & |A|=0,
+    \end{cases}
+    \label{eq:m-post}\\
+    S_A &=
+    \begin{cases}
+    S_0+S_A^{\,w}+
+    \dfrac{\kappa_0 W_A}{\kappa_0+W_A}
+    (\bar r_A^{\,w}-m_0)(\bar r_A^{\,w}-m_0)\trans,
+    & |A|>0,\\[1em]
+    S_0, & |A|=0.
+    \end{cases}
+    \label{eq:S-post}
+\end{align}
+The IW degrees-of-freedom update $\nu_A=\nu_0+|A|$ uses the item count
+$|A|$ (not $W_A$) because each Gaussian factor in
+\eqref{eq:residual-Gaussian} contributes one determinant
+$|\Sigma_l|^{-1/2}$ regardless of $w_q$.
+
+For component $l$, let $\mathcal J_l=\{q:c_q=l\}$ and $n_l=|\mathcal J_l|$.
+Define
+$(\kappa_l,\nu_l,m_l,S_l)
+=(\kappa_{\mathcal J_l},\nu_{\mathcal J_l},m_{\mathcal J_l},S_{\mathcal J_l})$.
+For leave-one-out summaries, $\mathcal J_{l,-q}=\{r:r\neq q,\,c_r=l\}$.
+
+\section{NIW posterior predictive allocation update}
+\label{sec:c-update}
+
+Integrating out $(\mu_l,\Sigma_l)$ for the label allocation step uses the
+NIW Student-$t$ posterior predictive on the residual $r_q$.  Because $r_q$
+arises from \eqref{eq:residual-Gaussian} with covariance $\Sigma_l/w_q$,
+the predictive scale is inflated by $w_q^{-1}$:
+\begin{equation}
+    r_q\mid r_{\mathcal J_{l,-q}},w_q
+    \sim
+    t_{\nu_{l,-q}-d+1}
+    \!\left(
+    m_{l,-q},\,
+    \frac{\kappa_{l,-q}+w_q}{\kappa_{l,-q}\,w_q\,(\nu_{l,-q}-d+1)}\,S_{l,-q}
+    \right).
+    \label{eq:niw-predictive-skewt}
+\end{equation}
+Since $r_q=z_q-\Delta_l U_q$ when $q$ is tentatively assigned to cluster
+$l$, the collapsed single-site label update is
+\begin{equation}
+    P(c_q=l\mid c_{-q},z,\Delta,U,w)
+    \propto
+    (n_{l,-q}+e_0)\;
+    t_{\nu_{l,-q}-d+1}\!\Bigl(
+        z_q-\Delta_l U_q;\,m_{l,-q},\,V_{l,-q}(w_q)
+    \Bigr),
+    \qquad l=1,\dots,K^\star,
+    \label{eq:c-update-skewt}
+\end{equation}
+where $V_{l,-q}(w_q)=\dfrac{\kappa_{l,-q}+w_q}{\kappa_{l,-q}\,w_q\,(\nu_{l,-q}-d+1)}S_{l,-q}$
+is the predictive scale matrix from \eqref{eq:niw-predictive-skewt}.
+
+This is a Gibbs update on $c_q$, so the move is accepted with probability
+one after sampling from the normalized weights \eqref{eq:c-update-skewt}.
+Note that the candidate cluster label $l$ enters not only the NIW
+sufficient statistics $(\kappa_{l,-q},\nu_{l,-q},m_{l,-q},S_{l,-q})$ but
+also the residual location $z_q-\Delta_l U_q$, so $\Delta_l$ acts as a
+cluster-specific shift in the predictive evaluation.
+
+\section{Posterior draw of cluster parameters}
+\label{sec:cluster-param-update}
+
+After updating labels and the latents $(U,w)$, refresh the cluster
+parameters in three sequential Gibbs steps.
+
+\subsection{NIW draw of $(\mu_l,\Sigma_l)$}
+
+Using the residual sufficient statistics of Section~\ref{sec:niw-residual}
+computed at the \emph{current} $\Delta_l$ and $\{U_q:q\in\mathcal J_l\}$,
+\begin{align}
+    \Sigma_l\mid r,c
+    &\sim\IW(\nu_l,S_l),
+    \label{eq:Sigma-post}\\
+    \mu_l\mid\Sigma_l,r,c
+    &\sim N_d\!\left(m_l,\;\frac{1}{\kappa_l}\Sigma_l\right),
+    \qquad l=1,\dots,K^\star.
+    \label{eq:mu-post}
+\end{align}
+For empty components ($n_l=0$) this reduces to a draw from the NIW prior
+\eqref{eq:Sigma-prior}--\eqref{eq:mu-prior}.
+
+\subsection{Multivariate Gaussian Gibbs draw of $\Delta_l$}
+
+Conditional on $(\mu_l,\Sigma_l)$ and on the per-item latents
+$\{(U_q,w_q):q\in\mathcal J_l\}$, the contribution of cluster $l$ to the
+likelihood of $\Delta_l$ from \eqref{eq:z-given-latents} is
+\begin{equation}
+    -\tfrac{1}{2}\sum_{q\in\mathcal J_l}w_q\,
+    (z_q-\mu_l-\Delta_l U_q)\trans\Sigma_l^{-1}(z_q-\mu_l-\Delta_l U_q).
+    \label{eq:Delta-likelihood}
+\end{equation}
+Expanding the quadratic in $\Delta_l$ and combining with the prior
+\eqref{eq:Delta-prior} gives a $d$-dimensional Gaussian full conditional,
+\begin{equation}
+    \Delta_l\mid z,c,\mu,\Sigma,U,w
+    \sim
+    N_d\!\bigl(M_l,V_l\bigr),
+    \label{eq:Delta-post}
+\end{equation}
+with precision and mean
+\begin{align}
+    V_l^{-1}
+    &=
+    \biggl(\sum_{q\in\mathcal J_l}w_q U_q^{\,2}\biggr)\,\Sigma_l^{-1}
+    +\tau_\Delta^{-2}I_d,
+    \label{eq:Delta-prec}\\
+    M_l
+    &=
+    V_l\,\Sigma_l^{-1}\sum_{q\in\mathcal J_l}
+    w_q U_q\,(z_q-\mu_l).
+    \label{eq:Delta-mean}
+\end{align}
+For empty components, $V_l^{-1}=\tau_\Delta^{-2}I_d$ and $M_l=0$, so
+$\Delta_l$ is drawn from the prior $N_d(0,\tau_\Delta^2 I_d)$.
+
+\subsection{Half-normal Gibbs draw of $U_q$}
+
+Conditional on cluster parameters and on $w_q$, the full conditional of
+$U_q$ is obtained by combining the half-normal prior \eqref{eq:U-prior}
+with the Gaussian likelihood \eqref{eq:z-given-latents}.  Both contribute
+quadratics in $U_q$, giving a truncated normal:
+\begin{equation}
+    U_q\mid z,c,\mu,\Sigma,\Delta,w
+    \sim
+    N_+\!\bigl(\mu_{U,q},\,\sigma_{U,q}^{2}\bigr),
+    \label{eq:U-post}
+\end{equation}
+where
+\begin{align}
+    \sigma_{U,q}^{-2}
+    &=
+    w_q\,\bigl(1+\Delta_{c_q}\trans\Sigma_{c_q}^{-1}\Delta_{c_q}\bigr),
+    \label{eq:U-prec}\\
+    \mu_{U,q}
+    &=
+    \sigma_{U,q}^{\,2}\,w_q\,
+    \Delta_{c_q}\trans\Sigma_{c_q}^{-1}\,(z_q-\mu_{c_q}).
+    \label{eq:U-mean}
+\end{align}
+The truncation to $(0,\infty)$ is sampled by inverse CDF: draw
+$u\sim\mathrm{Uniform}\!\bigl(\Phi(-\mu_{U,q}/\sigma_{U,q}),1\bigr)$ and
+return $\mu_{U,q}+\sigma_{U,q}\Phi^{-1}(u)$, where $\Phi$ is the standard
+normal cdf.
+
+\subsection{Gamma Gibbs draw of $w_q$}
+
+Conditional on $(\Delta_{c_q},U_q,\mu_{c_q},\Sigma_{c_q})$, the full
+conditional of $w_q$ from the Gamma prior \eqref{eq:w-prior} together with
+the Gaussian likelihood \eqref{eq:z-given-latents} \emph{and} the
+half-normal density $N_+(U_q;0,1/w_q)\propto w_q^{1/2}\exp(-w_q U_q^2/2)$
+is again Gamma:
+\begin{equation}
+    w_q\mid z,c,\mu,\Sigma,\Delta,U
+    \sim
+    \mathrm{Gamma}\!\left(
+    \frac{\nu_t+d+1}{2},\;
+    \frac{\nu_t+D_q+U_q^{\,2}}{2}
+    \right),
+    \label{eq:w-post}
+\end{equation}
+where
+\begin{equation}
+    D_q
+    =
+    (z_q-\mu_{c_q}-\Delta_{c_q}U_q)\trans
+    \Sigma_{c_q}^{-1}
+    (z_q-\mu_{c_q}-\Delta_{c_q}U_q).
+    \label{eq:Dq}
+\end{equation}
+The additional $+1$ in the shape and $+U_q^{\,2}/2$ in the rate (relative
+to the elliptical Student-$t$ version) come exactly from the half-normal
+contribution.
+
+\subsection{Wishart Gibbs draw of $S_0$}
+
+After all $\Sigma_l$ have been refreshed, draw the cluster-scale
+hyperparameter from \eqref{eq:S0-update}:
+\begin{equation}
+    S_0\mid\{\Sigma_l\}
+    \sim
+    W\!\left(
+    \nu_{S_0}+K^\star\nu_0,\;
+    \bigl(\Lambda_{S_0}^{-1}+\textstyle\sum_l\Sigma_l^{-1}\bigr)^{-1}
+    \right).
+    \label{eq:S0-gibbs}
+\end{equation}
+The cached log-determinant $\log|S_0|$, used in the NIW marginal likelihood
+\eqref{eq:niw-marginal} for split--merge moves, must be refreshed after
+every $S_0$ draw.
+
+\subsection{Mixture weight $\rho$ (storage only)}
+
+For monitoring,
+\begin{equation}
+    \rho\mid c
+    \sim
+    \Dir(e_0+n_1,\dots,e_0+n_{K^\star}).
+    \label{eq:rho-post}
+\end{equation}
+The draw of $\rho$ is not needed for the collapsed label update
+\eqref{eq:c-update-skewt}.
+
+\section{Collapsed partition target for split--merge moves}
+\label{sec:collapsed-partition}
+
+Integrating out $\rho$, $(\mu_l,\Sigma_l)$, $w_q$, and $U_q$ would give a
+partition target on $c$ alone, but the integrals over the per-item latents
+$(w_q,U_q)$ do not have a closed form for SDB skew-$t$.  We instead
+condition on $(\Delta_l,U_q,w_q)$ and integrate only $\rho$ and
+$(\mu_l,\Sigma_l)$.  The resulting target on $c$ is
+\begin{equation}
+    \pi(c\mid r,\Delta)
+    \propto
+    \prod_{l=1}^{K^\star}
+    \frac{\Gamma(n_l+e_0)}{\Gamma(e_0)}
+    \,m(r_{\mathcal J_l}),
+    \label{eq:partition-target}
+\end{equation}
+where the NIW marginal likelihood of the residuals in cluster $l$ is
+\begin{equation}
+    m(r_A)
+    =
+    \int\!\!\int
+    \prod_{q\in A}N_d(r_q;\mu,\Sigma/w_q)
+    \,p(\mu,\Sigma)\,d\mu\,d\Sigma,
+    \label{eq:niw-marginal-residual}
+\end{equation}
+with $(\mu,\Sigma)\sim\mathrm{NIW}(m_0,\kappa_0,\nu_0,S_0)$.  The log
+marginal in closed form is
+\begin{align}
+    \log m(r_A)
+    &=-\frac{n_A d}{2}\log\pi
+    +\frac{d}{2}\bigl\{\log\kappa_0-\log\kappa_A\bigr\}
+    +\frac{\nu_0}{2}\log|S_0|
+    -\frac{\nu_A}{2}\log|S_A|
+    \notag\\
+    &\qquad
+    +\log\Gamma_d\!\left(\frac{\nu_A}{2}\right)
+    -\log\Gamma_d\!\left(\frac{\nu_0}{2}\right)
+    +\frac{d}{2}\sum_{q\in A}\log w_q,
+    \label{eq:niw-marginal}
+\end{align}
+where
+\begin{equation}
+    \log\Gamma_d(a)
+    =
+    \frac{d(d-1)}{4}\log\pi
+    +\sum_{h=1}^d\log\Gamma\!\left(a+\frac{1-h}{2}\right)
+\end{equation}
+is the multivariate Gamma function and $n_A=|A|$.  The
+$\frac{d}{2}\sum_q\log w_q$ term collects the Jacobian factors from each
+$w_q$-scaled Gaussian factor in \eqref{eq:niw-marginal-residual} and is
+\emph{constant in any partition move} that preserves the item set, so it
+cancels in the split/merge Metropolis--Hastings ratio.
+
+\section{Metropolis--Hastings updates for LSIRM parameters}
+\label{sec:lsirm-mh}
+
+All LSIRM parameters with non-conjugate full conditionals are updated by
+random-walk Metropolis--Hastings.  All proposals below are symmetric
+Gaussian random walks with item- or parameter-specific scale.
+
+\subsection{Respondent effect $\alpha_i^{(\ell)}$}
+
+Propose
+$\alpha_i^{(\ell)\prime}=\alpha_i^{(\ell)}+\varepsilon_\alpha$,
+$\varepsilon_\alpha\sim N(0,s_\alpha^2)$.  Let
+$\eta_{ij}^{(\ell)\prime}$ be the linear predictor after the proposal.
+The log acceptance ratio is
+\begin{align}
+    \log R_\alpha
+    &=
+    \sum_{j:(i,j)\in\mathcal O_\ell}
+    \!\bigl[\log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)\prime},\xi_\ell\}
+        -\log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\xi_\ell\}\bigr]
+    \notag\\
+    &\qquad
+    -\frac{1}{2\sigma_{\alpha,\ell}^{\,2}}
+    \bigl\{(\alpha_i^{(\ell)\prime})^2-(\alpha_i^{(\ell)})^2\bigr\}.
+    \label{eq:alpha-mh}
+\end{align}
+
+\subsection{Item difficulty $\beta_j^{(\ell)}$}
+
+For non-ordinal layers, propose
+$\beta_j^{(\ell)\prime}=\beta_j^{(\ell)}+\varepsilon_\beta$,
+$\varepsilon_\beta\sim N(0,s_\beta^2)$.  With the fixed-scale prior
+\eqref{eq:beta-prior},
+\begin{align}
+    \log R_\beta
+    &=
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \!\bigl[\log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)\prime},\xi_\ell\}
+        -\log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\xi_\ell\}\bigr]
+    \notag\\
+    &\qquad
+    -\frac{1}{2\sigma_{\beta,\ell}^{\,2}}
+    \bigl\{(\beta_j^{(\ell)\prime})^2-(\beta_j^{(\ell)})^2\bigr\}.
+    \label{eq:beta-mh}
+\end{align}
+For ordinal layers, propose each threshold $\beta_{j,k}^{(\ell)\prime}$
+by Gaussian random walk; reject the proposal outright if the order
+constraint $\beta_{j,1}^{(\ell)}<\cdots<\beta_{j,K_\ell-1}^{(\ell)}$ is
+violated; otherwise compute the analogue of \eqref{eq:beta-mh} with the
+layer-$\ell$ ordinal likelihood
+\eqref{eq:lik-ord-cum}--\eqref{eq:lik-ord}.
+
+\subsection{Distance weight $\gamma_\ell$}
+
+Propose $\log\gamma_\ell'=\log\gamma_\ell+\varepsilon_\gamma$,
+$\varepsilon_\gamma\sim N(0,s_{\log\gamma}^2)$.  The log acceptance ratio
+is the log-likelihood difference of all observations in layer $\ell$ at
+$\gamma_\ell'$ versus $\gamma_\ell$ plus the log-normal prior difference
+on $\log\gamma_\ell$.
+
+\subsection{Count-layer overdispersion $\kappa_j$}
+
+Propose $\log\kappa_j'=\log\kappa_j+\varepsilon_\kappa$,
+$\varepsilon_\kappa\sim N(0,s_{\log\kappa}^2)$.  The log acceptance ratio
+is the sum of negative-binomial log-likelihood differences over
+respondents and the log-normal prior difference \eqref{eq:kappa-prior}.
+
+\subsection{Respondent latent position $a_i$}
+
+Propose $a_i'=a_i+\varepsilon_a$, $\varepsilon_a\sim N_d(0,s_a^2 I_d)$,
+and aggregate likelihood contributions over every layer:
+\begin{align}
+    \log R_a
+    &=
+    \sum_{\ell=1}^L\sum_{j:(i,j)\in\mathcal O_\ell}
+    \!\bigl[\log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)\prime},\xi_\ell\}
+        -\log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\xi_\ell\}\bigr]
+    \notag\\
+    &\qquad
+    -\tfrac{1}{2}\bigl\{\norm{a_i'}_2^2-\norm{a_i}_2^2\bigr\},
+    \label{eq:a-mh}
+\end{align}
+where the prior variance is fixed at $1$.
+
+\subsection{Item latent position $b_j^{(\ell)}$}
+\label{subsec:b-mh}
+
+Let $q=q(\ell,j)$, with current cluster label $c_q$ and current latents
+$(U_q,w_q)$.  Propose $b_j^{(\ell)\prime}=b_j^{(\ell)}+\varepsilon_b$,
+$\varepsilon_b\sim N_d(0,s_b^2 I_d)$.  The log acceptance ratio combines
+the LSIRM likelihood difference and the conditional Gaussian prior from
+\eqref{eq:z-given-latents}:
+\begin{align}
+    \log R_b
+    &=
+    \sum_{i:(i,j)\in\mathcal O_\ell}
+    \!\bigl[\log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)\prime},\xi_\ell\}
+        -\log f_\ell\{y_{ij}^{(\ell)}\mid\eta_{ij}^{(\ell)},\xi_\ell\}\bigr]
+    \notag\\
+    &\qquad
+    -\tfrac{1}{2}w_q\,
+    \bigl\{
+    (b_j^{(\ell)\prime}-\mu_{c_q}-\Delta_{c_q}U_q)\trans
+    \Sigma_{c_q}^{-1}
+    (b_j^{(\ell)\prime}-\mu_{c_q}-\Delta_{c_q}U_q)
+    \notag\\
+    &\hspace{4em}
+    -(b_j^{(\ell)}-\mu_{c_q}-\Delta_{c_q}U_q)\trans
+    \Sigma_{c_q}^{-1}
+    (b_j^{(\ell)}-\mu_{c_q}-\Delta_{c_q}U_q)
+    \bigr\}.
+    \label{eq:b-mh-skewt}
+\end{align}
+This is the conditional-on-$(c_q,\mu,\Sigma,\Delta,U,w)$ MH ratio.  The
+cluster assignment $c_q$ enters \eqref{eq:b-mh-skewt} through the
+anchor $\mu_{c_q}+\Delta_{c_q}U_q$; the cluster scatter $\Sigma_{c_q}$
+controls the prior strength; and the scale latent $w_q$ inflates or
+deflates that strength inversely.
+
+\section{Conjugate update for the respondent-effect variance}
+
+The only random-effect variance that is sampled is the layer-specific
+respondent-effect variance $\sigma_{\alpha,\ell}^2$, with full conditional
+\begin{equation}
+    \sigma_{\alpha,\ell}^2\mid\alpha^{(\ell)}
+    \sim
+    \IG\!\left(
+    A_{\alpha,\ell}+\frac{n}{2},\;
+    B_{\alpha,\ell}+\frac{1}{2}\sum_{i=1}^n(\alpha_i^{(\ell)})^2
+    \right).
+    \label{eq:sigma-alpha-update}
+\end{equation}
+The respondent-position prior variance is fixed at $1$ \eqref{eq:a-prior};
+the item-difficulty scales $\sigma_{\beta,\ell}^{\,2}$ are fixed; the
+continuous-layer error scale $\sigma_0^2$ has its own inverse-gamma full
+conditional (standard Gaussian-likelihood conjugate update).
+
+\section{Jain--Neal restricted Gibbs split--merge moves}
+\label{sec:split-merge}
+
+Split--merge moves are Metropolis--Hastings updates on $c$ conditional on
+the current residuals $r=(r_1,\dots,r_P)$ (Section~\ref{sec:residual}) and
+on the current $\Delta_l$ values.  The target is the collapsed partition
+density in \eqref{eq:partition-target}.  All residual evaluations use the
+candidate cluster's $\Delta_l$ (so that an item proposed for cluster $l$
+contributes residual $z_q-\Delta_l U_q$).
+
+\subsection{Anchor selection}
+
+Select two distinct global item indices $u$ and $v$ uniformly from
+$\{1,\dots,P\}$.  If $c_u=c_v$, attempt a \emph{split}; otherwise attempt
+a \emph{merge}.  The anchor-selection probability is symmetric and cancels
+in the MH ratio.
+
+\subsection{Split proposal}
+
+Suppose $c_u=c_v=a$ and let $A=\{q:c_q=a\}$.  Choose an empty component
+label $b\in\{l:n_l=0\}$ uniformly at random; if no empty label exists,
+skip the split.  The newly opened component inherits its parent's skew
+direction by setting $\Delta_b^{\mathrm{prop}}=\Delta_a$.
+
+Initialize two temporary clusters by forcing $c_u'=a$, $c_v'=b$.  For
+each $q\in A\setminus\{u,v\}$, assign $q$ to either $a$ or $b$ by a
+restricted residual-collapsed Gibbs scan with weights
+\begin{align}
+    w_q(a)&\propto
+    (n_{a,-q}^{\mathrm{temp}}+e_0)\,
+    t_{\nu_{a,-q}-d+1}\!\bigl(
+        z_q-\Delta_a U_q;\,m_{a,-q}^{\mathrm{temp}},V_{a,-q}^{\mathrm{temp}}(w_q)
+    \bigr),
+    \label{eq:split-w-a}\\
+    w_q(b)&\propto
+    (n_{b,-q}^{\mathrm{temp}}+e_0)\,
+    t_{\nu_{b,-q}-d+1}\!\bigl(
+        z_q-\Delta_b^{\mathrm{prop}} U_q;\,m_{b,-q}^{\mathrm{temp}},V_{b,-q}^{\mathrm{temp}}(w_q)
+    \bigr),
+    \label{eq:split-w-b}
+\end{align}
+where the NIW posterior summaries
+$(\kappa,\nu,m,S)^{\mathrm{temp}}_{a,-q}$,
+$(\kappa,\nu,m,S)^{\mathrm{temp}}_{b,-q}$ are computed from the
+\emph{current} temporary assignments of items into clusters $a$ and $b$,
+respectively, using residuals
+$\{z_{q'}-\Delta_a U_{q'}\}$ and $\{z_{q'}-\Delta_b^{\mathrm{prop}}U_{q'}\}$.
+Let $p_q^{\mathrm{fwd}}$ be the normalized probability of the assignment
+actually selected.  Then
+\begin{equation}
+    \log q(c'\mid c)
+    =
+    -\log E(c)
+    +\sum_{q\in A\setminus\{u,v\}}\log p_q^{\mathrm{fwd}},
+    \label{eq:split-fwd}
+\end{equation}
+where $E(c)$ is the number of empty components before the split.  The
+reverse move is a deterministic merge, so $\log q(c\mid c')=0$.  The
+split acceptance probability is
+\begin{equation}
+    \alpha_{\mathrm{split}}
+    =
+    \min\!\left\{1,
+    \exp\bigl[
+    \log\pi(c'\mid r,\Delta)-\log\pi(c\mid r,\Delta)
+    -\log q(c'\mid c)
+    \bigr]\right\}.
+    \label{eq:split-acc}
+\end{equation}
+If the move is accepted, the next sweep's Gibbs step for $\Delta_b$
+\eqref{eq:Delta-post} re-estimates the new cluster's skew direction from
+its newly assigned items.
+
+\subsection{Merge proposal}
+
+Suppose $c_u=a$ and $c_v=b$, $a\neq b$.  Let $A=\{q:c_q=a\}$ and
+$B=\{q:c_q=b\}$.  The proposal merges $B$ into $A$:
+$c_q'=a$ for all $q\in A\cup B$; the merged cluster keeps $\Delta_a$.
+Thus $\log q(c'\mid c)=0$.
+
+The reverse proposal would split $A\cup B$ back into $A$ and $B$ using
+$u,v$ as anchors with restricted-Gibbs scan probabilities analogous to
+\eqref{eq:split-w-a}--\eqref{eq:split-w-b}, with $b$'s temporary skew
+direction set to the merged-state $\Delta_a$ (so the reverse path is
+well-defined).  Let $p_q^{\mathrm{rev}}$ be the probability of assigning
+$q$ to its original side during this reverse scan.  Then
+\begin{equation}
+    \log q(c\mid c')
+    =
+    -\log E(c')
+    +\sum_{q\in(A\cup B)\setminus\{u,v\}}\log p_q^{\mathrm{rev}},
+    \label{eq:merge-rev}
+\end{equation}
+where $E(c')$ is the number of empty components after the merge.  The
+merge acceptance probability is
+\begin{equation}
+    \alpha_{\mathrm{merge}}
+    =
+    \min\!\left\{1,
+    \exp\bigl[
+    \log\pi(c'\mid r,\Delta)-\log\pi(c\mid r,\Delta)
+    +\log q(c\mid c')
+    \bigr]\right\}.
+    \label{eq:merge-acc}
+\end{equation}
+
+\paragraph{Treatment of $\Delta_l$ in split--merge.}
+Both the forward split and the reverse split (inside the merge MH ratio)
+condition on the current $\Delta_l$ values rather than marginalizing them.
+In split, the new component inherits its parent's $\Delta$; in merge, the
+surviving component keeps its $\Delta$; the Gibbs step
+\eqref{eq:Delta-post} subsequently refreshes both.  This conditional-on-
+$\Delta$ scheme preserves the target $\pi(c\mid r,\Delta)$ of
+\eqref{eq:partition-target} as the partition-only stationary distribution
+of the MH move; the full joint posterior \eqref{eq:full-posterior} is
+preserved because every conditioning variable is refreshed elsewhere in
+the sweep.
+
+\section{Posterior cluster summaries}
+
+Because labels are not identifiable, cluster summaries should be
+label-switching invariant.  The primary summary is the posterior
+similarity matrix
+\begin{equation}
+    C_{qr}=P(c_q=c_r\mid Y),
+    \qquad q,r=1,\dots,P,
+\end{equation}
+updated online by
+$C_{qr}^{\mathrm{raw}}\leftarrow C_{qr}^{\mathrm{raw}}+\ind(c_q=c_r)$
+after burn-in.  The trace of the occupied-component count
+$K_+^{(t)}=|\{l:n_l^{(t)}>0\}|$ is monitored for chain mixing.
+Point-estimate partitions are obtained by minimising the Binder loss or
+the variation-of-information (VI) loss over the posterior similarity
+matrix.
+
+The skew directions $\{\Delta_l\}$ admit additional summaries, but they
+are subject to the same rotation ambiguity as $(\mu_l,\Sigma_l)$
+\eqref{eq:rigid-motion}, so visualization of $\Delta_l$ should be paired
+with the post-hoc Procrustes alignment of
+Section~\ref{sec:rotation-invariance}.
+
+\section{Sweep order and validity}
+\label{sec:sweep}
+
+A single MCMC sweep updates each block of parameters once.  The order is
+\begin{enumerate}[label=(\arabic*),leftmargin=2em]
+    \item Layer-specific nuisance latents: continuous-layer
+    $\{\lambda_{ij}^{(\ell)}\}$ Gibbs;
+    \item Respondent effects $\{\alpha_i^{(\ell)}\}$ MH per \eqref{eq:alpha-mh};
+    \item Respondent positions $\{a_i\}$ MH per \eqref{eq:a-mh};
+    \item Item difficulties $\{\beta_j^{(\ell)}\}$ MH per \eqref{eq:beta-mh};
+    \item Item positions $\{b_j^{(\ell)}\}$ MH per \eqref{eq:b-mh-skewt};
+    \item Ordinal thresholds (when applicable), distance weights
+    $\{\gamma_\ell\}$, count overdispersions $\{\kappa_j\}$ MH;
+    \item Continuous-layer scale $\sigma_0^2$ inverse-gamma Gibbs;
+    respondent-effect variances $\sigma_{\alpha,\ell}^{2}$ inverse-gamma
+    Gibbs per \eqref{eq:sigma-alpha-update};
+    \item Allocation Gibbs $\{c_q\}$ per \eqref{eq:c-update-skewt};
+    \item Jain--Neal split--merge proposals
+    \eqref{eq:split-acc}, \eqref{eq:merge-acc}, repeated $M_{\mathrm{SM}}$
+    times;
+    \item NIW Gibbs $\{(\mu_l,\Sigma_l)\}$ per
+    \eqref{eq:Sigma-post}--\eqref{eq:mu-post};
+    \item Skew direction Gibbs $\{\Delta_l\}$ per \eqref{eq:Delta-post};
+    \item Half-normal Gibbs $\{U_q\}$ per \eqref{eq:U-post};
+    \item Gamma Gibbs $\{w_q\}$ per \eqref{eq:w-post};
+    \item Wishart Gibbs $S_0$ per \eqref{eq:S0-gibbs};
+    \item (Monitoring only) Dirichlet draw of $\rho$ per \eqref{eq:rho-post}.
+\end{enumerate}
+
+\paragraph{Validity.}
+Each block is a proper full-conditional Gibbs or a Metropolis--Hastings
+move targeting the conditional distribution implied by the joint posterior
+\eqref{eq:full-posterior}.  In particular, the partition move
+$\pi(c\mid r,\Delta)$ targets the marginal distribution of $c$ after
+integrating $\rho$, $\mu$, $\Sigma$ out of the joint, conditional on the
+\emph{current} $\Delta$ and on the residuals $r=z-\Delta U$ (which depend
+on the current $U$); since $\Delta$, $U$, and $w$ are refreshed in
+subsequent blocks before they are reused, the sweep order
+(1)--(15) is a valid Gibbs scan of the joint posterior.
+
+\section{Hyperparameter setting criteria}
+\label{sec:hyperparams}
+
+The hyperparameters governing the skew-$t$ mixture and its priors are set
+as follows.  All scales below refer to the implementation's default
+latent-space scale (item-position norms typically in $[0,3]$ after
+Procrustes alignment to the posterior-mean configuration).
+
+\paragraph{Student-$t$ degrees of freedom $\nu_t$ (fixed).}
+$\nu_t>2$ ensures finite within-cluster variance.  Heavier tails (smaller
+$\nu_t$) tolerate boundary items but reduce the cluster center's
+identifying power.  Recommended range $\nu_t\in[3,10]$; default
+$\nu_t=3$.  This is treated as fixed rather than estimated because
+$\nu_t$ and the cluster-shape concentration $\nu_0$ are weakly
+identified jointly.
+
+\paragraph{Skew direction prior scale $\tau_\Delta$ (fixed).}
+$\tau_\Delta$ controls the prior strength on cluster asymmetry.
+$\tau_\Delta\to 0$ collapses the model to elliptical Student-$t$;
+$\tau_\Delta$ large allows arbitrarily strong skew.  Recommended range
+$\tau_\Delta\in[0.5,2.0]$; default $\tau_\Delta=1.0$, matching the
+expected within-cluster spread in the latent space.  For datasets where
+prior knowledge suggests symmetric clusters, $\tau_\Delta=0.1$ provides
+shrinkage toward $\Delta_l=0$ while allowing data to override if the
+posterior signal is strong.
+
+\paragraph{NIW concentration on $\mu_l$: $\kappa_0$ (fixed).}
+$\kappa_0$ is the prior effective sample size for the cluster center.
+Small $\kappa_0$ (e.g.\ $10^{-3}$) gives essentially no prior pull on
+$\mu_l$, which can let empty-component $\mu_l$ draws explode under the
+$N(m_0,\Sigma_l/\kappa_0)$ prior.  Recommended $\kappa_0\in[0.1,2]$;
+default $\kappa_0=1.0$, which gives a cluster-center prior standard
+deviation comparable to the expected within-cluster spread.
+
+\paragraph{NIW concentration on $\Sigma_l$: $\nu_0$ (fixed).}
+$\nu_0>d-1$ ensures the IW prior is proper; the prior mean is
+$E[\Sigma_l]=S_0/(\nu_0-d-1)$.  Larger $\nu_0$ pins $\Sigma_l$ closer to
+this mean; smaller $\nu_0$ allows more data-driven cluster shape.
+Recommended $\nu_0=d+10$; the default $\nu_0=12$ (at $d=2$) is moderately
+informative without overconstraining cluster anisotropy.
+
+\paragraph{NIW prior mean $m_0$ (fixed).}
+$m_0=0$ is the canonical choice when Procrustes alignment is used to
+anchor the latent space at the origin.  No data-driven $m_0$ is needed.
+
+\paragraph{NIW prior scale $S_0$ (initial value, then Wishart-sampled).}
+The initial $S_0^{(0)}=s_0 I_d$ sets the prior expected cluster
+covariance $E[\Sigma_l]=S_0^{(0)}/(\nu_0-d-1)$.  Recommended $s_0=1$
+(again on the latent-space scale).  The Wishart hyperprior
+\eqref{eq:S0-hyperprior} with $\nu_{S_0}=d+2$ and
+$\Lambda_{S_0}=S_0^{(0)}/\nu_{S_0}$ gives $E[S_0]=S_0^{(0)}$ while
+allowing data-driven adjustment.  Setting $\nu_{S_0}\to\infty$ holds
+$S_0$ fixed.
+
+\paragraph{Dirichlet concentration $e_0$ (fixed).}
+The symmetric Dirichlet \eqref{eq:rho-prior} with small $e_0$
+(``overfitted finite mixture'' regime of Rousseau and Mengersen, 2011)
+asymptotically empties redundant components when $K^\star$ exceeds the
+true cluster count.  The Rousseau--Mengersen safe range is
+$e_0<d_l/2$ where $d_l=d+d(d+1)/2$ is the per-component parameter
+count of the Gaussian core (ignoring $\Delta_l$); for $d=2$ this gives
+$e_0<2.5$.  Recommended $e_0\in[0.05,0.5]$; default $e_0=0.1$.
+
+\paragraph{Truncation level $K^\star$ (fixed).}
+$K^\star$ is the maximum number of mixture components.  The chain
+automatically empties components beyond the true cluster count when
+$e_0$ is in the overfitted regime, so $K^\star$ can be set generously.
+A practical choice is $K^\star=\min(P,\,K_{\mathrm{expected}}+3)$, with
+$K_{\mathrm{expected}}$ a conservative upper bound on the number of
+substantively meaningful clusters.
+
+\paragraph{Number of split--merge attempts $M_{\mathrm{SM}}$ per sweep.}
+Each restricted-Gibbs split--merge proposal has lower per-attempt
+acceptance under the joint LSIRM coupling than a stand-alone clustering
+model because the residuals $r_q$ are updated only by the slower
+random-walk MH on $b_j^{(\ell)}$ rather than by direct Gibbs.  Increasing
+$M_{\mathrm{SM}}$ compensates: $M_{\mathrm{SM}}=100$ typically gives a
+$\geq 5\times$ improvement in the effective number of accepted moves per
+sweep relative to $M_{\mathrm{SM}}=5$.
+
+\paragraph{MCMC length, burn-in, and thinning.}
+The MH-heavy LSIRM block requires longer chains than a pure Gibbs
+clustering model.  Recommended initial settings are $n_{\mathrm{iter}}\in
+[30000,100000]$, burn-in $\in[10000,30000]$, thin $\in[5,10]$, with the
+chain length doubled if posterior-similarity-matrix convergence diagnostics
+fail.  The burn-in for the FMC block can be shorter (e.g.\
+$0.25\times\mathrm{burnin}_{\mathrm{LSIRM}}$) because $\{c_q\}$ converges
+faster than the latent positions.
+
+\paragraph{Random-walk MH proposal scales.}
+The proposal scales $(s_a,s_b,s_\alpha,s_\beta,s_{\log\gamma},
+s_{\log\kappa})$ should be tuned to per-parameter MH acceptance rates of
+$0.30$--$0.40$ during a preliminary run.  In the implementation, scales
+that yield acceptance outside $[0.15,0.55]$ are halved (if too low) or
+doubled (if too high).
+
+\section*{References}
+\addcontentsline{toc}{section}{References}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item Azzalini, A., and Dalla Valle, A.\ (1996).
+    The multivariate skew-normal distribution.
+    \emph{Biometrika}, 83(4), 715--726.
+
+    \item De~Carolis, G., Kang, S., and Jeon, M.\ (2025).
+    Latent space graded response model (LSGRM) for ordinal item response
+    data.  Working paper.
+
+    \item Gower, J.~C.\ (1975).  Generalized procrustes analysis.
+    \emph{Psychometrika}, 40(1), 33--51.
+
+    \item Jain, S., and Neal, R.~M.\ (2004).
+    A split--merge Markov chain Monte Carlo procedure for the
+    Dirichlet process mixture model.
+    \emph{Journal of Computational and Graphical Statistics}, 13(1),
+    158--182.
+
+    \item Lange, K.~L., Little, R.~J.~A., and Taylor, J.~M.~G.\ (1989).
+    Robust statistical modeling using the $t$ distribution.
+    \emph{Journal of the American Statistical Association}, 84(408),
+    881--896.
+
+    \item Murphy, K.~P.\ (2007).
+    Conjugate Bayesian analysis of the Gaussian distribution.
+    Technical report, University of British Columbia.
+
+    \item Rousseau, J., and Mengersen, K.\ (2011).
+    Asymptotic behaviour of the posterior distribution in overfitted
+    mixture models.
+    \emph{Journal of the Royal Statistical Society, Series B}, 73(5),
+    689--710.
+
+    \item Sahu, S.~K., Dey, D.~K., and Branco, M.~D.\ (2003).
+    A new class of multivariate skew distributions with applications to
+    Bayesian regression models.
+    \emph{The Canadian Journal of Statistics}, 31(2), 129--150.
+
+    \item Sch\"onemann, P.~H.\ (1966).
+    A generalized solution of the orthogonal procrustes problem.
+    \emph{Psychometrika}, 31(1), 1--10.
+
+    \item van~Dyk, D.~A., and Park, T.\ (2008).
+    Partially collapsed Gibbs samplers: theory and methods.
+    \emph{Journal of the American Statistical Association}, 103(482),
+    790--796.
+\end{itemize}
+
+\end{document}
