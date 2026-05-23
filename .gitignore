@@ -24,3 +24,7 @@ data/processed/*
 
 # final v5 outputs — tracked despite the *.rds / *.log / plot/ rules above
 !results/**
+# ...but exclude the large MCMC result objects (exceed GitHub's 100MB limit)
+results/**/*_result.rds
+# ...and .DS_Store under results/ (re-included by !results/** above)
+results/**/.DS_Store

@@ -7,7 +7,7 @@ library(purrr)
 # 0. 경로 설정
 ################################################################################
 # Run this script from the repository root.
-proj_root   <- getwd()
+proj_root   <- '/Users/todoo/Desktop/학교/대학원/Research/joint_LSIRM'
 r_dir       <- file.path(proj_root, "R")
 src_dir     <- file.path(proj_root, "src")
 data_dir    <- file.path(proj_root, "data")
@@ -102,17 +102,17 @@ common_hyper <- list(
   mu_log_gamma3=0, sd_log_gamma3=0.5,
   mu_log_gamma4=0, sd_log_gamma4=0.5,
   mu_log_gamma5=0, sd_log_gamma5=0.5,
-  mu_log_kappa=0, sd_log_kappa=0.5,
+  mu_log_kappa=0, sd_log_kappa=0.01,
   mu_beta4=0, sd_beta4=2,
   mu_beta5=0, sd_beta5=2
 )
 
 common_prop_sd <- list(
   alpha1=0.5, alpha2=0.5, alpha3=0.5, alpha4=0.5, alpha5=0.5,
-  log_gamma1=0.1, log_gamma2=0.05, log_gamma3=0.10, log_gamma4=0.2, log_gamma5=0.2, a=0.3,
+  log_gamma1=0.1, log_gamma2=0.05, log_gamma3=0.10, log_gamma4=0.1, log_gamma5=0.2, a=0.3,
   beta1=0.6, beta2=0.25, beta3=0.2, beta4=0.3, beta5=0.3,
   b1=0.35, b2=0.2, b3=0.2, b4=0.5, b5=0.5,
-  log_kappa=0.4
+  log_kappa=0.02
 )
 
 common_mcmc <- list(d = 2, n_iter = 100000, burnin = 20000, thin = 10)
@@ -489,7 +489,14 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
   if (has_valid(res$samples$log_gamma3)) plot_trace_scalar(res$samples$log_gamma3, true = NA, main = "gamma3 (Cnt)", transform = exp)
   if (has_valid(res$samples$log_gamma4)) plot_trace_scalar(res$samples$log_gamma4, true = NA, main = "gamma4 (Ord1)", transform = exp)
   if (has_valid(res$samples$log_gamma5)) plot_trace_scalar(res$samples$log_gamma5, true = NA, main = "gamma5 (Ord2)", transform = exp)
-  if (has_valid(res$samples$log_kappa))  plot_trace_scalar(res$samples$log_kappa,  true = NA, main = "kappa", transform = exp)
+  if (has_valid(res$samples$log_kappa)) {
+    lk <- res$samples$log_kappa
+    if (is.matrix(lk)) {                       # per-item kappa: 요약으로 item-평균 trace
+      if (ncol(lk) > 0) plot_trace_scalar(rowMeans(lk), true = NA, main = "kappa (item mean)", transform = exp)
+    } else {
+      plot_trace_scalar(lk, true = NA, main = "kappa", transform = exp)
+    }
+  }
   for (al in 1:5) {
     sname <- paste0("sigma_alpha", al, "_sq")
     if (has_valid(res$samples[[sname]])) plot_trace_scalar(res$samples[[sname]], true = NA, main = sname)
@@ -498,6 +505,24 @@ make_traceplots <- function(result, prefix, lsirm_data, plot_dir) {
     plot_trace_scalar(res$samples$lambda2_mean, true = NA, main = "lambda2_mean (robust weight)")
   }
   dev.off()
+
+  # --- Per-item kappa traceplots (count layer, negative-binomial dispersion) ---
+  if (has_valid(res$samples$log_kappa) && is.matrix(res$samples$log_kappa) &&
+      ncol(res$samples$log_kappa) > 0) {
+    lk <- res$samples$log_kappa
+    pdf(file.path(plot_dir, paste0(prefix, "_trace_kappa_per_item.pdf")), width = 8, height = 10)
+    par(mfrow = c(4, 2), mar = c(3, 3, 2, 1))
+    for (j in seq_len(ncol(lk))) {
+      x <- exp(lk[, j])
+      q <- quantile(x, c(.025, .975), na.rm = TRUE)
+      lab <- if (!is.null(lsirm_data$col_cnt) && length(lsirm_data$col_cnt) >= j)
+               lsirm_data$col_cnt[j] else as.character(j)
+      ts.plot(x, main = sprintf("kappa[%s]", lab))
+      abline(h = c(mean(x, na.rm = TRUE), q),
+             col = c("darkgreen", "blue", "blue"), lwd = 2, lty = c(1, 3, 3))
+    }
+    dev.off()
+  }
 
   # --- Lambda2 per-edge traceplots ---
   if (has_valid(res$samples$lambda2) && length(dim(res$samples$lambda2)) == 3 && dim(res$samples$lambda2)[3] > 0) {
@@ -976,7 +1001,7 @@ collect_item_samples <- function(result, lsirm_data) {
 #     ratio per K.
 # ----------------------------------------------------------------------------
 bc_spectral_clustering <- function(result, lsirm_data, prefix, plot_dir,
-                                   K_range = 2:5, seed = 42,
+                                   K_range = 2:5, seed = 10,
                                    grid_n = 80, pad = 0.20) {
   items <- collect_item_samples(result, lsirm_data)
   M <- length(items$samples)
@@ -1447,21 +1472,4 @@ for (cs in cases[1]) {
   saveRDS(result, result_file)
   cat(sprintf("  -> Plots & result saved to: %s\n", case_plot_dir))
 }
-result$accept$log_gamma1
-result$accept$log_gamma2
-result$accept$log_gamma3
-result$accept$log_gamma4
 
-par(mfrow = c(2,2))
-hist(colMeans(result$alpha1))
-hist(colMeans(result$alpha2))
-hist(colMeans(result$alpha3))
-hist(colMeans(result$alpha4))
-
-
-
-dim(cases[[1]]$Y_cnt)
-par(mfrow = c(2,2))
-for(i in 1:dim(cases[[1]]$Y_cnt)[2]){
-  hist(cases[[1]]$Y_cnt[,i], main = colnames(cases[[1]]$Y_cnt)[i])
-}

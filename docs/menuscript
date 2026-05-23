@@ -1,0 +1,664 @@
+\documentclass[A4paper,11pt]{article}
+\usepackage{graphics,graphicx,epsfig,wrapfig}
+\usepackage{longtable}  
+\usepackage{amsmath,verbatim,amssymb,color,lscape}
+\usepackage{kotex}
+\usepackage{natbib}
+\usepackage{lastpage}
+\usepackage{multirow}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{authblk}
+\usepackage{bm}
+\usepackage{subcaption}
+\usepackage{indentfirst}
+\usepackage[ruled,vlined]{algorithm2e}
+\usepackage{algorithmic}
+\usepackage[normalem]{ulem}
+\usepackage[export]{adjustbox}
+\usepackage{tikz}   
+\usepackage{float}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{subcaption}  % 프리앰블에 추가
+\captionsetup{justification=centering}  % 모든 표/그림 캡션 가운데 정렬 (여러 줄 캡션 포함)
+\definecolor{codegreen}{rgb}{0,0.6,0} % 프로그래밍시 볼 수 있는 그 초록색입니다.
+
+% Define a custom style
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{white}, % 배경색 지정 (흰색 선호) 
+    commentstyle=\color{codegreen}, % 주석의 글자 색 지정
+    keywordstyle=\color{blue}, % 키워드의 글자 색 지정
+    stringstyle=\color{codegreen}, % 문자열의 글자 색
+    basicstyle=\ttfamily\footnotesize, % 글자 스타일 (작고 굵어짐)
+    breaklines=true, % 자동 line breaking
+    captionpos=b, % 코드 블럭의 제목 위치
+    numbers=left, % 코드 줄 넘버 표시 (왼쪽)
+    keepspaces=true }
+\lstset{style=mystyle}
+\usepackage{pgffor}         % \foreach 반복문
+
+%\usepackage{hyperref}
+\usepackage{verbatim}
+\newcommand{\hide}[1]{}  
+\newcommand{\msim}{\mathop{\rm \sim}}
+\newcommand{\ind}{\msim\limits^{\mbox{\tiny ind}}}
+\newcommand{\iid}{\msim\limits^{\mbox{\tiny iid}}}
+\makeatletter
+\newcommand{\s}{\vspace{.25cm}}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage[outerbars,color]{changebar}
+\ifx\pdfoutput\undefined
+\else\ifnum\pdfoutput>0
+  \usepackage{pdfcolmk}
+\fi\fi
+\cbcolor{black}
+
+\setlength{\changebarsep}{5mm}
+
+\usepackage[margin=1.0in]{geometry}
+\baselineskip=15.5pt
+
+\usepackage{tikz}
+\usetikzlibrary{bayesnet}
+\usetikzlibrary{fit,positioning}
+\newcommand{\obs}{latent}
+\newcommand{\lat}{obs}
+\newcommand{\con}{const}
+\newcommand{\independent}{\perp\mkern-9.5mu\perp}
+
+\setcounter{secnumdepth}{4}
+\renewcommand{\baselinestretch}{1.5}
+
+\newfont{\rmm}{cmr10 at 11pt}
+\rmm
+\newcommand{\widesim}[2][1.5]{
+  \mathrel{\overset{#2}{\scalebox{#1}[1]{$\sim$}}}
+}
+%\appendix
+
+\pagestyle{plain}
+
+\title{multilayered LSIRM for item response data with mixed data type}
+\author[]{윤현석}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{introduction}
+본 연구는 item response data 를 분석하는 모델 중 하나인 LSIRM 을 여러 가지 data type 을 가지는 item response data 에도 적용할 수 있도록 확장한 모델을 제안합니다. 여러 가지 데이터 타입을 가지는 자료에 대하여 기존의 모델을 사용하였을 경우 불가피하게 모든 데이터 타입을 통일해야 하는 문제가 있고, 이러한 과정은 개별 데이터의 고유한 특성을 왜곡하게 되는 결과를 초래하는 문제점이 존재합니다. 해당 연구에서 제안하는 모델은 이러한 문제점을 우회하여 개별 데이터 타입의 고유한 성질을 보존하면서 통합적으로 분석할 수 있게 합니다.
+
+% \section{related works}
+
+\section{methodology}
+본 연구에서는 혼합형 데이터를 통합적 프레임워크 내에서 다룰 수 있도록 잠재 공간 문항 반응 모형(Latent Space Item Response Model, LSIRM)의 확장을 제안합니다. 구체적으로, \cite{Joen(2021)}이 제안한 LSIRM을 Multilayered Network 로의 적용으로 확장합니다. 이러한 확장을 통해, 이질적인 변수 유형을 포함하는 설문 데이터를 다층 구조로 개념화할 수 있으며, 각 층은 서로 다른 데이터 유형에 대응됩니다. 본 절에서는 먼저 LSIRM과 다층 네트워크를 위한 잠재 공간 모형의 기본 개념을 검토한 후, 제안하는 확장 모형의 형식적 도출을 제시합니다.
+
+\subsection{LSIRM}
+잠재 공간 문항 반응 모형(LSIRM)은 문항 반응 이론(IRT)의 기초적 접근법인 Rasch Model 과, 거리 기반 벌칙항을 통해 네트워크 구조를 포착하는 잠재 공간 모형을 결합한 통합적 프레임워크입니다. 이러한 통합을 통해 문항과 응답자 간의 고차 연관성을 모형화할 수 있습니다.
+
+전통적인 문항 반응 이론(IRT)은 문항의 난이도와 응답자의 능력에 기반하여 특정 응답자가 특정 문항에 정답을 맞힐 확률을 모형화합니다. \cite{Rasch(1961)}은 다음과 같은 모형을 제안합니다.
+
+$$\text{logit}(\mathbb{P}(Y_{ij} = 1)|\alpha_i, \beta_i) = \alpha_i + \beta_i$$
+
+이 모델은 응답자 $i$가 문항 $j$에 정답을 맞힐 로그 오즈를 응답자의 능력 $\alpha_i$와 문항의 난이도 $\beta_j$에 대한 로지스틱 회귀 함수로 모형화합니다. 그러나 이 접근법은 응답자의 수행이 특정 문항 특성에 따라 달라지는 이질적 응답 패턴을 효과적으로 포착하는 데 한계가 있습니다.
+
+이러한 문항과 응답자 간의 추가적 연관성을 다루기 위해, LSIRM은 데이터를 응답자와 문항 간의 이분 네트워크(bipartite network)로 해석하고 잠재 공간 모형의 개념을 도입했습니다. 잠재 공간 모형은 잠재 공간에 매핑된 잠재 벡터 간의 거리를 이용하여 노드 간 엣지의 형성을 설명합니다. \cite{Hoff(2002)}는 이 접근법을 다음과 같이 제안했습니다.
+
+$$\text{logit}(\mathbb{P}(Y_{ij} = 1|\alpha, z_i,z_j)) = \alpha - d(z_i,z_j)$$
+
+이는 노드 $i$와 $j$ 사이에 엣지가 형성될 확률이 절편 $\alpha$와 잠재 위치 $z_i$, $z_j$ 간의 거리에 의해 결정되는 로지스틱 회귀로 이해할 수 있습니다. LSIRM은 이 구조를 채택하여, 문항 노드와 응답자 노드로 구성된 문항 반응 데이터의 이분 네트워크 내 고차 관계를 잠재 공간에 매핑합니다. \cite{Joen(2021)}은 LSIRM을 다음과 같은 형태로 제안하였습니다.
+
+$$g(Pr(Y_{ij} = 1)) = \alpha_i + \beta_j - \gamma d(a_i, b_j)$$
+
+여기서 $\alpha_i$와 $\beta_j$는 전통적 Rasch Model과 일관되게 각각 능력과 난이도를 나타냅니다. $\gamma d(a_i, b_j)$ 항은 능력과 난이도만으로는 설명되지 않는 문항과 응답자 간의 고차 관계를 포착합니다. 0과 $\infty$ 사이의 값을 취하는 모수 $\gamma$는 상호작용 항의 기여도를 결정하는 가중치 역할을 하며, 데이터가 라쉬 프레임워크만으로 충분히 설명되는지 혹은 고차 의존성의 포함이 필요한지를 나타냅니다.
+
+네트워크 의존성 모형화에서의 이러한 발전에도 불구하고, 현행 프레임워크는 이질적 데이터 유형을 동시에 처리할 수 없다는 한계가 존재합니다. 이 모형은 통합된 일반화 선형 모형(GLM) 프레임워크 내에서 작동하므로, 전체 데이터셋에 단일 분포 가정을 사용합니다. 이러한 제약으로 인해 다양한 데이터 원천을 균일한 형식으로 변환해야 하는 경우가 생기고, 이는 응답 간의 미세한 변동을 모호하게 만들어 정보 손실의 위험이 있다는 점에서 문제가 됩니다. 
+
+\subsection{Multilayered LSIRM}
+이러한 문제를 우회하기 위해 Multilayered LSIRM 에서는 각기 다른 데이터 타입을 가지는 응답과 응답자 간의 관계를 Multilayered Network 로 모형화합니다. 해당 network 는 동일한 응답자 노드를 공유하는 multilayered bipartite network 구조로, 개별 Layer 에는 각기 다른 데이터 타입을 가지는 문항이 할당됩니다. 따라서 해당 모델은 개별 Layer 별로 LSIRM 을 적합하되, respondent 의 latent position $a_i$ 을 공유함으로써, 개별 respondent 와 여러 가지 데이터 타입을 가지는 문항의 응답들을 통일된 거리관계에서 확인할 수 있게 합니다.
+
+\subsection{Model estimation}
+모형 추정을 위해 \cite{Joen(2021)}가 제안한 프레임워크와 일관되게 완전 베이지안 접근법을 채택합니다. \cite{Hoff(2002)}가 지적한 바와 같이, 잠재 공간 모형에서는 최대우도추정(MLE)이 종종 다루기 어렵게 됩니다. 이러한 어려움은 우도 함수가 non-concave하고, 모형이 잠재 위치에 관한 본질적인 식별성(identifiability) 문제를 갖기 때문에 발생합니다.
+
+\subsubsection{Model structure}
+본 절에서 제시하는 모델 구조는 서술의 일반성을 위하여 binary, continuous, count, ordinal 데이터 타입을 다루는 모델의 구조를 상정하고 작성하였습니다. 그러나 적용하는 데이터에 따라서 레이어 구조는 축약되거나 확장될 수 있습니다. 아래의 모델 설명에서 가정된 각 파라미터 별 prior distribution 과 update rule은 appendix 에 첨부되어 있습니다.
+
+모든 레이어에서 선형 예측자(linear predictor)는 다음 형태를 공유합니다. 레이어 $\ell = 1, 2, 3$의 경우:
+\[
+\eta_{ij}^{(\ell)} = \alpha_i^{(\ell)} - \beta_j^{(\ell)} - \gamma^{(\ell)} \| a_i - b_j^{(\ell)} \|
+\]
+순서형 레이어 $\ell = 4, 5$의 경우 (난이도 모수 $\beta_j^{(\ell)}$ 대신 threshold parameter 를 사용합니다.):
+\[
+\eta_{ij}^{(\ell)} = \alpha_i^{(\ell)} - \gamma^{(\ell)} \| a_i - b_j^{(\ell)} \|
+\]
+
+%% ----- Layer 1 -----
+\paragraph{레이어 1: 이진형 (Binary, $\ell = 1$)}
+
+$Y_{ij}^{(1)} \in \{0, 1\}$. 로짓 연결 함수(logit link)를 사용합니다.
+
+$\pi_{ij} = \frac{\exp(\eta_{ij}^{(1)})}{1 + \exp(\eta_{ij}^{(1)})}$로 정의하면, 우도는 다음과 같습니다:
+\[
+P\!\left(Y_{ij}^{(1)} = y \mid \alpha_i^{(1)}, \beta_j^{(1)}, \gamma^{(1)}, a_i, b_j^{(1)}\right) = \pi_{ij}^{\, y} \, (1 - \pi_{ij})^{1-y}, \quad y \in \{0, 1\}
+\]
+
+전체 레이어 1의 우도:
+\[
+\mathcal{L}^{(1)} = \prod_{i=1}^{N} \prod_{j=1}^{P^{(1)}} \pi_{ij}^{\, Y_{ij}^{(1)}} \, (1 - \pi_{ij})^{1 - Y_{ij}^{(1)}}
+\]
+
+%% ----- Layer 2 -----
+\paragraph{레이어 2: 연속형 (Continuous, $\ell = 2$)}
+
+$Y_{ij}^{(2)} \in \mathbb{R}$. 정규-감마 스케일 혼합 표현을 사용하여, 주변적으로 자유도 $\nu_2$인 Student-$t$ 분포를 유도합니다.
+
+$\mu_{ij}^{(2)} = \eta_{ij}^{(2)} = \alpha_i^{(2)} - \beta_j^{(2)} - \gamma^{(2)} \| a_i - b_j^{(2)} \|$로 정의하면, 잠재 스케일 $\lambda_{ij}^{(2)}$가 주어졌을 때의 조건부 우도는:
+\[
+P\!\left(Y_{ij}^{(2)} = y \mid \alpha_i^{(2)}, \beta_j^{(2)}, \gamma^{(2)}, a_i, b_j^{(2)}, \sigma_0^2, \lambda_{ij}^{(2)}\right) = \frac{1}{\sqrt{2\pi \sigma_0^2 / \lambda_{ij}^{(2)}}} \exp\!\left( -\frac{\lambda_{ij}^{(2)}}{2\sigma_0^2} (y - \mu_{ij}^{(2)})^2 \right)
+\]
+
+전체 레이어 2의 조건부 우도:
+\[
+\mathcal{L}^{(2)} = (\sigma_0^2)^{-NP^{(2)}/2} \prod_{i=1}^{N} \prod_{j=1}^{P^{(2)}} (\lambda_{ij}^{(2)})^{1/2} \exp\!\left( -\frac{\lambda_{ij}^{(2)}}{2\sigma_0^2} (Y_{ij}^{(2)} - \mu_{ij}^{(2)})^2 \right)
+\]
+
+%% ----- Layer 3 -----
+\paragraph{레이어 3: 카운트형 (Count, $\ell = 3$)}
+
+$Y_{ij}^{(3)} \in \{0, 1, 2, \ldots\}$. 로그 연결 함수(log link)와 음이항 분포를 사용합니다. 카운트 문항 간 과대산포(overdispersion) 정도가 다를 수 있으므로, 산포 모수는 문항별로 고유한 $\kappa_j$ ($j=1,\ldots,P^{(3)}$)를 두어 추정합니다.
+
+$\mu_{ij}^{(3)} = \exp(\eta_{ij}^{(3)}) = \exp\!\left(\alpha_i^{(3)} - \beta_j^{(3)} - \gamma^{(3)} \| a_i - b_j^{(3)} \|\right)$로 정의하고, $r_j = 1/\kappa_j$로 두면:
+\[
+P\!\left(Y_{ij}^{(3)} = y \mid \alpha_i^{(3)}, \beta_j^{(3)}, \gamma^{(3)}, a_i, b_j^{(3)}, \kappa_j\right) = \binom{y + r_j - 1}{y} \left(\frac{r_j}{r_j + \mu_{ij}^{(3)}}\right)^{r_j} \left(\frac{\mu_{ij}^{(3)}}{r_j + \mu_{ij}^{(3)}}\right)^{y}
+\]
+
+전체 레이어 3의 우도:
+\[
+\mathcal{L}^{(3)} = \prod_{i=1}^{N} \prod_{j=1}^{P^{(3)}} \binom{Y_{ij}^{(3)} + r_j - 1}{Y_{ij}^{(3)}} \left(\frac{r_j}{r_j + \mu_{ij}^{(3)}}\right)^{r_j} \left(\frac{\mu_{ij}^{(3)}}{r_j + \mu_{ij}^{(3)}}\right)^{Y_{ij}^{(3)}}
+\]
+
+%% ----- Layer 4 -----
+\paragraph{레이어 4: 순서형 1 (Ordinal 1, $\ell = 4$)}
+각 문항 $j$는 $K_1-1$개의 역치 모수 $\beta_{j,1}^{(4)} > \beta_{j,2}^{(4)} > \cdots > \beta_{j,K_1-1}^{(4)}$ (내림차순)를 가지며, 이를 통해 문항 특성이 반영됩니다. 이는 \cite{LSGRM} 이 제안한 LSGRM model 을 사용하였습니다.
+
+선형 예측자는
+\[
+\eta_{ij}^{(4)} = \alpha_i^{(4)} - \gamma^{(4)}\|a_i - b_j^{(4)}\|
+\]
+이고, 누적 확률은
+\[
+P\!\left(Y_{ij}^{(4)} \geq k \mid \cdot\right)
+= \operatorname{logit}^{-1}\!\left(\eta_{ij}^{(4)} + \beta_{j,k}^{(4)}\right)
+= \frac{\exp\!\left(\eta_{ij}^{(4)} + \beta_{j,k}^{(4)}\right)}{1 + \exp\!\left(\eta_{ij}^{(4)} + \beta_{j,k}^{(4)}\right)},
+\quad k=1,\ldots,K_1-1
+\]
+로 정의됩니다. 편의상 $P^*_{ij,k} \equiv P(Y_{ij}^{(4)} \geq k)$로 쓰면, 각 범주의 확률은 다음과 같습니다.:
+\[
+P\!\left(Y_{ij}^{(4)} = k \mid \cdot\right) =
+\begin{cases}
+1 - P^*_{ij,1}, & k = 1 \\[4pt]
+P^*_{ij,k-1} - P^*_{ij,k}, & 2 \leq k \leq K_1 - 1 \\[4pt]
+P^*_{ij,K_1-1}, & k = K_1
+\end{cases}
+\]
+여기서 $\beta_{j,1}^{(4)} > \cdots > \beta_{j,K_1-1}^{(4)}$의 내림차순 제약에 의해 범주 확률의 비음성이 자동으로 보장됩니다.
+
+전체 레이어 4의 우도:
+\[
+\mathcal{L}^{(4)} = \prod_{i=1}^{N} \prod_{j=1}^{P^{(4)}} P\!\left(Y_{ij}^{(4)} \mid \alpha_i^{(4)}, \gamma^{(4)}, a_i, b_j^{(4)}, \boldsymbol{\beta}_j^{(4)}\right)
+\]
+
+
+\subsubsection{Identifiability}
+잠재 공간 모형의 본질적인 식별 불가능성으로 인해, 후처리 단계로서 Procrustes matching 을 통해 MCMC 표본을 정렬할 필요가 있습니다. 이러한 필요성은 좌표축이 고유한 해석을 갖지 않기 때문에 잠재 공간이 회전, 반사 및 평행이동에 대해 불변이라는 사실에서 비롯됩니다. 이러한 불변성은 MCMC 수렴 진단을 모호하게 만들 수 있는데, 상대적 거리(따라서 모형 적합도)는 반복 간에 안정적일 수 있으나, 샘플링된 좌표는 표류하거나 회전하여 수렴에 실패한 것처럼 보일 수 있기 때문입니다. 이 문제를 완화하기 위해, Procrustes matching 을 사용하여 표본을 기준 배치(앵커)를 향해 회전시킴으로써 반복 간 절대 위치의 일관성을 확보합니다. 기준 배치는 가장 높은 사후 밀도를 나타내는 표본을 사용합니다.(\cite{Hoff(2002)}, \cite{Sewell(2016)}, \cite{Joen(2021)})
+
+본 연구에서 제안하는 프레임워크에서는 문항 데이터 타입에 따라서 응답자의 잠재위치를 공유하는 $L$개의 잠재 위치 집합이 생성됩니다. 해당 잠재위치는 응답자의 잠재위치를 공유하므로 상호 종속 관계에 있으므로, 프로크루스테스 매칭은 각 층에 대해 독립적으로 수행하는 것이 아니라 전체 시스템에 대해 결합적으로 수행됩니다. 이를 위해, 각 MCMC 반복에서 모든 잠재 좌표(전역 및 국소)를 행 방향으로 연결하여 적층 위치 행렬을 구성하고 해당 집합 행렬에 프로크루스테스 변환을 적용합니다.
+
+% \subsection{Model property}
+
+% \subsubsection{distance metric}
+
+\section{simulation study}
+다양한 타입의 데이터 형태를 상정한 item response data 를 시뮬레이션 한 경우, 원래의 데이터 분포를 복원하는 정도를 시뮬레이션을 통하여 알아볼 수 있습니다. 임의의 latent position 과 $\alpha, \beta$ 파라미터를 샘플링한 데이터에 대하여 LSIRM 과 multilayered LSIRM 을 적합한 이후에 95\% 신용구간이 해당 파라미터값을 포함하는지 여부를 이용하여 개별 model 의 true paraemeter 값의 coverage 정도를 확인하였습니다. 아래는 simulation setting 입니다.
+
+\begin{table}[H]
+\centering
+\caption{Simulation setting summary}
+\label{tab:sim-lsirm-cov-setting}
+\begin{tabular}{l|l}
+\hline
+\textbf{Setting} & \textbf{} \\ \hline\hline
+
+Multilayered & Standard (single-layer) LSIRM  \\ \hline
+
+Input data &
+\begin{tabular}[t]{@{}l@{}}
+4 layers $(Y_{\text{bin}}, Y_{\text{con}}, Y_{\text{cnt}}, Y_{\text{ord}})$ \\
+column-wise dichotomized and column-bound into a single $\{0,1\}$ matrix
+\end{tabular} \\ \hline
+
+Latent dimension & $d = 2$ \\ \hline
+
+MCMC iterations & $n_{\text{iter}}=30{,}000$,\ \ burn-in $=10{,}000$,\ \ thin $=5$ \\ \hline
+
+Proposal SDs (random walk) &
+$\sigma_{\text{prop}}:\ \alpha=0.70,\ \beta=0.50,\ \log\gamma=0.05,\ a=0.50,\ b=0.30$ \\ \hline
+
+$\gamma$ handling & \texttt{fix\_gamma = TRUE} (typically $\gamma_{\text{true}}=1.0$) \\ \hline
+
+Replications per setting & $n_{\text{rep}} = 100$ \\ \hline
+
+Dichotomization criteria & \texttt{mean}\ : column mean 
+
+\end{tabular}
+\end{table}
+
+ LSIRM 의 경우 모든 응답을 이진화하여 사용하였으며, 이진화 기준은 평균값을 사용했습니다. 데이터 크기는 응답자 150, 개별 type 문항은 각 10개씩으로 binary, continuous, ordinal, count 타입의 문항을 사용하였습니다.
+아래는 coverage 결과입니다.
+\begin{table}[H]
+\centering
+\caption{Element-wise 95\% 신뢰구간 커버리지(\%)와 평균 폭(mean width) --- 100회 반복 평균. 각 셀은 \textbf{커버리지\,(폭)} 형식으로 표기.}
+\label{tab:cov-pct}\label{tab:cov-width}
+{\footnotesize
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.2}
+\adjustbox{max width=\textwidth}{%
+\begin{tabular}{l cc cc cc}
+\toprule
+ & \multicolumn{2}{c}{Discrim.\ $\alpha$}
+ & \multicolumn{2}{c}{Difficulty $\beta$}
+ & \multicolumn{2}{c}{Distance $\gamma\|a_i-b_j\|$} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Layer & Uni & Multi & Uni & Multi & Uni & Multi \\
+\midrule
+1 (binary)
+  & \multirow{4}{*}{\shortstack{82.9\\(1.233)}}
+  & 95.3\,(2.020)
+  & 84.0\,(1.667) & 94.6\,(1.776)
+  & \multirow{4}{*}{\shortstack{81.3\\(2.411)}}
+  & 96.0\,(2.341) \\
+2 (continuous)
+  &  & 95.5\,(1.185)
+  & \textbf{\phantom{0}8.8}\,(1.647) & \textbf{92.6}\,(\textbf{1.110})
+  &  & 95.3\,(1.661) \\
+3 (count)
+  &  & 95.3\,(1.805)
+  & 82.3\,(1.588) & 94.9\,(1.470)
+  &  & 95.9\,(2.065) \\
+4 (ordinal)
+  &  & 95.7\,(1.670)
+  & --- & 95.0\,(1.614)
+  &  & 95.8\,(2.020) \\
+\bottomrule
+\end{tabular}}}
+
+\vspace{2pt}
+{\footnotesize 각 셀: 커버리지\,\% (평균 폭).\ Uni: 단일 레이어 LSIRM (모든 응답 이진화),\ Multi: multilayered LSIRM.}
+\end{table}
+
+100회 반복 시뮬레이션 결과, multilayered LSIRM 은 모든 데이터 타입의 모수($\alpha$, $\beta$, 거리항)에서 95\% 신뢰구간 커버리지가 명목 수준(95\%)에 근접하여 참값을 안정적으로 복원하는 것을 확인할 수 있습니다. 반면 모든 응답을 이진화하여 사용하는 단일 레이어 LSIRM 의 경우 커버리지가 80\% 안팎에 머물러 명목 수준에 크게 못 미치며, 특히 연속형에서 유래한 문항의 난이도 $\beta$ 커버리지가 8.8\%로 급격히 저하됩니다. 이는 이진화 과정에서 발생하는 정보 손실이 모수 추정의 불확실성 정량화를 왜곡함을 시사합니다.
+
+신뢰구간의 평균 폭(CI width)을 함께 비교하면(표~\ref{tab:cov-width}), multilayered LSIRM 의 우위는 단순히 구간이 좁다는 점이 아니라 \textit{명목 커버리지를 유지하면서도} 정밀도를 확보한다는 점에 있습니다. 거리항의 경우 multilayered LSIRM 은 모든 레이어에서 단일 레이어보다 좁은 구간(예: 연속형 1.661 vs.\ 2.411)을 가지면서 동시에 더 높은 커버리지(약 95--96\% vs.\ 81.3\%)를 달성하여 명확히 더 정밀하게 참값을 복원합니다. 난이도 $\beta$ 또한 연속형(1.110 vs.\ 1.647)과 카운트형(1.470 vs.\ 1.588)에서 더 좁으며 커버리지도 크게 우수합니다. 다만 변별도 $\alpha$ 의 경우 단일 레이어의 구간 폭(1.233)이 multilayered LSIRM(평균 약 1.67)보다 오히려 좁게 나타나는데, 이는 단일 레이어가 더 정밀해서가 아니라 해당 구간의 커버리지가 82.9\%로 명목 수준에 미달하는, 즉 불확실성을 과소평가한(overconfident) 결과입니다. 종합하면, multilayered LSIRM 은 보정(calibration)이 올바른 신뢰구간을 제공하며, 그 틀 안에서 거리 및 난이도 모수를 더 좁게 추정하여 단일 레이어 대비 정밀도와 신뢰성을 모두 개선합니다.
+
+\section{real data analysis}
+Multilayered LSIRM 방법론의 실증 적용을 위하여 MIDUS(Midlife in the United States) dataset 에 적용하였습니다 \citep{brim2004, radler2014}. 해당 데이터셋은 미국 중년기의 건강과 웰빙을 다각도로 조사한 종단 연구(Longitudinal Study) 데이터로 1995-1996년 첫 조사(Baseline)가 시작되었으며, 이후 약 9년 주기로 추적 조사가 진행되고 있습니다. 본 연구는 2004-2009년 수집된 wave 2 데이터와 2011-2016년 수집된 refresher 1 데이터를 사용합니다.
+사용하는 문항은 우울증상과 그와 관련한 생체지표, 인지력과 관련한 문항입니다. multilayered LSIRM 은 문항 별 응답자 간의 경향성을 파악함으로써 우울 관련 문항에 동일하게 응답한 응답자 안에서도 우울증상의 표현형 (phenotype) 별 차이를 확인할 수 있습니다. 이는 우울 카테고리 안에서도 여러 가지 증상과 응답의 조합으로 여러 가지 성질의 우울 표현형이 존재하는 것을 확인하는 것은 해당 질환에 대한 대응책 수립을 위하여 필수적인 작업으로, Multilayered LSIRM 을 통한 분석은 이러한 작업을 보다 수월하게 수행할 수 있게 합니다.
+
+\subsection{데이터 및 전처리}
+본 분석은 MIDUS 의 세 가지 프로젝트 자료를 결합하여 사용합니다. 즉, 표본 선별을 위한 Survey(Project~1, M2P1), 인지 검사 자료인 Cognitive Project(Project~3, M2P3), 그리고 생체지표 자료인 Biomarker Project(Project~4, M2P4)이며, 동일 응답자를 \texttt{M2ID}를 통해 연결하였습니다. 표본 수 확보를 위해 wave~2 코호트와 Refresher~1 코호트를 동일한 변수 정의 하에서 행 방향으로 결합(pooling)하였습니다. 각 데이터셋과 변수 정의는 ICPSR 에서 배포하는 공식 코드북을 따랐습니다 \citep{midus2, midus2cog, midus2bio, midusR1cog, midusR1bio}.
+
+우울 표현형 선별을 위해 Survey 의 sadness branch(\texttt{B1PA60--62})와 anhedonia branch(\texttt{B1PA72--74}) 문항을 이용하였습니다. 핵심 증상(2주 이상 지속된 우울감 또는 흥미 상실)의 게이트 문항을 통과하고 지속기간 및 빈도 기준을 동시에 만족하는 응답자만을 우울군(screening case)으로 분류하였으며, 이후 분석은 이 우울군에 한정하여 수행하였습니다. 한편 선별에 사용한 branch 문항 자체는 모형의 문항(item)으로는 사용하지 않았습니다.
+
+선별된 응답자에 대해서는 문항을 데이터 타입별로 네 개의 레이어로 구성하였습니다. 레이어 1(이진형)은 CES-D 우울 척도 20문항(\texttt{B4Q3A--B4Q3T})으로, 원자료의 4점 빈도 척도를 이진화하였으며(범주 $0,1,2 \to 0$; 범주 $3 \to 1$) 긍정 정서를 측정하는 4문항(\texttt{B4Q3D, B4Q3H, B4Q3L, B4Q3P})은 역코딩 후 이진화하였습니다. 레이어 2(연속형)는 HPA 축 $\cdot$ 자율신경 $\cdot$ 염증 관련 생체지표 5개로, 추정 전 표준화하여 사용하였습니다. 레이어 3(카운트형)은 인지 검사의 오류 $\cdot$ 누락 수로 재구성한 15개 변수로, 값이 클수록 인지기능 저하를 의미합니다(예: 누락 수 $=$ 최대점수 $-$ 정답수). 끝으로 레이어 4(순서형, 5점)는 MASQ 불안 척도 28문항으로, General Distress--Anxious(GDA) 11문항과 Anxious Arousal(AA) 17문항으로 구성됩니다.
+
+결측은 목록별 제거(listwise deletion)로 처리하였으며, 결합 $\cdot$ 결측 처리 후 최종 분석 표본은 응답자 $N=221$명, 문항 $P=68$개(4개 레이어)입니다. 사용한 68개 문항 각각의 변수명, 변수 설명, 자료형 등 개별 변수에 대한 자세한 설명은 부록~B(Appendix~B: Variable descriptions, 표~\ref{tab:midus-items})에 첨부하였습니다.
+
+
+\section{분석 결과}
+
+\section{conclusion}
+
+
+\bibliographystyle{Chicago}
+\bibliography{reference}
+
+\section{appendix}
+
+\subsection{Appendix A: Model description}
+
+\subsubsection{prior distribution}
+사전 분포(prior distribution)는 다음과 같이 설정합니다.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{c|l|l}
+\hline
+\textbf{번호} & \textbf{분포} & \textbf{인덱스} \\ \hline
+
+1 &
+$\displaystyle \alpha_i^{(\ell)} \overset{\text{ind}}{\sim}
+\mathcal{N}(0,\sigma_{\alpha}^{2,(\ell)})$ &
+$i=1,\ldots,N;\ \ell=1,\ldots,4$ \\ \hline
+
+2 &
+$\displaystyle \sigma_{\alpha}^{2,(\ell)} \sim IG(a_{\sigma}, b_{\sigma})$ &
+$\ell=1,\ldots,5$ \\ \hline
+
+3 &
+$\displaystyle \beta_j^{(\ell)} \overset{\text{ind}}{\sim}
+\mathcal{N}(0,\tau_{\beta}^{2,(\ell)})$ &
+$j=1,\ldots,P^{(\ell)};\ \ell=1,2,3$ \\ \hline
+
+4 &
+$\displaystyle \tau_{\beta}^{2,(\ell)} \equiv 1\ $ &
+$\ell=1,2,3$ \\ \hline
+
+5 &
+$\displaystyle \log(\gamma^{(\ell)}) \sim
+\mathcal{N}(\mu_{\log\gamma}^{(\ell)}, \sigma_{\log\gamma}^{2,(\ell)})$ &
+$\ell=1,\ldots,4$ \\ \hline
+
+6 &
+$\displaystyle b_j^{(\ell)} \overset{\text{iid}}{\sim} MVN_d(0_d, I_d)$ &
+$j=1,\ldots,P^{(\ell)};\ \ell=1,\ldots,5$ \\ \hline
+
+7 &
+$\displaystyle a_i \overset{\text{iid}}{\sim} MVN_d(0_d, I_d)$ &
+$i=1,\ldots,N$ \\ \hline
+
+8 &
+$\displaystyle \sigma_0^{2} \sim IG(a_{\sigma_0}, b_{\sigma_0})$ &
+-- \\ \hline
+
+9 &
+$\displaystyle \lambda_{ij}^{(2)} \overset{\text{iid}}{\sim}
+\operatorname{Gamma}\!\left(\tfrac{\nu_2}{2},\tfrac{\nu_2}{2}\right)$ &
+$i=1,\ldots,N;\ j=1,\ldots,P^{(2)}$ \\ \hline
+
+10 &
+$\displaystyle \log\kappa_j \overset{\text{ind}}{\sim}
+\mathcal{N}(\mu_{\log\kappa},\sigma_{\log\kappa}^{2})$ &
+$j=1,\ldots,P^{(3)}$ \\ \hline
+
+11 &
+$\displaystyle \beta_{j,c}^{(\ell)} \overset{\text{ind}}{\sim}
+\mathcal{N}(\mu_{\beta_\ell},\sigma_{\beta_\ell}^{2})$ &
+$j=1,\ldots,P^{(\ell)};\ c=1,\ldots,K_{\ell-3}-1;\ \ell=4,5$ \\ \hline
+
+\end{tabular}
+\end{table}
+
+여기서 $N$은 응답자의 수, $P^{(\ell)}$은 $\ell$번째 레이어의 문항 수이며, 본 모형은 총 $L=4$개의 레이어로 구성됩니다. $d$는 잠재 벡터의 차원이고, $K$ 는 순서형 데이터를 가지는 레이어의 순서형 범주의 개수이며, $\nu_2$는 연속형 레이어의 (고정된) 자유도입니다. 모든 잠재 벡터는 동일한 $d$차원 벡터 공간에 존재합니다.
+
+문항별 잠재 벡터 $b_j^{(\ell)}$와 공유 응답자별 잠재 벡터 $a_i$ 모두에 표준 정규 사전 분포를 부여함으로써 잠재 위치의 스케일을 제한하고, 이를 통해 발생할 수 있는 식별성(identifiability) 문제를 완화합니다. 
+\subsubsection{업데이트 규칙}
+사후 추론은 마르코프 체인 몬테카를로(MCMC)로 구현된다. 닫힌 형태의 완전 조건부 분포를 갖지 않는 모수(예: $\alpha,\beta,\gamma,b,\kappa$, 순서형 임계값 증분 $\delta$, 그리고 공유 모수 $a_i$)에 대해서는 메트로폴리스--헤이스팅스(MH) 알고리즘을 사용하고, 켤레(conjugate) 완전 조건부 분포를 갖는 모수(예: 분산 항 $\sigma_{\alpha}^{2,(\ell)}$, 잔차 스케일 $\sigma_0^2$, 그리고 로버스트 연속형 레이어의 잠재 스케일 $\lambda_{ij}^{(2)}$)에 대해서는 깁스(Gibbs) 샘플링을 사용한다. 샘플링 단계는 로버스트 연속형 레이어의 잠재 스케일에서 시작하여, 다섯 레이어 각각에 고유한 모수들, 마지막으로 공유 응답자 위치의 순서로 차례대로 기술한다.
+
+\paragraph*{0. 연속형 레이어($\ell=2$)의 잠재 스케일.}
+Student-$t$ 우도의 정규--감마 스케일 혼합 표현(normal--gamma scale mixture representation)에서, 관측치별 스케일 $\lambda_{ij}^{(2)}$는 다음과 같은 켤레 깁스 완전 조건부 분포를 갖는다:
+\[
+\lambda_{ij}^{(2)} \mid \cdot
+\sim
+\operatorname{Gamma}\!\left(
+\frac{\nu_2+1}{2},\
+\frac{\nu_2 + (Y_{ij}^{(2)}-\mu_{ij}^{(2)})^2/\sigma_0^2}{2}
+\right),
+\]
+여기서 $\mu_{ij}^{(2)}=\alpha_i^{(2)}-\beta_j^{(2)}-\gamma^{(2)}\|a_i-b_j^{(2)}\|$이다.
+
+\paragraph*{1. 이항 레이어($\ell=1$).}
+이항 레이어와 관련된 모수들의 사후 분포는 다음과 같이 주어진다.
+\begin{align*}
+f(\boldsymbol{\alpha}^{(1)},\boldsymbol{\beta}^{(1)},\gamma^{(1)},\mathbf{b}^{(1)}\mid\mathbf{y})
+&\propto \left[\prod_{i=1}^{N}f(\alpha_i^{(1)})\right]\times\left[\prod_{j=1}^{P^{(1)}}f(\beta_j^{(1)})\right]\times f(\gamma^{(1)})\\
+&\times \left[\prod_{j=1}^{P^{(1)}}f(b_j^{(1)})\right]\\
+&\times \left[\prod_{i=1}^{N}\prod_{j=1}^{P^{(1)}} P\!\left(Y_{i,j}=y_{i,j}\mid\alpha_i^{(1)},\beta_j^{(1)},\gamma^{(1)},a_i,b_j^{(1)}\right)\right].
+\end{align*}
+여기서 $\boldsymbol{\alpha}^{(1)},\boldsymbol{\beta}^{(1)},\mathbf{b}^{(1)}$는 첫 번째(이항) 레이어를 특징짓는 모든 모수들의 집합을 나타내며, 이러한 표기 규약은 다른 레이어들에도 동일하게 적용된다. 공유 응답자 위치 $\mathbf{a}=\{a_i\}$는 어떤 단일 레이어에도 국한되지 않으므로 위 식에서 중복되어 등장하지 않는다. $\pi_{i,j}=\exp(\eta_{i,j}^{(1)})/(1+\exp(\eta_{i,j}^{(1)}))$이고
+\[
+\eta_{i,j}^{(1)} = \alpha_i^{(1)} - \beta_j^{(1)} - \gamma^{(1)}\|a_i - b_j^{(1)}\|
+\]
+일 때, 우도는 다음과 같이 정의된다.
+\[
+P\!\left(Y_{i,j}=y_{i,j}\mid\cdot\right) = \pi_{i,j}^{y_{i,j}}\,(1-\pi_{i,j})^{1-y_{i,j}}.
+\]
+
+\begin{enumerate}
+    \item \textbf{$\alpha_i^{(1)}$ 업데이트 (MH 단계):} \\
+    $\alpha_i^{(1)*}\sim\mathcal{N}(\alpha_i^{(1)},\sigma_{\text{prop }\alpha}^2)$로 제안하고 다음 확률로 채택한다.
+    \[
+    \min\!\left(1,\ \frac{f(\alpha_i^{(1)*}\mid\mathbf{y},\boldsymbol{\alpha}_{-i}^{(1)},\boldsymbol{\beta}^{(1)},\gamma^{(1)},\mathbf{a},\mathbf{b}^{(1)})}{f(\alpha_i^{(1)}\mid\mathbf{y},\boldsymbol{\alpha}_{-i}^{(1)},\boldsymbol{\beta}^{(1)},\gamma^{(1)},\mathbf{a},\mathbf{b}^{(1)})}\right),
+    \]
+    여기서 $\boldsymbol{\alpha}_{-i}^{(1)} \stackrel{\text{def}}{=}\boldsymbol{\alpha}^{(1)}\setminus\alpha_i^{(1)}$이다.
+
+    \item \textbf{$\beta_j^{(1)}$ 업데이트 (MH 단계):} \\
+    $\beta_j^{(1)*}\sim\mathcal{N}(\beta_j^{(1)},\sigma_{\text{prop }\beta}^2)$로 제안하고 다음 확률로 채택한다.
+    \[
+    \min\!\left(1,\ \frac{f(\beta_j^{(1)*}\mid\mathbf{y},\boldsymbol{\alpha}^{(1)},\boldsymbol{\beta}_{-j}^{(1)},\gamma^{(1)},\mathbf{a},\mathbf{b}^{(1)})}{f(\beta_j^{(1)}\mid\mathbf{y},\boldsymbol{\alpha}^{(1)},\boldsymbol{\beta}_{-j}^{(1)},\gamma^{(1)},\mathbf{a},\mathbf{b}^{(1)})}\right).
+    \]
+
+    \item \textbf{$\log\gamma^{(1)}$ 업데이트 (MH 단계):} \\
+    $\log\gamma^{(1)*}\sim\mathcal{N}(\log\gamma^{(1)},\sigma_{\text{prop}}^2)$로 제안한다. $\gamma^{(\ell)}$가 비음이어야 하므로, 변수 변환에 따른 야코비안과 $\log\gamma^{(1)}$에 대한 제안 분포의 대칭성에 의해 채택률은 다음과 같이 단순화된다.
+    \[
+    \min\!\left(1,\ \frac{f(\gamma^{(1)*}\mid\mathbf{y},\boldsymbol{\alpha}^{(1)},\boldsymbol{\beta}^{(1)},\mathbf{a},\mathbf{b}^{(1)})\,\gamma^{(1)}}{f(\gamma^{(1)}\mid\mathbf{y},\boldsymbol{\alpha}^{(1)},\boldsymbol{\beta}^{(1)},\mathbf{a},\mathbf{b}^{(1)})\,\gamma^{(1)*}}\right).
+    \]
+
+    \item \textbf{$b_j^{(1)}$ 업데이트 (MH 단계):} \\
+    $b_j^{(1)*}\sim MVN_d(b_j^{(1)},\sigma_{\text{prop }b}^2 I_d)$로 제안하고 다음 확률로 채택한다.
+    \[
+    \min\!\left(1,\ \frac{f(b_j^{(1)*}\mid\mathbf{y},\boldsymbol{\alpha}^{(1)},\boldsymbol{\beta}^{(1)},\gamma^{(1)},\mathbf{a},\mathbf{b}_{-j}^{(1)})}{f(b_j^{(1)}\mid\mathbf{y},\boldsymbol{\alpha}^{(1)},\boldsymbol{\beta}^{(1)},\gamma^{(1)},\mathbf{a},\mathbf{b}_{-j}^{(1)})}\right).
+    \]
+
+    \item \textbf{분산 업데이트 (Gibbs 단계):} \\
+    \begin{enumerate}
+        \item $\sigma_\alpha^{2,(1)}\sim IG\!\left(a_\sigma+\dfrac{N}{2},\ b_\sigma+\dfrac{1}{2}\sum_{i=1}^{N}(\alpha_i^{(1)})^2\right)$.
+        \item $\tau_\beta^{2,(1)}\equiv 1$ (고정; 깁스 업데이트 없음).
+    \end{enumerate}
+\end{enumerate}
+
+\paragraph*{2. 연속형 레이어($\ell=2$).}
+연속형 레이어와 관련된 모수들의 사후 분포는 다음과 같다.
+\begin{align*}
+f(\boldsymbol{\alpha}^{(2)},\boldsymbol{\beta}^{(2)},\gamma^{(2)},\mathbf{b}^{(2)},\sigma_0^2,\boldsymbol{\lambda}^{(2)}\mid\mathbf{y})
+&\propto \left[\prod_{i=1}^{N}f(\alpha_i^{(2)})\right]\times\left[\prod_{j=1}^{P^{(2)}}f(\beta_j^{(2)})\right]\times f(\gamma^{(2)})\\
+&\times \left[\prod_{j=1}^{P^{(2)}}f(b_j^{(2)})\right]\times f(\sigma_0^2)\times \left[\prod_{i,j}f(\lambda_{ij}^{(2)}\mid\nu_2)\right]\\
+&\times \left[\prod_{i=1}^{N}\prod_{j=1}^{P^{(2)}} P\!\left(Y_{i,j}^{(2)}=y_{i,j}\mid\alpha_i^{(2)},\beta_j^{(2)},\gamma^{(2)},a_i,b_j^{(2)},\sigma_0^2,\lambda_{ij}^{(2)}\right)\right].
+\end{align*}
+$\mu_{i,j}^{(2)}=\alpha_i^{(2)}-\beta_j^{(2)}-\gamma^{(2)}\|a_i-b_j^{(2)}\|$일 때, $\lambda_{ij}^{(2)}$가 주어진 조건부 우도는 다음과 같다.
+\[
+P\!\left(Y_{i,j}^{(2)}=y_{i,j}\mid\cdot,\lambda_{ij}^{(2)}\right)
+=\frac{1}{\sqrt{2\pi\sigma_0^2/\lambda_{ij}^{(2)}}}
+\exp\!\left(-\frac{\lambda_{ij}^{(2)}}{2\sigma_0^2}(y_{i,j}-\mu_{i,j}^{(2)})^2\right).
+\]
+
+\begin{enumerate}
+    \item \textbf{$\alpha_i^{(2)},\beta_j^{(2)},\log\gamma^{(2)},b_j^{(2)}$ 업데이트 (MH 단계):} \\
+    이들은 이항 레이어와 동일한 방식으로 업데이트되지만, $\lambda_{ij}^{(2)}$로 가중된 (조건부) 정규 우도를 사용한다.
+    \[
+    L(\mathbb{Y}^{(2)}\mid\cdot)\propto (\sigma_0^2)^{-NP_2/2}\prod_{i,j}(\lambda_{ij}^{(2)})^{1/2}\exp\!\left(-\frac{1}{2\sigma_0^2}\sum_{i,j}\lambda_{ij}^{(2)}(Y_{i,j}^{(2)}-\mu_{i,j}^{(2)})^2\right).
+    \]
+
+    \item \textbf{$\sigma_0^2$ 업데이트 (Gibbs 단계):} \\
+    다음 완전 조건부 분포로부터 표본을 추출한다.
+    \[
+    \sigma_0^2\mid\cdot \sim IG\!\left(a_{\sigma_0}+\frac{N\,P_2}{2},\ b_{\sigma_0}+\frac{1}{2}\sum_{i,j}\lambda_{ij}^{(2)}(Y_{i,j}^{(2)}-\mu_{i,j}^{(2)})^2\right).
+    \]
+    원래의 가우시안 레이어 2 업데이트와 비교하면, 잔차 제곱합이 $\lambda_{ij}^{(2)}$로 가중된 형태로 대체된 것이 유일한 변경점이다.
+
+    \item \textbf{$\sigma_\alpha^{2,(2)}$ 업데이트 (Gibbs 단계):} \\
+    $\sigma_\alpha^{2,(2)}\sim IG\!\left(a_\sigma+\dfrac{N}{2},\ b_\sigma+\dfrac{1}{2}\sum_i (\alpha_i^{(2)})^2\right)$;\ \ $\tau_\beta^{2,(2)}\equiv 1$ (고정).
+\end{enumerate}
+
+\paragraph*{3. 카운트 레이어($\ell=3$, 음이항).}
+사후 분포는 다음과 같이 주어진다.
+\begin{align*}
+f(\boldsymbol{\alpha}^{(3)},\boldsymbol{\beta}^{(3)},\gamma^{(3)},\mathbf{b}^{(3)},\boldsymbol{\kappa}\mid\mathbf{y})
+&\propto \left[\prod_{i=1}^{N}f(\alpha_i^{(3)})\right]\times\left[\prod_{j=1}^{P^{(3)}}f(\beta_j^{(3)})\right]\times f(\gamma^{(3)})\\
+&\times \left[\prod_{j=1}^{P^{(3)}}f(b_j^{(3)})\right]\times \left[\prod_{j=1}^{P^{(3)}}f(\kappa_j)\right]\\
+&\times \left[\prod_{i=1}^{N}\prod_{j=1}^{P^{(3)}} P\!\left(Y_{i,j}^{(3)}=y_{i,j}\mid\alpha_i^{(3)},\beta_j^{(3)},\gamma^{(3)},a_i,b_j^{(3)},\kappa_j\right)\right].
+\end{align*}
+여기서 $\boldsymbol{\kappa}=(\kappa_1,\ldots,\kappa_{P^{(3)}})$는 문항별 산포 모수의 집합이다. $r_j=1/\kappa_j$로 놓고
+\[
+\mu_{i,j}^{(3)} = \exp\!\left(\alpha_i^{(3)}-\beta_j^{(3)}-\gamma^{(3)}\|a_i-b_j^{(3)}\|\right)
+\]
+라 하자. 그러면 음이항 우도는 다음과 같다.
+\[
+P\!\left(Y_{i,j}^{(3)}=y\mid\cdot\right)
+=\binom{y+r_j-1}{y}\left(\frac{r_j}{r_j+\mu_{i,j}^{(3)}}\right)^{r_j}\left(\frac{\mu_{i,j}^{(3)}}{r_j+\mu_{i,j}^{(3)}}\right)^{y}.
+\]
+
+\begin{enumerate}
+    \item \textbf{$\alpha_i^{(3)},\beta_j^{(3)},\log\gamma^{(3)},b_j^{(3)}$ 업데이트 (MH 단계):} \\
+    이들은 베르누이 우도를 위의 음이항 우도로 대체한 것을 제외하면 이항 레이어와 동일한 방식으로 업데이트된다.
+
+    \item \textbf{$\log\kappa_j$ 업데이트 (문항별 MH 단계):} \\
+    각 카운트 문항 $j=1,\ldots,P^{(3)}$에 대해 독립적으로 수행한다. $\log\kappa_j^*\sim\mathcal{N}(\log\kappa_j,\sigma_{\text{prop }\log\kappa}^2)$로 제안하고 $\kappa_j^*=\exp(\log\kappa_j^*),\ r_j^*=1/\kappa_j^*$로 설정한다. $\log\gamma^{(\ell)}$에 사용된 것과 동일한 변수 변환 논리에 의해, 채택 확률은 다음과 같다.
+    \[
+    \min\!\left(1,\ \frac{f(\kappa_j^*\mid\mathbf{y}_j^{(3)},\boldsymbol{\alpha}^{(3)},\beta_j^{(3)},\gamma^{(3)},\mathbf{a},b_j^{(3)})\,\kappa_j}{f(\kappa_j\mid\mathbf{y}_j^{(3)},\boldsymbol{\alpha}^{(3)},\beta_j^{(3)},\gamma^{(3)},\mathbf{a},b_j^{(3)})\,\kappa_j^*}\right),
+    \]
+    여기서 $\mathbf{y}_j^{(3)}$는 카운트 레이어의 $j$번째 문항에 대한 응답 벡터이다. 우도 인수는 해당 문항(열 $j$)에만 의존하므로 각 $\kappa_j$의 갱신은 다른 문항과 독립적으로 이루어진다.
+
+    \item \textbf{$\sigma_\alpha^{2,(3)}$ 업데이트 (Gibbs):} \\
+    $\sigma_\alpha^{2,(3)}\sim IG\!\left(a_\sigma+\dfrac{N}{2},\ b_\sigma+\dfrac{1}{2}\sum_i(\alpha_i^{(3)})^2\right)$;\ \ $\tau_\beta^{2,(3)}\equiv 1$ (고정).
+\end{enumerate}
+
+\paragraph*{4. 순서형 레이어 1 ($\ell=4$) --- threshold 업데이트.}
+
+GRM 역치 $\beta_{j,c}^{(4)}$는 문항 $j$ 내에서 \textbf{개별 성분별(component-wise) MH}로 업데이트한다. 각 $j=1,\dots,P^{(4)}$, $c=1,\dots,K_1-1$에 대해:
+\begin{enumerate}
+    \item $\beta_{j,c}^{(4)*} \sim \mathcal{N}(\beta_{j,c}^{(4)},\, \sigma_{\text{prop}\,\beta_4}^2)$로 제안한다.
+
+    \item \textbf{순서 제약 확인}: 내림차순 제약
+    \[
+    \beta_{j,c-1}^{(4)} > \beta_{j,c}^{(4)*} > \beta_{j,c+1}^{(4)}
+    \]
+    을 위반하면 제안을 즉시 기각하고 다음 성분으로 넘어간다.
+
+    \item 제약을 만족하면, 나머지 성분은 현재 값으로 고정한 채 제안된 역치 벡터 $\boldsymbol{\beta}_j^{(4)*}$를 구성한 뒤, 다음 채택 확률로 accept/reject 한다:
+    \[
+    \min\!\left(1,\ \frac{\prod_{i=1}^N P(Y_{ij}^{(4)}\mid \boldsymbol{\beta}_j^{(4)*},\cdot)}{\prod_{i=1}^N P(Y_{ij}^{(4)}\mid \boldsymbol{\beta}_j^{(4)},\cdot)}
+    \cdot \frac{p(\beta_{j,c}^{(4)*})}{p(\beta_{j,c}^{(4)})}\right),
+    \]
+    여기서 $p(\beta_{j,c}^{(4)}) = \mathcal{N}(\beta_{j,c}^{(4)} \mid \mu_{\beta_4},\, \sigma_{\beta_4}^2)$이다.
+\end{enumerate}
+
+\paragraph*{5. 글로벌 구조 (공유 응답자 위치 $a_i$).}
+각 응답자는 다섯 레이어 모두에 동시에 사용되는 단일한 공유 잠재 위치 $a_i\in\mathbb{R}^d$를 가지며, 사전 분포는 $a_i\overset{\text{iid}}{\sim}MVN_d(0_d,I_d)$이다. 
+
+\begin{enumerate}
+    \item \textbf{$a_i$ 업데이트 (MH 단계):} \\
+    $a_i^*\sim MVN_d(a_i,\sigma_{\text{prop }a}^2 I_d)$로 제안한다. $a_i$가 모든 레이어에 등장하므로, 채택률은 다섯 레이어 모두로부터의 우도 기여를 합산하여 다음과 같이 주어진다.
+    \[
+    \min\!\left(1,\ \frac{p(a_i^*)\,\prod_{\ell=1}^{5}\prod_{j=1}^{P^{(\ell)}} P\!\left(Y_{i,j}^{(\ell)}\mid a_i^*,\cdot\right)}{p(a_i)\,\prod_{\ell=1}^{5}\prod_{j=1}^{P^{(\ell)}} P\!\left(Y_{i,j}^{(\ell)}\mid a_i,\cdot\right)}\right),
+    \]
+    여기서 $p(a_i)\propto\exp(-\|a_i\|^2/2)$이다. 레이어 2의 경우, 관측치별 우도 인수는 단계 0의 $\lambda_{ij}^{(2)}$가 주어진 조건부 정규 밀도이다.
+\end{enumerate}
+
+
+
+\subsection{Appendix B: Variable descriptions}
+본 분석에 사용된 68개 문항 각각의 변수명, 변수 설명, 자료형을 표~\ref{tab:midus-items}에 정리하였다. 변수명은 MIDUS wave~2 표기를 따르며, Refresher~1 코호트는 동일 문항에 대해 \texttt{RA} 접두사를 사용한다.
+
+\begin{footnotesize}
+\begin{longtable}{@{}p{0.30\textwidth} p{0.50\textwidth} l@{}}
+\caption{MIDUS 실데이터 분석에 사용된 68개 문항. 변수명은 MIDUS wave~2 기준이며, Refresher~1 코호트는 동일 문항에 대해 \texttt{RA} 접두사를 사용합니다($\dagger$: 역코딩 문항).}
+\label{tab:midus-items}\\
+\toprule
+\textbf{변수명} & \textbf{변수 설명} & \textbf{자료형} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{@{}l}{\footnotesize (표~\ref{tab:midus-items} 계속)}\\
+\toprule
+\textbf{변수명} & \textbf{변수 설명} & \textbf{자료형} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r@{}}{\footnotesize 다음 페이지에 계속}\\
+\endfoot
+\bottomrule
+\endlastfoot
+\multicolumn{3}{@{}l}{\textit{레이어 1 --- 이진형: CES-D 우울 척도 (20문항)}}\\
+\midrule
+\texttt{B4Q3A} & Bothered by things that usually don't bother me & Binary \\
+\texttt{B4Q3B} & Did not feel like eating; appetite was poor & Binary \\
+\texttt{B4Q3C} & Could not shake off the blues even with help from family/friends & Binary \\
+\texttt{B4Q3D}$^{\dagger}$ & Felt just as good as other people & Binary \\
+\texttt{B4Q3E} & Had trouble keeping my mind on what I was doing & Binary \\
+\texttt{B4Q3F} & Felt depressed & Binary \\
+\texttt{B4Q3G} & Felt that everything I did was an effort & Binary \\
+\texttt{B4Q3H}$^{\dagger}$ & Felt hopeful about the future & Binary \\
+\texttt{B4Q3I} & Thought my life had been a failure & Binary \\
+\texttt{B4Q3J} & Felt fearful & Binary \\
+\texttt{B4Q3K} & Sleep was restless & Binary \\
+\texttt{B4Q3L}$^{\dagger}$ & Was happy & Binary \\
+\texttt{B4Q3M} & Talked less than usual & Binary \\
+\texttt{B4Q3N} & Felt lonely & Binary \\
+\texttt{B4Q3O} & People were unfriendly & Binary \\
+\texttt{B4Q3P}$^{\dagger}$ & Enjoyed life & Binary \\
+\texttt{B4Q3Q} & Had crying spells & Binary \\
+\texttt{B4Q3R} & Felt sad & Binary \\
+\texttt{B4Q3S} & Felt that people dislike me & Binary \\
+\texttt{B4Q3T} & Could not get going & Binary \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{레이어 2 --- 연속형: 생체지표 (5문항)}}\\
+\midrule
+\texttt{B4BSCL14} & Saliva cortisol, all-sample average (HPA 축) & Continuous \\
+\texttt{B4BNE12} & Urine norepinephrine, 12-hour (자율신경 각성) & Continuous \\
+\texttt{B4BIL6} & Blood serum interleukin-6, IL-6 (pg/mL; 염증) & Continuous \\
+\texttt{B4BFGN} & Blood fibrinogen (mg/dL; 염증) & Continuous \\
+\texttt{B4BCRP} & C-reactive protein, CRP ($\mu$g/mL; 염증) & Continuous \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{레이어 3 --- 카운트형: 인지 검사 오류/누락 수 (15문항)}}\\
+\midrule
+\texttt{wl\_immediate\_omit} & Word-list 즉시회상 누락 수 ($15-$고유회상수) & Count \\
+\texttt{wl\_immediate\_repetition} & Word-list 즉시회상 반복 수 & Count \\
+\texttt{wl\_immediate\_intrusion} & Word-list 즉시회상 침입오류(intrusion) 수 & Count \\
+\texttt{wl\_delayed\_omit} & Word-list 지연회상 누락 수 ($15-$고유회상수) & Count \\
+\texttt{wl\_delayed\_repetition} & Word-list 지연회상 반복 수 & Count \\
+\texttt{wl\_delayed\_intrusion} & Word-list 지연회상 침입오류 수 & Count \\
+\texttt{catflu\_repetition} & 범주유창성(category fluency) 반복 수 & Count \\
+\texttt{catflu\_intrusion} & 범주유창성 침입오류 수 & Count \\
+\texttt{numseries\_incorrect} & Number Series 오답 수 ($5-$정답수) & Count \\
+\texttt{backcount\_error} & Backward Counting 오류 수 & Count \\
+\texttt{sgst\_normal\_incorrect} & SGST normal single-task 오답 수 ($20-$정답수) & Count \\
+\texttt{sgst\_reverse\_incorrect} & SGST reverse single-task 오답 수 ($20-$정답수) & Count \\
+\texttt{sgst\_mixed\_nonswitch\_incorrect} & SGST mixed-task 비전환 오답 수 ($23-$정답수) & Count \\
+\texttt{sgst\_mixed\_switch\_incorrect} & SGST mixed-task 전환 오답 수 ($6-$정답수) & Count \\
+\texttt{sgst\_mixed\_all\_incorrect} & SGST mixed-task 전체 오답 수 ($29-$정답수) & Count \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{레이어 4 --- 순서형(5점): MASQ 불안 척도 (28문항)}}\\
+\midrule
+\multicolumn{3}{@{}l}{\quad\small General Distress--Anxious (GDA, 11문항)}\\
+\texttt{B4Q1D} & MASQ Felt afraid & Ordinal (5) \\
+\texttt{B4Q1H} & MASQ Had diarrhea & Ordinal (5) \\
+\texttt{B4Q1K} & MASQ Felt nervous & Ordinal (5) \\
+\texttt{B4Q1N} & MASQ Felt uneasy & Ordinal (5) \\
+\texttt{B4Q1P} & MASQ Had a lump in my throat & Ordinal (5) \\
+\texttt{B4Q1T} & MASQ Had an upset stomach & Ordinal (5) \\
+\texttt{B4Q1Z} & MASQ Felt keyed up, on edge & Ordinal (5) \\
+\texttt{B4Q1FF} & MASQ Was unable to relax & Ordinal (5) \\
+\texttt{B4Q1II} & MASQ Felt nauseous & Ordinal (5) \\
+\texttt{B4Q1CCC} & MASQ Felt tense or high-strung & Ordinal (5) \\
+\texttt{B4Q1GGG} & MASQ Muscles were tense or sore & Ordinal (5) \\
+\multicolumn{3}{@{}l}{\quad\small Anxious Arousal (AA, 17문항)}\\
+\texttt{B4Q1B} & MASQ Startled easily & Ordinal (5) \\
+\texttt{B4Q1F} & MASQ Hands were shaky & Ordinal (5) \\
+\texttt{B4Q1M} & MASQ Was short of breath & Ordinal (5) \\
+\texttt{B4Q1Q} & MASQ Felt faint & Ordinal (5) \\
+\texttt{B4Q1S} & MASQ Had hot or cold spells & Ordinal (5) \\
+\texttt{B4Q1X} & MASQ Hands were cold or sweaty & Ordinal (5) \\
+\texttt{B4Q1BB} & MASQ Was trembling or shaking & Ordinal (5) \\
+\texttt{B4Q1DD} & MASQ Had trouble swallowing & Ordinal (5) \\
+\texttt{B4Q1KK} & MASQ Felt dizzy or lightheaded & Ordinal (5) \\
+\texttt{B4Q1NN} & MASQ Had pain in my chest & Ordinal (5) \\
+\texttt{B4Q1PP} & MASQ Felt like I was choking & Ordinal (5) \\
+\texttt{B4Q1RR} & MASQ Muscles twitched or trembled & Ordinal (5) \\
+\texttt{B4Q1TT} & MASQ Had a very dry mouth & Ordinal (5) \\
+\texttt{B4Q1VV} & MASQ Was afraid I was going to die & Ordinal (5) \\
+\texttt{B4Q1ZZ} & MASQ Heart was racing or pounding & Ordinal (5) \\
+\texttt{B4Q1BBB} & MASQ Felt numbness or tingling in body & Ordinal (5) \\
+\texttt{B4Q1JJJ} & MASQ Had to urinate frequently & Ordinal (5) \\
+\end{longtable}
+\end{footnotesize}
+
+\end{document}

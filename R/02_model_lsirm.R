@@ -82,7 +82,7 @@ lsirm_sharedpos_layer5_grm_cpp <- function(
       b4 = matrix(rnorm(P4*d, 0, 0.5), P4, d),
       b5 = matrix(rnorm(P5*d, 0, 0.5), P5, d),
       log_gamma1 = 0, log_gamma2 = 0, log_gamma3 = 0, log_gamma4 = 0, log_gamma5 = 0,
-      log_kappa = 0,
+      log_kappa = rep(0, P3),   # per-item kappa (count layer): length-P3 vector
       sigma_alpha1_sq = 1, sigma_alpha2_sq = 1, sigma_alpha3_sq = 1, sigma_alpha4_sq = 1, sigma_alpha5_sq = 1,
       tau_beta1_sq = 1, tau_beta2_sq = 1, tau_beta3_sq = 1, sigma0_sq = 1,
       beta4 = init_grm_beta(P4, K1),

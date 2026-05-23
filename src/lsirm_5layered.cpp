@@ -172,8 +172,9 @@ List run_lsirm_v5_cpp(
   double log_gamma3 = init["log_gamma3"];  double gamma_val3 = exp(log_gamma3);
   double log_gamma4 = init["log_gamma4"];  double gamma_val4 = exp(log_gamma4);
   double log_gamma5 = init["log_gamma5"];  double gamma_val5 = exp(log_gamma5);
-  double log_kappa = init["log_kappa"];
-  double kappa = exp(log_kappa);
+  // Count layer dispersion: per-item kappa (length P3)
+  vec log_kappa = as<vec>(init["log_kappa"]);
+  vec kappa = exp(log_kappa);
 
   double sigma_alpha1_sq = init["sigma_alpha1_sq"];
   double sigma_alpha2_sq = init["sigma_alpha2_sq"];
@@ -212,7 +213,7 @@ List run_lsirm_v5_cpp(
   vec store_log_gamma3(n_save);
   vec store_log_gamma4(n_save);
   vec store_log_gamma5(n_save);
-  vec store_log_kappa(n_save);
+  mat store_log_kappa(n_save, P3);   // per-item kappa: (n_save x P3)
 
   vec store_sigma_alpha1_sq(n_save);
   vec store_sigma_alpha2_sq(n_save);
@@ -257,7 +258,7 @@ List run_lsirm_v5_cpp(
   double acc_log_gamma3 = 0;
   double acc_log_gamma4 = 0;
   double acc_log_gamma5 = 0;
-  double acc_log_kappa = 0;
+  vec acc_log_kappa = zeros<vec>(P3);   // per-item kappa acceptance
   vec acc_a = zeros<vec>(n);
   vec acc_b1 = zeros<vec>(P1);
   vec acc_b2 = zeros<vec>(P2);
@@ -335,12 +336,12 @@ List run_lsirm_v5_cpp(
     for(int i=0; i<n; ++i) {
       double a_old = alpha3(i);
       double a_prop = R::rnorm(a_old, sd_alpha3);
-      double size = 1.0/kappa;
       auto ll_f = [&](double val) {
         double ll = 0.0;
         for(int j=0; j<P3; ++j) {
           double dist = calc_dist(a.row(i), b3.row(j));
           double mu = exp(val - beta3(j) - gamma_val3 * dist);
+          double size = 1.0/kappa(j);
           double prob = size / (size + mu);
           ll += R::dnbinom(Y_cnt(i,j), size, prob, 1);
         }
@@ -447,7 +448,7 @@ List run_lsirm_v5_cpp(
 
       auto ll_func = [&](double b_val) {
         double ll = 0;
-        double size = 1.0/kappa;
+        double size = 1.0/kappa(j);
         for(int i=0; i<n; ++i) {
           double dist = calc_dist(a.row(i), b3.row(j));
           double mu = exp(alpha3(i) - b_val - gamma_val3 * dist);
@@ -522,13 +523,13 @@ List run_lsirm_v5_cpp(
         double lg_prop = R::rnorm(lg_old, sd_log_gamma3_prop);
         double g_old = exp(lg_old);
         double g_prop = exp(lg_prop);
-        double size = 1.0/kappa;
         auto ll_g3 = [&](double g) {
           double ll = 0;
           for(int i=0; i<n; ++i)
             for(int j=0; j<P3; ++j) {
               double dist = calc_dist(a.row(i), b3.row(j));
               double mu = exp(alpha3(i) - beta3(j) - g * dist);
+              double size = 1.0/kappa(j);
               double prob = size/(size+mu);
               ll += R::dnbinom(Y_cnt(i,j), size, prob, 1);
             }
@@ -600,7 +601,6 @@ List run_lsirm_v5_cpp(
 
       auto pos_ll = [&](const rowvec& pos) {
         double ll = 0;
-        double size = 1.0/kappa;
 
         // L1
         for(int j=0; j<P1; ++j) {
@@ -620,6 +620,7 @@ List run_lsirm_v5_cpp(
         for(int j=0; j<P3; ++j) {
           double dist = calc_dist(pos, b3.row(j));
           double mu = exp(alpha3(i) - beta3(j) - gamma_val3 * dist);
+          double size = 1.0/kappa(j);
           double prob = size/(size+mu);
           ll += R::dnbinom(Y_cnt(i,j), size, prob, 1);
         }
@@ -691,7 +692,7 @@ List run_lsirm_v5_cpp(
     for(int j=0; j<P3; ++j) {
       rowvec b_old = b3.row(j);
       rowvec b_prop = b_old + randn<rowvec>(d) * sd_b3;
-      double size = 1.0/kappa;
+      double size = 1.0/kappa(j);
       auto ll_f = [&](const rowvec& b_val) {
         double ll=0;
         for(int i=0; i<n; ++i){
@@ -811,35 +812,29 @@ List run_lsirm_v5_cpp(
     }
 
 
-    // --- 7. Log Kappa ---
-    {
-      double lk_old = log_kappa;
+    // --- 7. Log Kappa (per-item, count layer) ---
+    for(int j=0; j<P3; ++j) {
+      double lk_old = log_kappa(j);
       double lk_prop = R::rnorm(lk_old, sd_log_kappa_prop);
       double k_old = exp(lk_old);
       double k_prop = exp(lk_prop);
+      double size_old  = 1.0/k_old;
+      double size_prop = 1.0/k_prop;
 
-      auto kap_ll = [&](double k_val) {
-        double ll = 0;
-        double size = 1.0/k_val;
-        for(int i=0; i<n; ++i) {
-          for(int j=0; j<P3; ++j) {
-            double dist = calc_dist(a.row(i), b3.row(j));
-            double mu = exp(alpha3(i) - beta3(j) - gamma_val3 * dist);
-            ll += R::dnbinom(Y_cnt(i,j), size, size/(size+mu), 1);
-          }
-        }
-        return ll;
-      };
-
-      double ll_c = kap_ll(k_old);
-      double ll_p = kap_ll(k_prop);
-      double lp_c = R::dnorm(lk_old, mu_log_kappa, sd_log_kappa, 1);
+      double ll_c = 0.0, ll_p = 0.0;
+      for(int i=0; i<n; ++i) {
+        double dist = calc_dist(a.row(i), b3.row(j));
+        double mu = exp(alpha3(i) - beta3(j) - gamma_val3 * dist);
+        ll_c += R::dnbinom(Y_cnt(i,j), size_old,  size_old  / (size_old  + mu), 1);
+        ll_p += R::dnbinom(Y_cnt(i,j), size_prop, size_prop / (size_prop + mu), 1);
+      }
+      double lp_c = R::dnorm(lk_old,  mu_log_kappa, sd_log_kappa, 1);
       double lp_p = R::dnorm(lk_prop, mu_log_kappa, sd_log_kappa, 1);
 
       if(log(R::runif(0,1)) < (ll_p + lp_p - ll_c - lp_c)) {
-        log_kappa = lk_prop;
-        kappa = k_prop;
-        acc_log_kappa++;
+        log_kappa(j) = lk_prop;
+        kappa(j)     = k_prop;
+        acc_log_kappa(j)++;
       }
     }
 
@@ -882,7 +877,7 @@ List run_lsirm_v5_cpp(
       store_log_gamma3(save_idx) = log_gamma3;
       store_log_gamma4(save_idx) = log_gamma4;
       store_log_gamma5(save_idx) = log_gamma5;
-      store_log_kappa(save_idx) = log_kappa;
+      if (P3 > 0) store_log_kappa.row(save_idx) = log_kappa.t();
 
       store_sigma_alpha1_sq(save_idx) = sigma_alpha1_sq;
       store_sigma_alpha2_sq(save_idx) = sigma_alpha2_sq;
