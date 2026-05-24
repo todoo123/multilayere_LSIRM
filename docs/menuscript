@@ -258,7 +258,7 @@ Dichotomization criteria & \texttt{mean}\ : column mean
 아래는 coverage 결과입니다.
 \begin{table}[H]
 \centering
-\caption{Element-wise 95\% 신뢰구간 커버리지(\%)와 평균 폭(mean width) --- 100회 반복 평균. 각 셀은 \textbf{커버리지\,(폭)} 형식으로 표기.}
+\caption{Element-wise 95\% 신뢰구간 커버리지(\%)와 평균 폭(mean width)}
 \label{tab:cov-pct}\label{tab:cov-width}
 {\footnotesize
 \setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.2}
@@ -311,10 +311,127 @@ Multilayered LSIRM 방법론의 실증 적용을 위하여 MIDUS(Midlife in the 
 
 선별된 응답자에 대해서는 문항을 데이터 타입별로 네 개의 레이어로 구성하였습니다. 레이어 1(이진형)은 CES-D 우울 척도 20문항(\texttt{B4Q3A--B4Q3T})으로, 원자료의 4점 빈도 척도를 이진화하였으며(범주 $0,1,2 \to 0$; 범주 $3 \to 1$) 긍정 정서를 측정하는 4문항(\texttt{B4Q3D, B4Q3H, B4Q3L, B4Q3P})은 역코딩 후 이진화하였습니다. 레이어 2(연속형)는 HPA 축 $\cdot$ 자율신경 $\cdot$ 염증 관련 생체지표 5개로, 추정 전 표준화하여 사용하였습니다. 레이어 3(카운트형)은 인지 검사의 오류 $\cdot$ 누락 수로 재구성한 15개 변수로, 값이 클수록 인지기능 저하를 의미합니다(예: 누락 수 $=$ 최대점수 $-$ 정답수). 끝으로 레이어 4(순서형, 5점)는 MASQ 불안 척도 28문항으로, General Distress--Anxious(GDA) 11문항과 Anxious Arousal(AA) 17문항으로 구성됩니다.
 
-결측은 목록별 제거(listwise deletion)로 처리하였으며, 결합 $\cdot$ 결측 처리 후 최종 분석 표본은 응답자 $N=221$명, 문항 $P=68$개(4개 레이어)입니다. 사용한 68개 문항 각각의 변수명, 변수 설명, 자료형 등 개별 변수에 대한 자세한 설명은 부록~B(Appendix~B: Variable descriptions, 표~\ref{tab:midus-items})에 첨부하였습니다.
+결측값은 제거하였으며, 결합 $\cdot$ 결측 처리 후 최종 분석 표본은 응답자 $N=221$명, 문항 $P=68$개(4개 레이어)입니다. 사용한 68개 문항 각각의 변수명, 변수 설명, 자료형 등 개별 변수에 대한 자세한 설명은 부록~B(Appendix~B: Variable descriptions, 표~\ref{tab:midus-items})에 첨부하였습니다.
 
 
 \section{분석 결과}
+본 절의 군집화는 문항(item) 수준 결과 --- 공유 잠재공간에서 어떤 문항들이 함께 위치하는가 --- 이며, 응답자 단위의 표현형 분류가 아니므로 따라서 우울 표현형 문헌과의 비교는 구조적$\cdot$개념적 정합성 차원에서 수행하였습니다. 그러나 multilayered LSIRM에서 개별 문항들의 위치는 고정된 응답자와의 상대적 위치관계에 의해서 정의되므로 개별 문항의 거리관계를 응답 패턴의 유사성으로 해석할 수 있습니다.
+
+\subsection{모형 적합 및 수렴}
+잠재차원 $d=2$, MCMC 는 100{,}000 iteration(burnin 20{,}000, thinning 10)으로 8{,}000개의 사후표본을 확보하였습니다. 모든 활성 모수 블록의 채택률은 0.15--0.72 범위로 수렴하였습니다. 카운트 레이어의 문항별 산포 $\kappa_j$ 는 사전분포로 1 근방에 강하게 정규화($\log\kappa_j \sim \mathcal{N}(0,\,0.01^2)$)하였으며, 그 결과 $\hat{\kappa}_j$ 가 모든 문항에서 0.99--1.00(문항 간 표준편차 0.003), 채택률 약 0.50 으로 추정되었습니다 --- 즉 카운트 레이어를 사실상 공통의 고정 산포 음이항으로 취급하였습니다. 이는 $\kappa$ 의 prior distribution 을 지나치게 느슨하게 설정할 경우, $\kappa$ 의 posterior 분포가 지나치게 커져 카운트 데이터의 분산을 $\kappa$ 만으로 설명하게 되는 상황을 방지하기 위함입니다.
+
+레이어별 거리항 가중치 $\gamma$ 의 사후평균은 순서형 1.31, 카운트 0.54, 이진 0.48, 연속 0.20 으로, 공유 잠재공간의 기하구조가 주로 기분(MASQ 순서형)과 인지(카운트) 응답에 의해 형성되고 염증 생체지표(연속형)는 잠재기하에 상대적으로 약하게 결합됨을 시사합니다. 클러스터링의 경우 적합된 문항별 잠재위치 사후분포 간 Bhattacharyya(BC) 거리에 NJW 스펙트럴 군집화를 $K=2$--$5$ 에 대해 적용하고 silhouette 으로 평가하였습니다.
+
+\subsection{군집 수 결정}
+평균 silhouette 은 $K=5$ 에서 0.423 으로 가장 높았고, $K=4$(0.404), $K=2$(0.360), $K=3$(0.332) 순이었습니다(표~\ref{tab:rda-sil}). silhouette 이 $K$ 증가에 따라 완만히 상승하여 단일한 압도적 분할은 드러나지 않으나, $K=4$--$5$ 가 평균 분리도가 가장 높습니다. 군집 해가 $K$ 증가에 따라 계층적으로 nested 되는 정도는 아래 nesting 진단(표~\ref{tab:rda-nest})에서 정량화하였으며, 최종 해석은 견고성과 해상도의 균형을 고려하여 $K=4$ 에서 수행하되($K=5$ 는 silhouette 이 미세하게 높고 $K=4$ 를 깔끔히 정련합니다) 하위경계의 불확실성을 함께 명시합니다.
+
+\begin{table}[H]
+\centering
+\caption{BC 스펙트럴 군집화의 군집 수별 평균 silhouette 과 분리도 진단}
+\label{tab:rda-sil}
+\begin{tabular}{cccc}
+\toprule
+$K$ & 평균 silhouette & 음(-) silhouette 문항 수 & 누적 고유값비 \\
+\midrule
+2 & 0.360 & 1 & 0.671 \\
+3 & 0.332 & 3 & 0.808 \\
+4 & 0.404 & 3 & 0.894 \\
+5 & 0.423 & 2 & 0.963 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{nesting 진단.} 군집 해가 계층적으로 nested 되는지를 정량화하기 위해, 인접한 두 군집 수 $(K_{\text{coarse}}, K_{\text{fine}})$ 의 교차표(contingency table)로부터 \textbf{refinement index}
+\[
+\text{refinement} \;=\; \frac{1}{P}\sum_{c=1}^{K_{\text{fine}}} \max_{r}\, n_{rc}
+\]
+를 계산하였습니다. 여기서 $n_{rc}$ 는 coarse 군집 $r$ 과 fine 군집 $c$ 에 동시에 속하는 문항 수이고, $P=68$ 은 전체 문항 수입니다. 각 fine 군집이 단 하나의 coarse 군집에 완전히 포함되면(완전 nesting) 모든 열에서 $\max_r n_{rc} = \sum_r n_{rc}$ 가 되어 refinement $=1.0$ 이 되며, fine 군집이 여러 coarse 군집으로 쪼개질수록(leakage) 값이 작아집니다. ``완전 nested fine 군집 수''는 단 하나의 coarse 군집에서만 문항을 받는 fine 군집의 개수입니다.
+
+표~\ref{tab:rda-nest} 에서 모든 인접 $K$ 쌍의 refinement 가 0.84--0.91 로 높게 나타나, 군집 구조가 $K$ 증가에 따라 기존 분할을 대체로 보존하며 세분화(nested refinement)됨을 확인할 수 있습니다. 특히 $K{=}2\!\to\!4$ 와 $K{=}4\!\to\!5$ 가 0.91 로 가장 깔끔하며($K{=}5$ 에서 fine 군집 5개 중 3개가 완전 nested), 이는 $K{=}2$ 의 거시 2분할이 $K{=}4,5$ 로 갈수록 해석 가능한 하위군집으로 분화함을 의미합니다. 군집 할당의 $K$ 별 비교는 그림~\ref{fig:bc-grid} 에서 시각적으로 확인할 수 있습니다.
+
+\begin{table}[H]
+\centering
+\caption{인접 군집 수 쌍의 nesting 진단: refinement index 와 완전 nested fine 군집 수($P=68$). 1.0 에 가까울수록 fine 분할이 coarse 분할을 깨지 않고 정련함을 뜻합니다.}
+\label{tab:rda-nest}
+\begin{tabular}{ccc}
+\toprule
+$K_{\text{coarse}} \rightarrow K_{\text{fine}}$ & refinement index & 완전 nested fine 군집 수 \\
+\midrule
+$2 \rightarrow 3$ & 0.88 & 1 / 3 \\
+$2 \rightarrow 4$ & \textbf{0.91} & 2 / 4 \\
+$2 \rightarrow 5$ & 0.90 & 2 / 5 \\
+$3 \rightarrow 4$ & 0.87 & 2 / 4 \\
+$3 \rightarrow 5$ & 0.84 & 2 / 5 \\
+$4 \rightarrow 5$ & \textbf{0.91} & 3 / 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{문항 군집 구성과 해석 ($K=4$)}
+$K=4$ 의 네 군집은 데이터 타입을 가로지르는 해석 가능한 구조를 형성합니다(표~\ref{tab:rda-k4}).
+
+\begin{table}[H]
+\centering
+\small
+\caption{$K=4$ 문항 군집 구성과 해석 (sil: 군집 내 평균 silhouette; Bin/Con/Cnt/Ord 는 각 데이터 타입 문항 수)}
+\label{tab:rda-k4}
+\begin{tabular}{c c c l p{0.40\textwidth}}
+\toprule
+군집 & $n$ & sil & 레이어 구성 & 해석 \\
+\midrule
+C3 & 19 & \textbf{0.48} & Bin 11 + Ord 6 + Cnt 2 & 핵심 정동(우울+일반적 고통): CES-D 우울 이진 + MASQ 일반고통(GDA) 순서형. 생체지표 0개, 가장 조밀$\cdot$분리 \\
+C4 & 24 & 0.44 & Ord 15 + Con 2 + Bin 4 + Cnt 3 & 불안 각성 + 염증: MASQ Anxious-Arousal 순서형 + 노르에피네프린$\cdot$CRP + 일부 인지 \\
+C1 & 10 & 0.35 & Cnt 4 + Con 2 + Ord 3 + Bin 1 & 실행$\cdot$전환 인지 + 염증: SGST 전환과제 오류 + IL-6$\cdot$피브리노겐 \\
+C2 & 15 & 0.28 & Cnt 6 + Ord 4 + Bin 4 + Con 1 & 언어$\cdot$일화기억: 단어목록 회상$\cdot$범주유창성 오류 + 코르티솔. 경계가 가장 무름 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+가장 두드러진 구조적 발견은 다음과 같습니다. 첫째, \textbf{핵심 정동 증상(C3)이 데이터 타입을 가로질러 가장 깨끗한 군집}(silhouette 0.48)을 형성하며, 이 군집에는 생체지표가 전혀 포함되지 않습니다. 둘째, \textbf{기분이 우울/일반고통(C3)과 불안각성(C4)으로 분화}하고 \textbf{염증 생체지표 5개가 핵심 정동이 아니라 인지$\cdot$각성 축과 동일 군집에 위치}합니다 --- 구체적으로 노르에피네프린$\cdot$CRP 는 불안각성(C4)과, IL-6$\cdot$피브리노겐은 실행$\cdot$전환 인지(C1)와 같은 군집에 놓입니다(자율신경 각성과 카테콜아민의 동반은 생리적으로도 정합적입니다). 셋째, \textbf{인지 영역이 실행$\cdot$전환(C1)과 언어$\cdot$일화기억(C2)의 하위영역으로 분화}됩니다. 이는 모든 응답을 이진화하는 단일 타입 모델로는 포착할 수 없는, 데이터 타입을 가로지르는 잠재구조입니다.
+
+\subsection{군집 구조 시각화}
+$K=4$ 군집 해의 구조를 그림~\ref{fig:bc-biplot}--\ref{fig:bc-heatmap} 에 시각화하였습니다. 그림~\ref{fig:bc-biplot} 은 공유 잠재공간에 임베딩된 문항별 잠재위치(biplot)로 네 군집이 서로 구분되는 영역을 점유함을 보여주며, 그림~\ref{fig:bc-heatmap} 은 문항 간 BC 유사도 행렬을 군집 순서로 정렬한 히트맵으로 대각 블록(군집 내부의 높은 유사도)이 뚜렷하게 드러납니다. 또한 그림~\ref{fig:bc-grid} 는 $K=2$--$5$ 의 군집 할당을 나란히 배치한 것으로, $K$ 가 커질수록 상위 군집이 보존되며 세분화되는 nested 구조를 시각적으로 확인할 수 있습니다.
+
+% 이미지 출처: results/v5/case1_all_con_inflammation_cnt_cognition_ord_all/ (파일명 그대로)
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{v5_case1_all_con_inflammation_cnt_cognition_ord_all_KK4_bc_cluster_biplot.pdf}
+\caption{공유 잠재공간 상 문항 위치 ($K=4$ 군집 색상).}
+\label{fig:bc-biplot}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{v5_case1_all_con_inflammation_cnt_cognition_ord_all_KK4_bc_heatmap.pdf}
+\caption{문항 간 BC 유사도 히트맵 ($K=4$ 군집 순 정렬).}
+\label{fig:bc-heatmap}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{v5_case1_all_con_inflammation_cnt_cognition_ord_all_bc_clusters_grid.pdf}
+\caption{$K=2$--$5$ 군집 할당 비교. $K$ 증가에 따라 상위 군집이 보존되며 세분화되는 nested refinement 를 보여줍니다.}
+\label{fig:bc-grid}
+\end{figure}
+
+\subsection{우울--염증--인지 문헌과의 정합성}
+\textbf{(1) 핵심 기분 증상과 염증의 분리.} 우울과 염증의 관계는 우울 증상 전반이 아니라 피로$\cdot$수면$\cdot$식욕 변화 등 신체적/신경식물성(somatic/neurovegetative) 증상에 선택적으로 나타난다는 것이 대규모 코호트(UK Biobank$\cdot$NESDA)에서 반복 확인되었습니다 \citep{Milaneschi2021}. 본 분석에서 핵심 정동 증상이 생체지표와 분리되어 별도 군집(C3)을 이룬 결과는 이 증상-특이성(symptom-specificity) 관점과 일치합니다.
+
+\textbf{(2) CRP--불안$\cdot$스트레스의 연관 (C4).} CRP 와 노르에피네프린이 핵심 우울이 아니라 불안각성 증상(C4)과 묶인 점은, CRP 가 불안$\cdot$스트레스 축과 연관된다는 보고와 부합합니다. 일반화불안장애(GAD) 메타분석은 GAD 환자에서 CRP 가 대조군보다 유의하게 높고 그 효과크기가 PTSD$\cdot$주요우울보다 오히려 큼을 보고했고 \citep{Costello2019}, UK Biobank$\cdot$NESDA 에서도 불안$\cdot$스트레스 장애가 염증과 연결되었습니다 \citep{Kennedy2021, Vogelzangs2013}. 다만 이 연관은 BMI$\cdot$우울 보정 시 상당 부분 약화되어 불안 고유의 독립 신호라기보다 우울$\cdot$대사요인과 부분적으로 공유되는 것으로 해석되며 \citep{Kennedy2021}, 이는 본 결과에서 CRP 의 군집 경계가 절대적이지 않은 점과 일관됩니다.
+
+\textbf{(3) IL-6$\cdot$피브리노겐--실행기능$\cdot$처리속도 저하와 무기력 (C1).} 전신성 염증 중 IL-6 와 피브리노겐은 특히 실행기능$\cdot$추론$\cdot$처리속도 저하와 일관되게 연관됩니다. Edinburgh Artery Study 는 피브리노겐이 비언어추론 저하를, IL-6 가 처리속도 저하를 독립적으로 예측함을 보고했고 \citep{Rafnsson2007}, 다수 코호트 메타분석은 높은 IL-6 가 전반적 인지저하 위험을 1.42배 높임을 보였습니다 \citep{Bradburn2018}. 본 모형이 IL-6$\cdot$피브리노겐을 SGST 전환$\cdot$실행 과제와 동일 군집(C1)에 배치한 결과는 이 영역-특이적(domain-specific) 염증--실행기능 연관과 부합합니다(처리속도 영역 특이성 \citep{Lin2018}, MIDUS 중년기 염증--인지$\cdot$뇌형태 \citep{Marsland2015}, 우울$\times$알로스타틱 부하의 인지저하에서 염증이 최대 조절자 \citep{Perlman2022}와 같은 방향입니다). 나아가 IL-6 는 피로$\cdot$무기력(anergia)$\cdot$정신운동지연 등 에너지 관련 증상과도 강하게 연결되며 \citep{Foley2024}, 이러한 에너지 관련 증상군은 면역-대사형 우울의 핵심 축으로 정리됩니다 \citep{Penninx2024}.
+
+\textbf{(4) 면역-대사형 우울/비전형 우울 개념과의 관계.} NESDA 잠재계층 분석은 우울을 멜랑콜리형$\cdot$비전형(atypical)으로 구분하고 비전형/에너지 관련 증상군이 염증$\cdot$대사이상과 더 강하게 연결됨을 보였으며 \citep{Lamers2010, Lamers2013}, 이는 최근 ``면역-대사형 우울(immuno-metabolic depression)'' 개념으로 정리되었습니다 \citep{Penninx2024}. 본 분석의 문항 수준 결과는 환자 하위유형을 직접 재현하지는 않으나, ``염증이 우울 증상 전반과 균질하게 결합하지 않고 특정 (각성$\cdot$인지) 축과 선택적으로 정렬된다''는 핵심 구조를 동일하게 시사합니다.
+
+종합하면, 본 모형이 비지도적으로 학습한 잠재구조(핵심 정동의 응집 / 염증--인지$\cdot$각성의 근접 / 인지 하위영역 분화)는 우울--염증--인지 문헌의 핵심 정성적 패턴과 정합적이며, multilayered LSIRM 이 이질적 데이터 타입을 단일 기하에 통합하면서도 해석 가능한 교차-타입 구조를 복원함을 보여줍니다.
+
+\subsection{한계와 해석상 유의점}
+\begin{itemize}
+  \item \textbf{문항 수준 $\leftrightarrow$ 환자 수준.} 본 군집화는 문항의 공유공간 배치를 군집화한 것으로, 우울 표현형 문헌의 응답자 하위유형과 직접 등치되지 않습니다(응답자 잠재위치 $a_i$ 기반 표현형 군집화는 향후 확장 과제입니다).
+  \item \textbf{카운트 산포의 정규화.} 문항별 $\kappa_j$ 를 1 근방에 강하게 고정하여 카운트 레이어를 공통 산포 음이항으로 취급하였습니다. 이는 안정적 추정을 위한 의도적 선택이나, 문항 간 과대산포 차이가 잠재기하에 미치는 영향은 사전분산을 완화한 민감도 분석으로 별도 확인할 필요가 있습니다.
+  \item \textbf{군집 수의 비결정성.} silhouette 이 $K$ 증가에 따라 완만히 상승하여 단일 최적 $K$ 가 강하게 드러나지 않습니다. C3$\cdot$C4 는 비교적 견고하나 C1$\cdot$C2 는 음(-) silhouette 문항을 포함하여 경계가 무르므로(특히 C2), $K=4$ 해석은 nested 정련 위에서 제시하되 불확실성을 함께 명시합니다.
+  \item \textbf{순서형 $\gamma^{(4)}$ 의 혼합.} 제안분산 축소로 수렴은 확보하였으나 $\gamma^{(4)}$ 의 ESS(약 90)는 다른 모수보다 낮아, 필요 시 적응적 제안 또는 추가 씨닝으로 보강할 수 있습니다.
+\end{itemize}
 
 \section{conclusion}
 
